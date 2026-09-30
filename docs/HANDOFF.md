@@ -1,10 +1,5 @@
 # Tunnels - Claude Code Handoff
 
-> **Note:** The spec as received ends partway through the Architecture section
-> (after the `Finding` data class). Sections after that point (e.g. phases beyond
-> Phase 0, and the "Guardrails" section referenced by the instructions) were not
-> included. Append them here when available.
-
 ## Instructions for Claude Code
 This is the full spec for Tunnels, a native Android app for my GrapheneOS Pixel 10.
 
@@ -74,4 +69,61 @@ data class Finding(
 )
 ```
 
-<!-- Spec truncated here as received. -->
+
+Stack: Kotlin, Compose, coroutines, Room + SQLCipher. Minimal, offline dependencies.
+One Gradle module per tunnel group once Phase 1 grows, so each tunnel's permissions stay visible in its own manifest.
+GitHub Actions builds a signed release APK on tag.
+
+## Tunnel catalog
+"Verify" = confirm on-device before designing around it.
+
+### Phase 1 (v1, offline)
+- **Permissions:** declared vs granted per app, incl. GrapheneOS Network/Sensors toggles and Storage/Contact Scopes. PackageManager + requestedPermissionsFlags, QUERY_ALL_PACKAGES. Verify toggle states are readable. Action: open app details, revoke.
+- **APK excavation:** embedded tracker SDKs, signing certs, install source, target SDK, native libs, diffs per update. Read sourceDir/splitSourceDirs, scan dex class prefixes against a bundled signature list; GET_SIGNING_CERTIFICATES, getInstallSourceInfo. Action: revoke Network, uninstall, flag cert change.
+- **Hardening audit:** ELF parsing of lib/*.so for PIE, RELRO, BIND_NOW, stack canaries, non-exec stack, 64-bit-only. Action: deprioritize or replace weak apps.
+- **Doors (IPC):** exported activities/services/receivers/providers, URL and share handlers. PackageManager component flags, queryIntentActivities. Action: open app details, change default handlers.
+- **Trust store:** system and user CAs diffed against a baseline. KeyStore.getInstance("AndroidCAStore"). Action: remove user CA via security settings.
+- **System packages:** every system package, disabled apps, what each does. Action: disable where safe, explain.
+- **Silicon:** verified boot state and key, device locked, OS version, patch level, StrongBox. Keystore key attestation, parse OID 1.3.6.1.4.1.11129.2.1.17; compare boot key to GrapheneOS's published hash. Action: alert on mismatch.
+- **Snapshots:** full state of every enabled tunnel, diffed over time and across OS updates. Changes surface as findings.
+
+### Later phases
+- **Phase 2:** Timeline (UsageStatsManager, NetworkStatsManager, PACKAGE_USAGE_STATS). Notifications (NotificationListenerService: frequency, lock-screen leaks, spoofed urgency).
+- **Phase 3:** Traffic (VpnService, getConnectionOwnerUid, adds INTERNET). DNS logging per app first, then per-connection. Sessions only.
+- **Phase 4:** Surroundings. BLE tracker detection, Wi-Fi security and evil twins, cell tower changes. BLUETOOTH_SCAN, NEARBY_WIFI_DEVICES, ACCESS_FINE_LOCATION; background location as separate opt-in. Satellites (Explore) rides along.
+- **Phase 5:** Home network. Own-network gate, then LAN discovery (NsdManager, SSDP with MulticastLock), then TCP connect port scan, then router checks (UPnP, DNS rewriting).
+- **Phase 6:** Deep mode via Shizuku. Sensor/mic/camera/clipboard access history (appops), hidden Settings keys (apps targeting API 31+ can't read them otherwise).
+- **Explore:** Satellites (GnssStatus, GNSS measurements), Sensors (SensorManager), Cameras (CameraCharacteristics). No actions, curiosity only.
+- **Backlog:** NFC (display only, never stored), ultrasonic beacon listener, SDR (receive-only, public broadcasts), OBD-II, packet path, leak test, breach footprint.
+
+## v1 acceptance criteria
+- [ ] Merged manifest declares no INTERNET permission (checked in CI)
+- [ ] Fresh install requests zero permissions until a tunnel needs one
+- [ ] Strata home screen; each Phase 1 tunnel opens from it
+- [ ] Every security finding has at least one working action
+- [ ] On-demand snapshot; two snapshots produce a readable diff
+- [ ] SQLCipher DB with Keystore-wrapped key; uninstall wipes everything
+- [ ] Snapshots export/import as one encrypted file
+- [ ] Full scan of all apps runs off the main thread with progress, no ANR
+- [ ] GitHub Actions builds a signed release APK on tag
+
+## Build order
+Each phase ends with a signed APK tested on the Pixel 10 before the next starts.
+
+0. Foundation: repo, Gradle (Kotlin DSL, version catalog), Compose, strata home, SQLCipher + Keystore, Finding/Snapshot models, TunnelModule interface, diff engine, CI release build
+1. Inspector: Permissions -> APK excavation -> Hardening -> Trust store -> Silicon -> Doors -> System packages, each wired into Snapshots. This is v1.
+2. Activity: Timeline, Notifications
+3. Traffic
+4. Surroundings
+5. Home network
+6. Deep mode (Shizuku)
+7. Backlog
+
+## Open questions
+- [ ] Application ID and repo name
+- [ ] Surfshark vs Traffic: one VPN at a time. Pause Surfshark during sessions, or never run both?
+- [ ] Are GrapheneOS Network/Sensors toggle states readable via requestedPermissionsFlags?
+- [ ] Private Space vs secondary user on my build, and how a file moves between them
+- [ ] Tracker signature source: Exodus Privacy's database, check license before bundling
+- [ ] Distribution: GitHub Releases only, or Obtainium too? Where the signing key lives
+- [ ] minSdk: set to what the Pixel 10 runs

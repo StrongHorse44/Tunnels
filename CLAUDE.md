@@ -8,8 +8,9 @@ Full spec: `docs/HANDOFF.md`. Read it before starting work.
 1. **No network egress.** The merged manifest must never declare
    `android.permission.INTERNET`. CI fails the build if it does. Do not add
    dependencies that open sockets, and do not work around the missing permission.
-   Later phases that need network keep the GrapheneOS Network toggle off except
-   during an explicit, user-started session.
+   INTERNET arrives only in Phase 3 (Traffic), and only for user-started
+   sessions; the GrapheneOS Network toggle stays off otherwise. Changing the CI
+   check requires explicit approval.
 2. **Nothing leaves the device.** No analytics, crash reporting, telemetry,
    cloud sync, ads, remote config, or any SDK that phones home (no Firebase,
    Play Services, Sentry, Crashlytics, etc.). Exports are manual, user-initiated,
@@ -31,11 +32,22 @@ Full spec: `docs/HANDOFF.md`. Read it before starting work.
 8. **Open source / verifiable.** Keep the build reproducible and dependencies
    minimal and auditable.
 
+## Stack
+
+Kotlin, Jetpack Compose, coroutines, Room + SQLCipher. Gradle Kotlin DSL with a
+version catalog. Minimal, offline dependencies; no DI framework unless approved.
+`android:allowBackup="false"` with backup/data-extraction rules excluding
+everything, so uninstall wipes all data and nothing goes to cloud backup.
+
 ## Architecture guardrails
 
 - Tunnel modules never talk to the UI. They emit `Observation`s to the store;
   the Snapshot and Findings engines derive findings; the UI reads findings.
-- One module per tunnel, implementing `TunnelModule`.
+- One module per tunnel, implementing `TunnelModule`. Once Phase 1 grows, one
+  Gradle module per tunnel group, so each group's permissions are declared in
+  its own manifest.
+- "Verify" in the spec means confirm on-device before designing around it.
+  Don't build on an unverified assumption; stub it and flag it.
 - Don't claim capabilities that need root. Prefer Settings deep links and
   system confirmation flows (e.g. uninstall intent) over pretending to act
   directly on other apps.
