@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Declare only what permissions.allow lists. -->
+    <!-- INTERNET: approved for this module only. Used solely to forward DNS queries to the real resolver
+         while a session the user started is running; nothing else in Tunnels opens a socket. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Underlying network's DNS servers; whether another VPN is connected. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- The session runs as a foreground service with a persistent notification showing the counters. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application>
+        <!-- DNS-only VPN: routes just the fake resolver address into the tunnel, counts each app's
+             lookups by registrable domain, forwards them to the real resolver, writes the reply back.
+             Started and stopped by the user only; never at boot; stops itself after 60 minutes. -->
+        <service
+            android:name=".DnsVpnService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON"
+                android:value="false" />
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="dns-logging" />
+        </service>
+
+        <!-- Runs the system's VPN consent dialog (VpnService.prepare) and closes. The tunnel gate opens
+             it through its package-qualified action in place of a Settings screen. -->
+        <activity
+            android:name=".VpnConsentActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="io.github.stronghorse44.tunnels.traffic.action.VPN_CONSENT" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -42,6 +42,25 @@ data class FindingEntity(
     @ColumnInfo(name = "first_seen") val firstSeen: Long,
     @ColumnInfo(name = "last_seen") val lastSeen: Long,
     val evidence: String,
+    /** Change findings stay until dismissed or expired; state findings clear with the state. */
+    val sticky: Boolean = false,
+    val dismissed: Boolean = false,
+)
+
+data class SnapshotCount(
+    @ColumnInfo(name = "snapshot_id") val snapshotId: Long,
+    val count: Int,
+)
+
+data class SnapshotTunnel(
+    @ColumnInfo(name = "snapshot_id") val snapshotId: Long,
+    @ColumnInfo(name = "tunnel_id") val tunnelId: String,
+)
+
+data class SeverityCount(
+    @ColumnInfo(name = "tunnel_id") val tunnelId: String,
+    val severity: String,
+    val count: Int,
 )
 
 /** Short-lived summary events (e.g. "installed X 1.2"). Expire after 30 days. */

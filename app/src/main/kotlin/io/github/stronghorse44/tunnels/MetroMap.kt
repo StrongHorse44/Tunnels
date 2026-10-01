@@ -124,7 +124,7 @@ object MetroLayout {
 
 /** Clickable glass metro map: tap a station or its label to open it. */
 @Composable
-fun MetroMap(status: (TunnelInfo) -> String, onStation: (TunnelInfo) -> Unit, modifier: Modifier = Modifier) {
+fun MetroMap(status: (TunnelInfo) -> String, isLive: (TunnelInfo) -> Boolean, onStation: (TunnelInfo) -> Unit, modifier: Modifier = Modifier) {
     val stations = MetroLayout.lines.flatMap { l -> l.stations.map { l to it } }
         .mapNotNull { (l, s) -> TunnelCatalog.byId(s.tunnelId)?.let { Triple(l, s, it) } }
 
@@ -133,15 +133,15 @@ fun MetroMap(status: (TunnelInfo) -> String, onStation: (TunnelInfo) -> Unit, mo
         Box(Modifier.fillMaxWidth().height(unit * MetroLayout.HEIGHT)) {
             Canvas(Modifier.fillMaxWidth().height(unit * MetroLayout.HEIGHT)) {
                 val u = size.width / MetroLayout.WIDTH
-                MetroLayout.lines.forEach { drawTube(it, u) }
+                MetroLayout.lines.forEach { l -> drawTube(l, u, l.stations.any { s -> TunnelCatalog.byId(s.tunnelId)?.let(isLive) == true }) }
                 drawCentral(MetroLayout.central * u)
-                stations.forEach { (l, s, t) -> drawStation(Offset(s.x, s.y) * u, LineColors.of(l.line), t.isLive) }
+                stations.forEach { (l, s, t) -> drawStation(Offset(s.x, s.y) * u, LineColors.of(l.line), isLive(t)) }
             }
 
             // Labels, station hit targets and line badges, positioned on the same grid.
             Layout(
                 content = {
-                    stations.forEach { (l, s, t) -> StationLabel(t, s.side, LineColors.of(l.line), status(t)) { onStation(t) } }
+                    stations.forEach { (l, s, t) -> StationLabel(t, isLive(t), s.side, LineColors.of(l.line), status(t)) { onStation(t) } }
                     stations.forEach { (_, _, t) ->
                         Box(Modifier.size(44.dp).clip(CircleShape).clickable { onStation(t) })
                     }
@@ -179,7 +179,7 @@ fun MetroMap(status: (TunnelInfo) -> String, onStation: (TunnelInfo) -> Unit, mo
 }
 
 @Composable
-private fun StationLabel(t: TunnelInfo, side: Side, color: Color, status: String, onClick: () -> Unit) {
+private fun StationLabel(t: TunnelInfo, live: Boolean, side: Side, color: Color, status: String, onClick: () -> Unit) {
     val align = when (side) {
         Side.RIGHT -> Alignment.Start
         Side.LEFT -> Alignment.End
@@ -196,11 +196,11 @@ private fun StationLabel(t: TunnelInfo, side: Side, color: Color, status: String
         Text(
             t.title,
             fontSize = 13.sp,
-            fontWeight = if (t.isLive) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (t.isLive) GlassColors.text else GlassColors.text.copy(alpha = 0.6f),
+            fontWeight = if (live) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (live) GlassColors.text else GlassColors.text.copy(alpha = 0.6f),
             maxLines = 1,
         )
-        if (t.isLive) {
+        if (live) {
             Text(
                 status,
                 fontFamily = FontFamily.Monospace,
@@ -231,9 +231,8 @@ private fun LineBadge(line: MetroLine) {
 }
 
 /** A line as liquid in a glass tube: frosted body, glow, colored liquid and a sheen along the top edge. */
-private fun DrawScope.drawTube(line: MapLine, u: Float) {
+private fun DrawScope.drawTube(line: MapLine, u: Float, live: Boolean) {
     val color = LineColors.of(line.line)
-    val live = line.stations.any { TunnelCatalog.byId(it.tunnelId)?.isLive == true }
     val path = Path().apply {
         line.path.forEachIndexed { i, p -> if (i == 0) moveTo(p.x * u, p.y * u) else lineTo(p.x * u, p.y * u) }
     }

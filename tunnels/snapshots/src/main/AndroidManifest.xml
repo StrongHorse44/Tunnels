@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Snapshots need no permissions: everything they touch is already in the encrypted store. -->
+
+    <application>
+        <!-- Not exported: the home screen reaches it with an implicit intent limited to this package. -->
+        <activity
+            android:name=".SnapshotsActivity"
+            android:exported="false"
+            android:label="Snapshots"
+            android:theme="@style/Theme.Tunnels">
+            <intent-filter>
+                <action android:name="io.github.stronghorse44.tunnels.action.SNAPSHOTS" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

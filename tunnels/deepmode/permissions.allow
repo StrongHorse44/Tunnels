@@ -1,0 +1,3 @@
+# Permissions the deepmode module may declare, one per line. CI fails on anything else.
+# Talk to the Shizuku app (shell access the user grants there). Also declared by the Shizuku provider library.
+moe.shizuku.manager.permission.API_V23

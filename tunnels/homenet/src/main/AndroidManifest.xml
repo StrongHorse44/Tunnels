@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Declare only what permissions.allow lists. -->
+    <!-- Local-network sockets only, and only during a scan the user starts on a Wi-Fi they confirmed as theirs. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Active network, gateway and DNS servers (LinkProperties). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Current Wi-Fi connection: DhcpInfo for the network fingerprint, MulticastLock for SSDP. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- MulticastLock around the 4-second SSDP search. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+</manifest>

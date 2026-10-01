@@ -1,0 +1,12 @@
+# Permissions the traffic module may declare, one per line. CI fails on anything else.
+# INTERNET is approved here (and in tunnels/homenet) only: the forwarder sends each app's DNS query on
+# to the real resolver during a session the user started, and nowhere else.
+android.permission.INTERNET
+# Find the underlying network's DNS servers and notice when another VPN is connected.
+android.permission.ACCESS_NETWORK_STATE
+# The session is a foreground service of type specialUse (subtype dns-logging) with a visible notification.
+android.permission.FOREGROUND_SERVICE
+android.permission.FOREGROUND_SERVICE_SPECIAL_USE
+android.permission.POST_NOTIFICATIONS
+# Service attribute, not a uses-permission: the system binds the VpnService with it.
+android.permission.BIND_VPN_SERVICE

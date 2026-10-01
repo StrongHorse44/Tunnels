@@ -5,7 +5,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [SnapshotEntity::class, ObservationEntity::class, FindingEntity::class, EventEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class TunnelsDatabase : RoomDatabase() {

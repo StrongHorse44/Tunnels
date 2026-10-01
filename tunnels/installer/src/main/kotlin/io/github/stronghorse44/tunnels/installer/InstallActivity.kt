@@ -9,6 +9,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import io.github.stronghorse44.tunnels.common.Staging
 import io.github.stronghorse44.tunnels.common.TunnelsTheme
+import io.github.stronghorse44.tunnels.runtime.AppLockGate
 import java.io.File
 
 class InstallActivity : ComponentActivity() {
@@ -18,7 +19,7 @@ class InstallActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         if (savedInstanceState == null) route(intent)
-        setContent { TunnelsTheme { InstallScreen(vm, onBack = ::finish) } }
+        setContent { TunnelsTheme { AppLockGate { InstallScreen(vm, onBack = ::finish) } } }
     }
 
     override fun onNewIntent(intent: Intent) {

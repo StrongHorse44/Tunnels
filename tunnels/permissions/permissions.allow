@@ -1,0 +1,3 @@
+# Permissions the permissions module may declare, one per line. CI fails on anything else.
+# See every installed app, not only those visible by default (rule #6: this is install-time, no dialog).
+android.permission.QUERY_ALL_PACKAGES

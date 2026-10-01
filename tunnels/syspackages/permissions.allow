@@ -1,0 +1,3 @@
+# Permissions the syspackages module may declare, one per line. CI fails on anything else.
+# Enumerate every system package, including disabled ones, with its label, version and enabled state.
+android.permission.QUERY_ALL_PACKAGES

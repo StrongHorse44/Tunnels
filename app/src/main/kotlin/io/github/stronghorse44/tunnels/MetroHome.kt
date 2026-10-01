@@ -2,6 +2,8 @@ package io.github.stronghorse44.tunnels
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
+import android.widget.Toast
 import android.content.pm.PackageManager
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
@@ -9,6 +11,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,6 +30,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -47,21 +51,30 @@ import io.github.stronghorse44.tunnels.model.MetroLine
 import io.github.stronghorse44.tunnels.model.TunnelCatalog
 import io.github.stronghorse44.tunnels.model.TunnelInfo
 import io.github.stronghorse44.tunnels.store.EventEntity
+import io.github.stronghorse44.tunnels.runtime.TunnelSummary
+import io.github.stronghorse44.tunnels.runtime.TunnelsRuntime
 import io.github.stronghorse44.tunnels.store.TunnelsStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private val Mono = FontFamily.Monospace
 
+/** Implicit, same-package action the snapshots module answers once it exists. */
+const val SNAPSHOTS_ACTION = "io.github.stronghorse44.tunnels.action.SNAPSHOTS"
+
 /** Home: a console readout above a clickable glass metro map. */
 @Composable
 fun MetroHome(onOpenTunnel: (String) -> Unit) {
     val context = LocalContext.current
     var placeholder by remember { mutableStateOf<TunnelInfo?>(null) }
-    val offline = remember { declaresNoInternet(context) }
+    val netOn = networkAllowed(context)
     val version = remember { versionName(context) }
-    val store by produceState<TunnelsStore?>(null) {
-        value = withContext(Dispatchers.IO) { runCatching { TunnelsStore.get(context) }.getOrNull() }
+    val runtime by produceState<TunnelsRuntime?>(null) {
+        value = runCatching { TunnelsRuntime.get(context) }.getOrNull()
+    }
+    val store = runtime?.store
+    val summaries by produceState<Map<String, TunnelSummary>>(emptyMap(), store) {
+        store?.dao?.findingCounts()?.collect { value = TunnelSummary.from(it) }
     }
     val keyLevel by produceState("…", store) {
         if (store != null) value = withContext(Dispatchers.IO) { TunnelsStore.keySecurityLevel() }
@@ -76,8 +89,9 @@ fun MetroHome(onOpenTunnel: (String) -> Unit) {
     fun status(t: TunnelInfo): String = when (t.id) {
         TunnelCatalog.INSTALLER -> lastInstall?.let { "last: ${it.summary}" } ?: "ready"
         TunnelCatalog.UNZIP -> lastUnzip?.let { "last: ${it.subject}" } ?: "ready"
-        else -> "phase ${t.phase}"
+        else -> if (t.isLive) summaries[t.id]?.label() ?: "ready" else "phase ${t.phase}"
     }
+    val liveIds = runtime?.registry?.modules?.keys.orEmpty()
 
     GlassBackground {
         Column(
@@ -87,12 +101,13 @@ fun MetroHome(onOpenTunnel: (String) -> Unit) {
                 .statusBarsPadding()
                 .padding(horizontal = 14.dp, vertical = 8.dp),
         ) {
-            ConsoleHeader(version, offline, keyLevel, TunnelCatalog.all.count { it.isLive }, TunnelCatalog.all.count { !it.isLive })
+            ConsoleHeader(version, netOn, keyLevel, TunnelCatalog.all.count { it.isLive || it.id in liveIds }, TunnelCatalog.all.count { !(it.isLive || it.id in liveIds) })
             Spacer(Modifier.height(14.dp))
             GlassPanel(Modifier.fillMaxWidth()) {
                 MetroMap(
                     status = ::status,
-                    onStation = { t -> if (t.isLive) onOpenTunnel(t.id) else placeholder = t },
+                    isLive = { t -> t.isLive || t.id in liveIds },
+                    onStation = { t -> if (t.isLive || t.id in liveIds) onOpenTunnel(t.id) else placeholder = t },
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 20.dp),
                 )
             }
@@ -118,16 +133,25 @@ fun MetroHome(onOpenTunnel: (String) -> Unit) {
 }
 
 @Composable
-private fun ConsoleHeader(version: String, offline: Boolean, keyLevel: String, live: Int, planned: Int) {
+private fun ConsoleHeader(version: String, netOn: Boolean, keyLevel: String, live: Int, planned: Int) {
+    val context = LocalContext.current
     GlassPanel(Modifier.fillMaxWidth(), tint = LineColors.of(MetroLine.FILES)) {
         Column(Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
             Text("TUNNELS", fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = 7.sp, color = GlassColors.text)
             Spacer(Modifier.height(10.dp))
             ConsoleLine("build", "v$version")
-            ConsoleLine("net", "NONE", if (offline) "[ok]" to StatusColors.ok else "[!!]" to StatusColors.blocker)
+            ConsoleLine("net", if (netOn) "ON" else "OFF", if (netOn) "[sessions only]" to StatusColors.info else "[ok]" to StatusColors.ok)
             ConsoleLine("store", "SQLCipher", "[$keyLevel]" to StatusColors.info)
             ConsoleLine("map", "$live live · $planned planned")
-            BlinkingPrompt()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BlinkingPrompt()
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = {
+                    val intent = Intent(SNAPSHOTS_ACTION).setPackage(context.packageName)
+                    if (context.packageManager.resolveActivity(intent, 0) != null) context.startActivity(intent)
+                    else Toast.makeText(context, "Snapshots arrive with phase 1.", Toast.LENGTH_SHORT).show()
+                }) { Text("snapshots ›", fontFamily = Mono, color = LineColors.of(MetroLine.SYSTEM)) }
+            }
         }
     }
 }
@@ -171,10 +195,9 @@ private fun versionName(context: Context): String = runCatching {
     context.packageManager.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0)).versionName
 }.getOrNull() ?: "?"
 
-private fun declaresNoInternet(context: Context): Boolean = runCatching {
-    val info = context.packageManager.getPackageInfo(
-        context.packageName,
-        PackageManager.PackageInfoFlags.of(PackageManager.GET_PERMISSIONS.toLong()),
-    )
-    info.requestedPermissions?.contains(Manifest.permission.INTERNET) != true
-}.getOrDefault(false)
+/**
+ * Whether this app may reach the network right now. INTERNET is declared only for the Traffic and Home
+ * network sessions (rule #1); GrapheneOS's Network toggle revokes it, which is what this reads.
+ */
+private fun networkAllowed(context: Context): Boolean =
+    context.checkSelfPermission(Manifest.permission.INTERNET) == PackageManager.PERMISSION_GRANTED

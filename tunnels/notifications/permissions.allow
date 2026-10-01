@@ -1,0 +1,4 @@
+# Permissions the notifications module may declare, one per line. CI fails on anything else.
+# Service-level permission on the listener service (android:permission, not a uses-permission): only the
+# system may bind it. The user grants the listener itself from Settings > Notification access.
+android.permission.BIND_NOTIFICATION_LISTENER_SERVICE

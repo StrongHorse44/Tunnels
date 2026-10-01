@@ -5,12 +5,12 @@ Full spec: `docs/HANDOFF.md`. Read it before starting work.
 
 ## Hard rules (never violate)
 
-1. **No network egress.** The merged manifest must never declare
-   `android.permission.INTERNET`. CI fails the build if it does. Do not add
-   dependencies that open sockets, and do not work around the missing permission.
-   INTERNET arrives only in Phase 3 (Traffic), and only for user-started
-   sessions; the GrapheneOS Network toggle stays off otherwise. Changing the CI
-   check requires explicit approval.
+1. **No network egress, except two modules.** Only `tunnels/traffic` and `tunnels/homenet`
+   may declare `android.permission.INTERNET` (approved 2026-10-01 for user-started sessions).
+   Every other module's manifest is checked against its `permissions.allow` file and CI
+   fails the build on any permission not listed there. Do not add dependencies that open
+   sockets outside those two modules, and never work around a missing permission. The
+   GrapheneOS Network toggle stays off outside a session.
 2. **Nothing leaves the device.** No analytics, crash reporting, telemetry,
    cloud sync, ads, remote config, or any SDK that phones home (no Firebase,
    Play Services, Sentry, Crashlytics, etc.). Exports are manual, user-initiated,
@@ -48,7 +48,7 @@ everything, so uninstall wipes all data and nothing goes to cloud backup.
 - `core:store` Room + SQLCipher, Keystore-wrapped key
 - `core:common` theme, shared composables, private staging area for incoming files
 - `tunnels:installer`, `tunnels:unzip` one module per tunnel group; each declares its own permissions
-- `app` metro home (console readout + glass metro lines); `verifyNoInternet` Gradle task runs before every assemble
+- `app` metro home (console readout + glass metro map); `verifyPermissions` runs before every assemble
 
 Keep Android-free logic in the plain Kotlin modules so it can be tested without an emulator.
 Google's Maven is not reachable from the cloud dev container: Android modules only compile in CI.
@@ -66,7 +66,27 @@ Google's Maven is not reachable from the cloud dev container: Android modules on
   system confirmation flows (e.g. uninstall intent) over pretending to act
   directly on other apps.
 
+## Build conventions (all agents)
+
+- Read `docs/BUILD_PLAN.md` for the phase plan, module list and branch model.
+- Google's Maven is unreachable from the dev container: Android modules compile only in
+  GitHub Actions. Put every piece of Android-free logic (parsers, rules, matchers, models)
+  in a plain-Kotlin module under `core/` with unit tests, and run them locally with the
+  scratch project described in BUILD_PLAN. Android modules stay thin adapters.
+- Work on your assigned branch (`phase/<n>-<name>`); push; read the `compile-check` run for
+  that branch via the GitHub tools; fix; repeat until green. Never push to another branch.
+  Put `[emulator]` in the message of your final commit so the phase emulator job runs once
+  for your branch (Actions minutes are limited; do not tag every push).
+- Touch only the modules you own plus their `permissions.allow`. Shared files
+  (`settings.gradle.kts`, `app/`, `core/common`, `core/runtime`, `core/model`, the catalog,
+  CI) are owned by the lead; ask instead of editing them.
+- A tunnel module registers itself by listing its `TunnelProvider` implementation in
+  `src/main/resources/META-INF/services/io.github.stronghorse44.tunnels.runtime.TunnelProvider`.
+- Every module ships unit tests (JVM) and at least one instrumented smoke test under
+  `src/androidTest` that runs its `scan()` on the emulator.
+- Observations are summaries (counts, names, hashes, booleans), never raw payloads.
+
 ## Workflow
 
-- Work phase by phase; stop at phase boundaries for on-device testing.
-- Propose plans for new phases and wait for approval before building.
+- Phases 1–6 are being built straight through on the integration branch, one PR at the end.
+- Stop only for decisions that change scope or hard rules.

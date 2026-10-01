@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Declare only what permissions.allow lists. -->
+    <!-- One BLE scan window per scan, to spot trackers. Never used for positioning. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <!-- Wi-Fi scan results: security, bands, evil-twin check. Never used for positioning. -->
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation" />
+    <!-- Android ties cell-tower identity to location. Only the technology (NR/LTE/UMTS/GSM) and the
+         operator code are kept; no position, no cell id. Android requires coarse next to fine. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- The background monitor is a separate opt-in switch inside the tunnel. -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Wi-Fi adapter state and the connected network. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <application>
+        <!-- Background monitor: scans BLE every 2 minutes and Wi-Fi/cell every 10 while the user
+             keeps it on. Started and stopped by the user only (switch or notification), never at
+             boot, stops itself after 24 hours. Writes summaries to the events table only. -->
+        <service
+            android:name=".MonitorService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice|location" />
+    </application>
+</manifest>

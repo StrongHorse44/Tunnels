@@ -1,0 +1,17 @@
+# Permissions the surroundings module may declare, one per line. CI fails on anything else.
+# BLE scan window for trackers (neverForLocation: no beacon positioning).
+android.permission.BLUETOOTH_SCAN
+# Nearby Wi-Fi scan results (neverForLocation).
+android.permission.NEARBY_WIFI_DEVICES
+# Android ties cell identity (TelephonyManager.allCellInfo) to location; fine must come with coarse.
+android.permission.ACCESS_FINE_LOCATION
+android.permission.ACCESS_COARSE_LOCATION
+# Background monitor only, separate opt-in inside the tunnel.
+android.permission.ACCESS_BACKGROUND_LOCATION
+android.permission.FOREGROUND_SERVICE
+android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE
+android.permission.FOREGROUND_SERVICE_LOCATION
+android.permission.POST_NOTIFICATIONS
+# Wi-Fi adapter state and the connected network.
+android.permission.ACCESS_WIFI_STATE
+android.permission.ACCESS_NETWORK_STATE

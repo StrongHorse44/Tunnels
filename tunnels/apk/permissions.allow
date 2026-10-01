@@ -1,0 +1,3 @@
+# Permissions the apk module may declare, one per line. CI fails on anything else.
+# Enumerate every installed app, its APK paths, signing certificates and install source.
+android.permission.QUERY_ALL_PACKAGES

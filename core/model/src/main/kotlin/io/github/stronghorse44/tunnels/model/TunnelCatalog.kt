@@ -31,14 +31,14 @@ object TunnelCatalog {
         TunnelInfo(INSTALLER, "Installer", Stratum.TOPSOIL, MetroLine.FILES, "Inspect and install APKs and app bundles", null),
         TunnelInfo(UNZIP, "Unzip", Stratum.TOPSOIL, MetroLine.FILES, "Open zip, 7z, tar, gz, xz and bz2 archives", null),
 
-        TunnelInfo("permissions", "Permissions", Stratum.TOPSOIL, MetroLine.INSPECT, "Declared vs granted, per app", 1),
-        TunnelInfo("apk_excavation", "APK excavation", Stratum.TOPSOIL, MetroLine.INSPECT, "Trackers, certs and native libs inside apps", 1),
-        TunnelInfo("doors", "Doors", Stratum.TOPSOIL, MetroLine.INSPECT, "Exported components and link handlers", 1),
-        TunnelInfo("hardening", "Hardening audit", Stratum.BEDROCK, MetroLine.INSPECT, "Exploit mitigations in native code", 1),
+        TunnelInfo("permissions", "Permissions", Stratum.TOPSOIL, MetroLine.INSPECT, "Declared vs granted, per app", null),
+        TunnelInfo("apk_excavation", "APK excavation", Stratum.TOPSOIL, MetroLine.INSPECT, "Trackers, certs and native libs inside apps", null),
+        TunnelInfo("doors", "Doors", Stratum.TOPSOIL, MetroLine.INSPECT, "Exported components and link handlers", null),
+        TunnelInfo("hardening", "Hardening audit", Stratum.BEDROCK, MetroLine.INSPECT, "Exploit mitigations in native code", null),
 
-        TunnelInfo("system_packages", "System packages", Stratum.BEDROCK, MetroLine.SYSTEM, "Every system package and what it does", 1),
-        TunnelInfo("trust_store", "Trust store", Stratum.BEDROCK, MetroLine.SYSTEM, "System and user certificate authorities", 1),
-        TunnelInfo("silicon", "Silicon", Stratum.CORE, MetroLine.SYSTEM, "Verified boot and hardware attestation", 1),
+        TunnelInfo("system_packages", "System packages", Stratum.BEDROCK, MetroLine.SYSTEM, "Every system package and what it does", null),
+        TunnelInfo("trust_store", "Trust store", Stratum.BEDROCK, MetroLine.SYSTEM, "System and user certificate authorities", null),
+        TunnelInfo("silicon", "Silicon", Stratum.CORE, MetroLine.SYSTEM, "Verified boot and hardware attestation", null),
         TunnelInfo("deep_mode", "Deep mode", Stratum.CORE, MetroLine.SYSTEM, "App-ops history via Shizuku", 6),
 
         TunnelInfo("notifications", "Notifications", Stratum.TOPSOIL, MetroLine.ACTIVITY, "Who notifies, how often, what leaks", 2),
@@ -48,8 +48,8 @@ object TunnelCatalog {
         TunnelInfo("surroundings", "Surroundings", Stratum.SURFACE, MetroLine.NETWORK, "Nearby trackers, Wi-Fi and cell changes", 4),
         TunnelInfo("home_network", "Home network", Stratum.SURFACE, MetroLine.NETWORK, "Devices and open doors on your LAN", 5),
 
-        TunnelInfo("sensors", "Sensors", Stratum.EXPLORE, MetroLine.EXPLORE, "Every sensor on the device", 1),
-        TunnelInfo("cameras", "Cameras", Stratum.EXPLORE, MetroLine.EXPLORE, "Camera hardware characteristics", 1),
+        TunnelInfo("sensors", "Sensors", Stratum.EXPLORE, MetroLine.EXPLORE, "Every sensor on the device", null),
+        TunnelInfo("cameras", "Cameras", Stratum.EXPLORE, MetroLine.EXPLORE, "Camera hardware characteristics", null),
         TunnelInfo("satellites", "Satellites", Stratum.EXPLORE, MetroLine.EXPLORE, "GNSS constellations overhead", 4),
         TunnelInfo("radio", "Radio", Stratum.EXPLORE, MetroLine.EXPLORE, "Cellular and radio details", 4),
     )
