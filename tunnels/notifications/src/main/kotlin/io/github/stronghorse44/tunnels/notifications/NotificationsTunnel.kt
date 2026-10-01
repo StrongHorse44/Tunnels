@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.provider.Settings
 import androidx.compose.runtime.Composable
+import io.github.stronghorse44.tunnels.model.DirectSettings
 import io.github.stronghorse44.tunnels.model.FindingAction
 import io.github.stronghorse44.tunnels.model.FindingDraft
 import io.github.stronghorse44.tunnels.model.FindingRule
@@ -44,6 +45,14 @@ class NotificationsTunnel(private val context: Context) : TunnelModule, TunnelUi
             reason = "To count who notifies you, how often, and what shows on the lock screen. Notification text is never stored.",
             settingsAction = Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS,
             isGranted = { NotifListenerService.isAccessGranted(context) },
+            // The counter's own switch, rather than the list of every listener.
+            direct = DirectSettings(
+                Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS,
+                extras = mapOf(
+                    Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME to NotifListenerService.component(context).flattenToString(),
+                ),
+            ),
+            restricted = true,
         ),
     )
 

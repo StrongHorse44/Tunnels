@@ -13,6 +13,7 @@ import android.net.ConnectivityManager
 import android.os.Process
 import android.provider.Settings
 import androidx.compose.runtime.Composable
+import io.github.stronghorse44.tunnels.model.DirectSettings
 import io.github.stronghorse44.tunnels.model.FindingAction
 import io.github.stronghorse44.tunnels.model.FindingDraft
 import io.github.stronghorse44.tunnels.model.FindingRule
@@ -62,6 +63,9 @@ class TimelineTunnel(private val context: Context) : TunnelModule, TunnelUi {
             reason = "To see which apps you actually use and how much data they move, Android needs Usage access. Nothing leaves the phone.",
             settingsAction = Settings.ACTION_USAGE_ACCESS_SETTINGS,
             isGranted = ::hasUsageAccess,
+            // Tunnels' own Usage access switch, rather than the list of every app.
+            direct = DirectSettings(Settings.ACTION_USAGE_ACCESS_SETTINGS, packageUri = true),
+            restricted = true,
         ),
     )
 

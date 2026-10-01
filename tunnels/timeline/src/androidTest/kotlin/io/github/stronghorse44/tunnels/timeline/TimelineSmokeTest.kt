@@ -7,9 +7,11 @@ import io.github.stronghorse44.tunnels.model.FindingAction
 import io.github.stronghorse44.tunnels.model.FindingDraft
 import io.github.stronghorse44.tunnels.model.ScanProgress
 import io.github.stronghorse44.tunnels.model.Severity
+import io.github.stronghorse44.tunnels.runtime.RestrictedSettings
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -40,6 +42,10 @@ class TimelineSmokeTest {
         val access = module.specialAccess.single()
         assertEquals("Usage access", access.label)
         assertEquals(Settings.ACTION_USAGE_ACCESS_SETTINGS, access.settingsAction)
+        assertTrue("Android restricts usage access for apps installed from a file", access.restricted)
+        val screen = RestrictedSettings.settingsIntent(context, access)
+        assertEquals("Tunnels' own switch", "package:${context.packageName}", screen.dataString)
+        assertNotNull(screen.resolveActivity(context.packageManager))
         assertEquals(TimelineRules.all().size, module.rules.size)
 
         var reports = 0

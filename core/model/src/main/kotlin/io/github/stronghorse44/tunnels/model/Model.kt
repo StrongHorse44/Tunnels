@@ -21,6 +21,20 @@ data class SpecialAccess(
     /** `android.provider.Settings` action string, or a package-qualified intent action. */
     val settingsAction: String,
     val isGranted: () -> Boolean,
+    /** A Settings screen for this app alone, opened instead of [settingsAction]'s list when the phone has it. */
+    val direct: DirectSettings? = null,
+    /**
+     * A "restricted setting": for an app installed from a downloaded file, Android refuses to switch it on
+     * ("App was denied access") until the user allows restricted settings in the app's App info screen.
+     */
+    val restricted: Boolean = false,
+)
+
+/** A Settings screen for one app: [action], with this app's `package:` URI as data and/or string [extras]. */
+data class DirectSettings(
+    val action: String,
+    val packageUri: Boolean = false,
+    val extras: Map<String, String> = emptyMap(),
 )
 
 /**

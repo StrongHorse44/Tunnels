@@ -12,6 +12,7 @@ import io.github.stronghorse44.tunnels.model.Severity
 import io.github.stronghorse44.tunnels.notifrules.NotifKeys
 import io.github.stronghorse44.tunnels.notifrules.NotifRecord
 import io.github.stronghorse44.tunnels.notifrules.NotifRules
+import io.github.stronghorse44.tunnels.runtime.RestrictedSettings
 import io.github.stronghorse44.tunnels.runtime.TunnelUi
 import io.github.stronghorse44.tunnels.store.TunnelsStore
 import kotlinx.coroutines.runBlocking
@@ -38,6 +39,11 @@ class NotificationsSmokeTest {
         assertTrue("the tunnel draws its own summary panel", module is TunnelUi && module.showObservations)
         val access = module.specialAccess.single()
         assertEquals(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS, access.settingsAction)
+        assertTrue("Android restricts notification access for apps installed from a file", access.restricted)
+        val screen = RestrictedSettings.settingsIntent(context, access)
+        assertEquals("the listener's own switch", Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS, screen.action)
+        assertNotNull(screen.resolveActivity(context.packageManager))
+        assertNotNull(RestrictedSettings.appInfoIntent(context).resolveActivity(context.packageManager))
         assertFalse("a stock emulator has not granted notification access", access.isGranted())
         assertFalse(NotifListenerService.connected)
 

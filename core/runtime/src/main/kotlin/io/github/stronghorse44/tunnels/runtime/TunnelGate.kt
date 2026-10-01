@@ -1,6 +1,5 @@
 package io.github.stronghorse44.tunnels.runtime
 
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -16,6 +15,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -29,6 +29,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import io.github.stronghorse44.tunnels.common.GlassColors
 import io.github.stronghorse44.tunnels.common.GlassPanel
 import io.github.stronghorse44.tunnels.common.LineColors
+import io.github.stronghorse44.tunnels.common.StatusColors
 import io.github.stronghorse44.tunnels.model.TunnelModule
 
 /**
@@ -45,6 +46,7 @@ fun TunnelGate(module: TunnelModule, content: @Composable () -> Unit) {
         module.requiredPermissions.filter { ContextCompat.checkSelfPermission(context, it.permission) != PackageManager.PERMISSION_GRANTED }
     }
     val missingAccess = remember(generation) { module.specialAccess.filterNot { it.isGranted() } }
+    val fromFile = remember { RestrictedSettings.installedFromFile(context) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { generation++ }
 
     if (missingPermissions.isEmpty() && missingAccess.isEmpty()) {
@@ -73,21 +75,47 @@ fun TunnelGate(module: TunnelModule, content: @Composable () -> Unit) {
                         Text(access.reason, style = MaterialTheme.typography.bodySmall, color = GlassColors.dim)
                     }
                     OutlinedButton(onClick = {
-                        val intent = Intent(access.settingsAction)
-                        if (access.settingsAction.contains("APPLICATION_DETAILS") || access.settingsAction.contains("UNKNOWN_APP")) {
-                            intent.data = android.net.Uri.parse("package:${context.packageName}")
-                        }
-                        // In-app flows (e.g. the Shizuku connect screen) are not exported, and since Android 12 an
-                        // implicit intent only reaches them when the package is set; system settings stay implicit.
-                        val inApp = Intent(intent).setPackage(context.packageName)
-                        val target = if (context.packageManager.resolveActivity(inApp, 0) != null) inApp else intent
-                        runCatching { context.startActivity(target) }.onFailure {
+                        runCatching { context.startActivity(RestrictedSettings.settingsIntent(context, access)) }.onFailure {
                             Toast.makeText(context, "No screen found for ${access.label}", Toast.LENGTH_SHORT).show()
                         }
                     }) { Text("Open setting") }
                 }
+                if (access.restricted) RestrictedSettingsHelp(fromFile)
             }
             Text("Nothing is requested until you open a tunnel that needs it.", style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)
+        }
+    }
+}
+
+/**
+ * The extra step Android asks for before a restricted setting ([io.github.stronghorse44.tunnels.model.SpecialAccess.restricted])
+ * can be switched on for an app installed from a file. Tunnels cannot read whether it was already taken, so
+ * the steps say what Android will show.
+ */
+@Composable
+private fun RestrictedSettingsHelp(fromFile: Boolean) {
+    val context = LocalContext.current
+    GlassPanel(Modifier.fillMaxWidth(), tint = StatusColors.warn) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                if (fromFile) "Android restricts this for apps installed from a file" else "If Android says “App was denied access”",
+                style = MaterialTheme.typography.labelLarge,
+                color = StatusColors.warn,
+            )
+            Text(
+                "1. Tap Open setting and switch it on. If Android answers “App was denied access”, one more step is needed:\n" +
+                    "2. Tap Open App info below, then ⋮ at the top right → Allow restricted settings, and confirm with your PIN.\n" +
+                    "3. Tap Open setting again and switch it on. Android keeps this choice across updates.",
+                style = MaterialTheme.typography.bodySmall,
+                color = GlassColors.dim,
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = {
+                    runCatching { context.startActivity(RestrictedSettings.appInfoIntent(context)) }.onFailure {
+                        Toast.makeText(context, "App info is not available", Toast.LENGTH_SHORT).show()
+                    }
+                }) { Text("Open App info") }
+            }
         }
     }
 }
