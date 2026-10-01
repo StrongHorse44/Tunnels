@@ -153,7 +153,7 @@ private fun ListingContent(
     Spacer(Modifier.height(12.dp))
     Text(s.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
     Text(
-        "${s.format.label} · ${files.size} files · ${formatBytes(totalSize)}${if (s.entries.any { it.encrypted }) " · encrypted" else ""}",
+        "${s.format.label} · ${files.size} ${if (files.size == 1) "file" else "files"} · ${formatBytes(totalSize)}${if (s.entries.any { it.encrypted }) " · encrypted" else ""}",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -161,8 +161,13 @@ private fun ListingContent(
         Spacer(Modifier.height(8.dp))
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                val apks = files.filter { it.name.endsWith(".apk", ignoreCase = true) }
                 Text(
-                    if (s.shape == PackageShape.BUNDLE) "This is an app bundle." else "This is an APK.",
+                    when {
+                        s.shape == PackageShape.APK -> "This is an APK."
+                        apks.size == 1 -> "Contains an app: ${apks.single().name}"
+                        else -> "This is an app bundle (${apks.size} parts)."
+                    },
                     modifier = Modifier.weight(1f),
                 )
                 Button(onClick = onInstallBundle) { Text("Install") }
