@@ -12,6 +12,8 @@ data class NotifSummary(
     val accessGranted: Boolean,
     /** Noisiest apps first. */
     val top: List<TopApp>,
+    /** Posts the listener failed to record since its process started. */
+    val dropped: Int = 0,
 ) {
     data class TopApp(val packageName: String, val label: String, val count7: Int, val perDay7: Double, val night7: Int, val urgent7: Int)
 
@@ -47,6 +49,7 @@ data class NotifSummary(
                 listenerConnected = NotifKeys.value(summary, NotifKeys.LISTENER_CONNECTED) == "true",
                 accessGranted = NotifKeys.value(summary, NotifKeys.ACCESS_GRANTED) == "true",
                 top = top,
+                dropped = NotifKeys.int(summary, NotifKeys.LISTENER_DROPPED),
             )
         }
     }

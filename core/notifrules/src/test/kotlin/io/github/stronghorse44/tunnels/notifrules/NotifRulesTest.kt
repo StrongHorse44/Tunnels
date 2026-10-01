@@ -87,6 +87,7 @@ class NotifRulesTest {
         assertTrue(drafts.all { it.severity == Severity.WARN })
         val p = drafts.single { it.subject == "com.promo" }
         assertTrue(p.evidence, p.evidence.contains("6 of its 10 notifications") && p.evidence.contains("promo, recommendation"))
+        assertTrue("blames the delivery, not the app's intent: the user may have raised the channel", !p.evidence.contains("marked"))
         assertTrue(drafts.single { it.subject == "com.blank" }.evidence.contains("uncategorised"))
     }
 
@@ -100,6 +101,30 @@ class NotifRulesTest {
         assertEquals(setOf("com.chat", "com.mail"), drafts.map { it.subject }.toSet())
         assertTrue(drafts.all { it.severity == Severity.INFO })
         assertTrue(drafts.single { it.subject == "com.chat" }.evidence.startsWith("chat posted 3 notifications this week marked as safe to show in full on the lock screen"))
+    }
+
+    @Test
+    fun lockScreenExposureNeedsALockScreenThatShowsNotifications() {
+        val chat = app("com.chat", 10, lockPublic7 = 3, categories = "msg")
+        val hidden = Observation(t, NotifKeys.SUMMARY, NotifKeys.LOCKSCREEN_SHOWS, "false")
+        val shown = Observation(t, NotifKeys.SUMMARY, NotifKeys.LOCKSCREEN_SHOWS, "true")
+        assertTrue(evaluate(chat + summary(true, true) + hidden).of(NotifRules.LOCK_SCREEN_EXPOSURE).isEmpty())
+        assertEquals(1, evaluate(chat + summary(true, true) + shown).of(NotifRules.LOCK_SCREEN_EXPOSURE).size)
+        assertEquals("unknown setting: assume the default, shown", 1, evaluate(chat + summary(true, true)).of(NotifRules.LOCK_SCREEN_EXPOSURE).size)
+    }
+
+    @Test
+    fun listenerDroppedCountsLostPosts() {
+        val base = summary(connected = true, granted = true)
+        assertTrue(evaluate(base).of(NotifRules.LISTENER_DROPPED).isEmpty())
+        assertTrue(evaluate(base + Observation(t, NotifKeys.SUMMARY, NotifKeys.LISTENER_DROPPED, "0")).of(NotifRules.LISTENER_DROPPED).isEmpty())
+        val d = evaluate(base + Observation(t, NotifKeys.SUMMARY, NotifKeys.LISTENER_DROPPED, "7")).single()
+        assertEquals(NotifRules.LISTENER_DROPPED, d.kind)
+        assertEquals(NotifKeys.SUMMARY, d.subject)
+        assertEquals(Severity.INFO, d.severity)
+        assertTrue(d.evidence, d.evidence.startsWith("The listener could not record 7 notifications since it started"))
+        val one = evaluate(base + Observation(t, NotifKeys.SUMMARY, NotifKeys.LISTENER_DROPPED, "1")).single()
+        assertTrue(one.evidence, one.evidence.contains("1 notification since"))
     }
 
     @Test

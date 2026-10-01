@@ -13,6 +13,7 @@ object NotifRules {
     const val SPOOFED_URGENCY = "SPOOFED_URGENCY"
     const val LOCK_SCREEN_EXPOSURE = "LOCK_SCREEN_EXPOSURE"
     const val LISTENER_DISCONNECTED = "LISTENER_DISCONNECTED"
+    const val LISTENER_DROPPED = "LISTENER_DROPPED"
 
     /** More than this many notifications a day over the week is NOTICE; more than [VERY_NOISY_PER_DAY] is WARN. */
     const val NOISY_PER_DAY = 30.0
@@ -64,18 +65,29 @@ object NotifRules {
         val cats = categoriesIncludingEmpty(obs)
         if (cats.isEmpty() || cats.any { it !in lowStakes }) return@perSubject null
         val kinds = cats.filter { it.isNotEmpty() }.sorted().joinToString(", ").ifEmpty { "uncategorised" }
-        "${name(obs)} marked $urgent of its $count notifications this week as high priority, so they pop over other apps " +
+        "${name(obs)} had $urgent of its $count notifications this week arrive at high importance, so they pop over other apps " +
             "and make sound, yet they are only $kinds notifications. Lowering the channel importance stops the interruptions."
     }
 
-    val lockScreenExposure: FindingRule = Rules.perSubject(LOCK_SCREEN_EXPOSURE, Severity.INFO) { subject, obs ->
-        if (subject == NotifKeys.SUMMARY) return@perSubject null
-        val public = NotifKeys.int(obs, NotifKeys.LOCK_PUBLIC_7)
-        if (public == 0) return@perSubject null
-        val cats = NotifKeys.categories(obs)
-        if (cats.none { it in personal }) return@perSubject null
-        "${name(obs)} posted $public notifications this week marked as safe to show in full on the lock screen, " +
-            "so anyone holding the phone can read them. Set its channels to hide sensitive content on the lock screen."
+    /**
+     * Skipped entirely when the summary says the lock screen hides notifications (nothing is exposed then).
+     * Hand-written rather than [Rules.perSubject] because it needs the summary subject as well as the app's.
+     */
+    val lockScreenExposure: FindingRule = FindingRule { ctx ->
+        val groups = ctx.bySubject()
+        if (NotifKeys.value(groups[NotifKeys.SUMMARY].orEmpty(), NotifKeys.LOCKSCREEN_SHOWS) == "false") return@FindingRule emptyList()
+        groups.mapNotNull { (subject, obs) ->
+            if (subject == NotifKeys.SUMMARY) return@mapNotNull null
+            val public = NotifKeys.int(obs, NotifKeys.LOCK_PUBLIC_7)
+            if (public == 0) return@mapNotNull null
+            if (NotifKeys.categories(obs).none { it in personal }) return@mapNotNull null
+            FindingDraft(
+                ctx.tunnelId, subject, LOCK_SCREEN_EXPOSURE, Severity.INFO,
+                "${name(obs)} posted $public notifications this week marked as safe to show in full on the lock screen, " +
+                    "so they can be read without unlocking the phone. Set its channels to hide sensitive content on the lock screen, " +
+                    "or hide all notifications from the lock screen in system settings.",
+            )
+        }
     }
 
     val listenerDisconnected: FindingRule = Rules.perSubject(LISTENER_DISCONNECTED, Severity.INFO) { subject, obs ->
@@ -87,8 +99,17 @@ object NotifRules {
             "Toggling Notification access off and on usually reconnects it."
     }
 
+    val listenerDropped: FindingRule = Rules.perSubject(LISTENER_DROPPED, Severity.INFO) { subject, obs ->
+        if (subject != NotifKeys.SUMMARY) return@perSubject null
+        val dropped = NotifKeys.int(obs, NotifKeys.LISTENER_DROPPED)
+        if (dropped <= 0) return@perSubject null
+        "The listener could not record $dropped notification${if (dropped == 1) "" else "s"} since it started: the encrypted store " +
+            "would not open or its queue overflowed. This week's counts are low by at least that many. " +
+            "Toggling Notification access off and on restarts the listener."
+    }
+
     /** Every rule of the tunnel, in display order. Declared last so the rule values above exist first. */
-    val all: List<FindingRule> = listOf(noisyApp, nightNoise, spoofedUrgency, lockScreenExposure, listenerDisconnected)
+    val all: List<FindingRule> = listOf(noisyApp, nightNoise, spoofedUrgency, lockScreenExposure, listenerDisconnected, listenerDropped)
 
     private fun name(obs: List<Observation>): String =
         NotifKeys.value(obs, NotifKeys.LABEL)?.takeIf { it.isNotBlank() } ?: obs.firstOrNull()?.subject ?: "This app"

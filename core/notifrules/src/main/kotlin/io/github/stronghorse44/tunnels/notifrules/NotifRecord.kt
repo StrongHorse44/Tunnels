@@ -60,22 +60,29 @@ data class NotifRecord(
     }
 
     companion object {
-        private const val MAX_CATEGORY = 24
-        private val categoryChars = Regex("[a-z_]{1,$MAX_CATEGORY}")
+        /** The value stored for any category outside [knownCategories]. */
+        const val OTHER_CATEGORY = "other"
+
+        /** Android's `Notification.CATEGORY_*` vocabulary (API 36). Only these are stored verbatim. */
+        val knownCategories: Set<String> = setOf(
+            "alarm", "call", "email", "err", "event", "location_sharing", "missed_call", "msg", "navigation",
+            "progress", "promo", "recommendation", "reminder", "service", "social", "status", "stopwatch", "sys",
+            "transport", "voicemail", "workout",
+        )
 
         /** Hours that count as night: 23:00 up to but excluding 06:00. */
         fun isNightHour(hour: Int): Boolean = hour == 23 || hour in 0..5
 
         /**
-         * Reduces a raw category string to the closed Android vocabulary shape (lowercase letters and
-         * underscores). Anything else becomes "other" so a free-form string never reaches the store.
+         * Reduces a raw category string to Android's closed vocabulary. Anything else, including a
+         * developer-chosen custom string, becomes [OTHER_CATEGORY] so no free-form text reaches the store.
          */
         fun sanitiseCategory(raw: String?): String {
             val c = raw?.trim()?.lowercase().orEmpty()
             return when {
                 c.isEmpty() -> ""
-                categoryChars.matches(c) -> c
-                else -> "other"
+                c in knownCategories -> c
+                else -> OTHER_CATEGORY
             }
         }
 

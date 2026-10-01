@@ -13,11 +13,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Bound by the system once the user grants Notification access. For every posted notification it writes
@@ -25,25 +26,52 @@ import java.time.ZoneId
  * or icons are read into memory beyond what the system hands over, and none of them are stored.
  * Group summaries and this app's own notifications are ignored. Work happens on a bounded queue drained
  * on Dispatchers.IO, so the callbacks never block.
+ *
+ * The drain never gives up on the store: a Keystore or SQLCipher hiccup costs the posts that arrive while
+ * it retries with backoff, and every post lost that way (or to a full queue) is counted in [dropped] so a
+ * scan can say so. It also prunes the store itself ([TunnelsStore.maintain]) once a day, so rule #4's
+ * 30-day retention holds even when the process lives for weeks without the app being opened.
  */
 class NotifListenerService : NotificationListenerService() {
     private class Pending(val packageName: String, val summary: String, val at: Long)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val queue = Channel<Pending>(capacity = QUEUE_CAPACITY, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    private val queue = Channel<Pending>(capacity = QUEUE_CAPACITY)
     private val tracker = PostTracker()
+
+    /** Wall time of the last [TunnelsStore.maintain] this service ran; 0 before the first. Drain coroutine only. */
+    private var lastMaintainAt = 0L
 
     override fun onCreate() {
         super.onCreate()
-        scope.launch {
-            // Opening the store touches the Keystore: do it here, off the main thread, once.
-            val store = runCatching { TunnelsStore.get(applicationContext) }.getOrNull() ?: return@launch
-            for (p in queue) {
-                runCatching {
-                    store.recordEvent(NotifKeys.TUNNEL_ID, NotifKeys.EVENT_POSTED, p.packageName, p.summary, Instant.ofEpochMilli(p.at))
-                }
+        scope.launch { drain() }
+    }
+
+    /** Writes queued posts for as long as the service lives, reopening the store after every failure. */
+    private suspend fun drain() {
+        var failures = 0
+        for (p in queue) {
+            // Opening the store touches the Keystore; TunnelsStore.get caches the instance, so the happy path is one read.
+            val store = runCatching { TunnelsStore.get(applicationContext) }.getOrNull()
+            val written = store != null && runCatching {
+                store.recordEvent(NotifKeys.TUNNEL_ID, NotifKeys.EVENT_POSTED, p.packageName, p.summary, Instant.ofEpochMilli(p.at))
+            }.isSuccess
+            if (written && store != null) {
+                failures = 0
+                maintainIfDue(store, System.currentTimeMillis())
+            } else {
+                droppedCount.incrementAndGet()
+                failures++
+                delay(backoffMs(failures))
             }
         }
+    }
+
+    /** Rule #4 in code: prunes expired rows from this long-lived writer, right after the first write and then daily. */
+    private suspend fun maintainIfDue(store: TunnelsStore, now: Long) {
+        if (lastMaintainAt != 0L && now - lastMaintainAt < MAINTAIN_EVERY_MS) return
+        lastMaintainAt = now
+        runCatching { store.maintain(Instant.ofEpochMilli(now)) }
     }
 
     override fun onListenerConnected() {
@@ -83,7 +111,9 @@ class NotifListenerService : NotificationListenerService() {
         val hour = runCatching { Instant.ofEpochMilli(postTime).atZone(ZoneId.systemDefault()).hour }.getOrDefault(-1)
 
         val record = NotifRecord.of(importance, visibility, n.category, sbn.isOngoing, silent, hour)
-        queue.trySend(Pending(sbn.packageName, record.encode(), postTime))
+        val result = queue.trySend(Pending(sbn.packageName, record.encode(), postTime))
+        // A full queue (the store is stuck) drops the newest post; a closed one means we are being destroyed.
+        if (result.isFailure && !result.isClosed) droppedCount.incrementAndGet()
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?, rankingMap: RankingMap?, reason: Int) {
@@ -92,13 +122,25 @@ class NotifListenerService : NotificationListenerService() {
 
     companion object {
         private const val QUEUE_CAPACITY = 256
+        private const val MAINTAIN_EVERY_MS = 24L * 60 * 60 * 1000
+        private const val BACKOFF_BASE_MS = 2_000L
+        private const val BACKOFF_MAX_MS = 60_000L
         /** `NotificationManager.VISIBILITY_NO_OVERRIDE`, which is not in the public SDK: the channel defers to the notification. */
         private const val VISIBILITY_NO_OVERRIDE = -1000
+
+        private val droppedCount = AtomicInteger()
 
         /** True between onListenerConnected and onListenerDisconnected, for the scan's summary. */
         @Volatile
         var connected: Boolean = false
             private set
+
+        /** Posts this process failed to record (store unavailable or queue full) since it started. */
+        val dropped: Int get() = droppedCount.get()
+
+        /** Exponential backoff after a failed write, capped at a minute: 2 s, 4 s, 8 s, ... 60 s. */
+        fun backoffMs(failures: Int): Long =
+            (BACKOFF_BASE_MS shl (failures - 1).coerceIn(0, 10)).coerceAtMost(BACKOFF_MAX_MS)
 
         fun component(context: Context): ComponentName = ComponentName(context, NotifListenerService::class.java)
 

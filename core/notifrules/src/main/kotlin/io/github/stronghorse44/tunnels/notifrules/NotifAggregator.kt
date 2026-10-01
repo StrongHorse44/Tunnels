@@ -16,12 +16,30 @@ data class PackageStats(
     val silent7: Int,
     val ongoing7: Int,
     val night7: Int,
-    /** Categories seen over 30 days; empty strings (no category) are kept as "" so rules can tell. */
+    /**
+     * Categories seen over the 7-day window the rules read, or over 30 days when the app posted nothing
+     * this week. Empty strings (no category) are kept as "" so rules can tell.
+     */
     val categories: Set<String>,
 ) {
     /** Average posts per day over the 7-day window. */
     val perDay7: Double get() = count7 / 7.0
 }
+
+/**
+ * What the scan knows about the listener and the device beyond the events themselves. Becomes the
+ * [NotifKeys.SUMMARY] observations.
+ */
+data class NotifDeviceState(
+    val listenerConnected: Boolean,
+    val accessGranted: Boolean,
+    /** Posts the listener failed to record since its process started; 0 when none. */
+    val dropped: Int = 0,
+    /** Whether the system lock screen shows notifications at all; null when unknown. */
+    val lockScreenShowsNotifications: Boolean? = null,
+    /** True when the scan read its row cap and the 30-day totals undercount. */
+    val eventsTruncated: Boolean = false,
+)
 
 data class NotifAggregate(
     /** Per package, noisiest first (count7 desc, then name). */
@@ -57,16 +75,19 @@ object NotifAggregator {
             var silent7 = 0
             var ongoing7 = 0
             var night7 = 0
-            val categories = HashSet<String>()
+            val categories7 = HashSet<String>()
+            val categories30 = HashSet<String>()
+            val categories: Set<String> get() = if (count7 > 0) categories7 else categories30
         }
         val byPkg = HashMap<String, Acc>()
         for (e in events) {
             if (e.at > now || e.at <= since30 || e.packageName.isBlank()) continue
             val acc = byPkg.getOrPut(e.packageName) { Acc() }
             acc.count30++
-            acc.categories += e.record.category
+            acc.categories30 += e.record.category
             if (e.at > since7) {
                 acc.count7++
+                acc.categories7 += e.record.category
                 if (e.record.lockScreenPublic) acc.lockPublic7++
                 if (e.record.importance.urgent) acc.urgent7++
                 if (e.record.silent) acc.silent7++
@@ -83,14 +104,21 @@ object NotifAggregator {
     /** Formats a per-day rate with one decimal, locale-independent. */
     fun formatRate(perDay: Double): String = String.format(Locale.ROOT, "%.1f", perDay)
 
+    /** [observations] with only the two listener flags known. */
+    fun observations(
+        aggregate: NotifAggregate,
+        listenerConnected: Boolean,
+        accessGranted: Boolean,
+        label: (String) -> String? = { null },
+    ): List<Observation> = observations(aggregate, NotifDeviceState(listenerConnected, accessGranted), label)
+
     /**
      * The tunnel's observations: one group per app (capped at [MAX_APPS], noisiest first) and the summary subject.
      * [label] resolves a package to its display name; null falls back to the package name.
      */
     fun observations(
         aggregate: NotifAggregate,
-        listenerConnected: Boolean,
-        accessGranted: Boolean,
+        state: NotifDeviceState,
         label: (String) -> String? = { null },
     ): List<Observation> {
         val t = NotifKeys.TUNNEL_ID
@@ -110,8 +138,11 @@ object NotifAggregator {
             add(NotifKeys.CATEGORIES, NotifKeys.categoriesValue(s.categories))
         }
         val summary = NotifKeys.SUMMARY
-        out += Observation(t, summary, NotifKeys.LISTENER_CONNECTED, listenerConnected.toString())
-        out += Observation(t, summary, NotifKeys.ACCESS_GRANTED, accessGranted.toString())
+        out += Observation(t, summary, NotifKeys.LISTENER_CONNECTED, state.listenerConnected.toString())
+        out += Observation(t, summary, NotifKeys.ACCESS_GRANTED, state.accessGranted.toString())
+        if (state.dropped > 0) out += Observation(t, summary, NotifKeys.LISTENER_DROPPED, state.dropped.toString())
+        state.lockScreenShowsNotifications?.let { out += Observation(t, summary, NotifKeys.LOCKSCREEN_SHOWS, it.toString()) }
+        if (state.eventsTruncated) out += Observation(t, summary, NotifKeys.EVENTS_TRUNCATED, "true")
         out += Observation(t, summary, NotifKeys.TOTAL_7, aggregate.total7.toString())
         out += Observation(t, summary, NotifKeys.TOTAL_30, aggregate.total30.toString())
         out += Observation(t, summary, NotifKeys.APPS_ACTIVE_7, aggregate.appsActive7.toString())

@@ -40,7 +40,7 @@ class NotifAggregatorTest {
         assertEquals(2, chat.lockPublic7)
         assertEquals(0, chat.urgent7)
         assertEquals(1, chat.night7)
-        assertEquals(setOf("msg", "social", ""), chat.categories)
+        assertEquals("categories follow the 7-day window the rules read", setOf("msg", "social"), chat.categories)
         assertEquals(3 / 7.0, chat.perDay7, 1e-9)
         val shop = agg.perPackage[1]
         assertEquals(3, shop.count7)
@@ -114,6 +114,30 @@ class NotifAggregatorTest {
         assertEquals(setOf(NotifKeys.SUMMARY), obs.map { it.subject }.toSet())
         assertEquals("0", NotifKeys.value(obs, NotifKeys.TOTAL_7))
         assertEquals("true", NotifKeys.value(obs, NotifKeys.ACCESS_GRANTED))
+        assertNull("nothing dropped, lock screen unknown, no cap hit: the optional keys stay away", NotifKeys.value(obs, NotifKeys.LISTENER_DROPPED))
+        assertNull(NotifKeys.value(obs, NotifKeys.LOCKSCREEN_SHOWS))
+        assertNull(NotifKeys.value(obs, NotifKeys.EVENTS_TRUNCATED))
+    }
+
+    @Test
+    fun deviceStateBecomesSummaryKeys() {
+        val state = NotifDeviceState(listenerConnected = true, accessGranted = true, dropped = 12, lockScreenShowsNotifications = false, eventsTruncated = true)
+        val obs = NotifAggregator.observations(NotifAggregate.EMPTY, state)
+        assertEquals("12", NotifKeys.value(obs, NotifKeys.LISTENER_DROPPED))
+        assertEquals("false", NotifKeys.value(obs, NotifKeys.LOCKSCREEN_SHOWS))
+        assertEquals("true", NotifKeys.value(obs, NotifKeys.EVENTS_TRUNCATED))
+        assertEquals(12, NotifSummary.from(obs).dropped)
+        val shown = NotifAggregator.observations(NotifAggregate.EMPTY, NotifDeviceState(true, true, lockScreenShowsNotifications = true))
+        assertEquals("true", NotifKeys.value(shown, NotifKeys.LOCKSCREEN_SHOWS))
+        assertEquals(0, NotifSummary.from(shown).dropped)
+    }
+
+    @Test
+    fun quietAppFallsBackToThirtyDayCategories() {
+        val agg = NotifAggregator.aggregate(listOf(ev("com.quiet", 12.0, high), ev("com.quiet", 20.0, publicMsg)), now)
+        val quiet = agg.perPackage.single()
+        assertEquals(0, quiet.count7)
+        assertEquals(setOf("promo", "msg"), quiet.categories)
     }
 
     @Test

@@ -63,6 +63,10 @@ class NotifRecordTest {
         assertEquals("promo", NotifRecord.sanitiseCategory("PROMO"))
         assertEquals("other", NotifRecord.sanitiseCategory("Hi Bob, your code is 1234"))
         assertEquals("other", NotifRecord.sanitiseCategory("a".repeat(25)))
+        assertEquals("a developer-chosen category never reaches the store", "other", NotifRecord.sanitiseCategory("my_custom_channel"))
+        assertEquals("other", NotifRecord.sanitiseCategory("other"))
+        assertEquals(21, NotifRecord.knownCategories.size)
+        assertTrue(NotifRecord.knownCategories.all { NotifRecord.sanitiseCategory(it) == it })
     }
 
     @Test

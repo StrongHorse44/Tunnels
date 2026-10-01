@@ -31,7 +31,10 @@ object NotifKeys {
     const val ONGOING_7 = "notif:ongoing7"
     /** Notifications in the last 7 days posted between 23:00 and 06:00. */
     const val NIGHT_7 = "notif:night7"
-    /** Comma list of notification categories seen in the last 30 days, "none" when every post had no category. */
+    /**
+     * Comma list of notification categories seen in the last 7 days (the last 30 when the app posted nothing this
+     * week), "none" when every post had no category. Same window as the counts the rules read.
+     */
     const val CATEGORIES = "notif:categories"
 
     // Summary subject
@@ -47,6 +50,15 @@ object NotifKeys {
     const val APPS_NOISY = "apps:noisy"
     /** Present only when more apps notified than fit the per-scan cap; value is how many were folded away. */
     const val APPS_OVERFLOW = "apps:overflow"
+    /**
+     * Present only when the listener failed to record posts since its process started (the encrypted store
+     * would not open, or the queue overflowed); value is how many. Counts are low by at least that many.
+     */
+    const val LISTENER_DROPPED = "listener:dropped"
+    /** "false" when the system lock screen hides notifications altogether (Settings > Lock screen), "true" otherwise. */
+    const val LOCKSCREEN_SHOWS = "lockscreen:showsNotifications"
+    /** Present ("true") only when the scan hit its row cap, so the 30-day totals undercount. */
+    const val EVENTS_TRUNCATED = "events:truncated"
 
     const val NO_CATEGORIES = "none"
 

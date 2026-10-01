@@ -73,8 +73,8 @@ fun NotificationsPanel(state: TunnelScreenState) {
                 }
             }
             Text(
-                "Only counts and flags are stored: which app, how often, importance, lock-screen visibility, category. " +
-                    "Notification text never is.",
+                "Only counts and flags are stored: which app, how often and at what hour, importance, lock-screen visibility, " +
+                    "category, ongoing and silent. Notification text never is.",
                 style = MaterialTheme.typography.labelSmall,
                 color = GlassColors.dim,
             )
@@ -86,6 +86,8 @@ fun NotificationsPanel(state: TunnelScreenState) {
 private fun ListenerLine(summary: NotifSummary) {
     val (color, text) = when {
         !summary.accessGranted -> StatusColors.warn to "Notification access not granted"
+        summary.listenerConnected && summary.dropped > 0 ->
+            StatusColors.warn to "Listener connected, ${summary.dropped} post${if (summary.dropped == 1) "" else "s"} not recorded"
         summary.listenerConnected -> StatusColors.ok to "Listener connected and counting"
         else -> StatusColors.warn to "Listener not connected"
     }
@@ -109,7 +111,7 @@ private fun AppRow(app: NotifSummary.TopApp, fraction: Float, color: Color) {
             Spacer(Modifier.width(8.dp))
             Text("${app.count7}", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = GlassColors.dim)
         }
-        Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.08f))) {
+        Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(GlassColors.text.copy(alpha = 0.08f))) {
             Box(Modifier.fillMaxWidth(fraction.coerceIn(0.02f, 1f)).height(4.dp).background(color.copy(alpha = 0.85f)))
         }
     }

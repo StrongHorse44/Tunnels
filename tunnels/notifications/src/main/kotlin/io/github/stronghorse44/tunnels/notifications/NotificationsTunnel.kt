@@ -15,6 +15,7 @@ import io.github.stronghorse44.tunnels.model.ScanProgress
 import io.github.stronghorse44.tunnels.model.SpecialAccess
 import io.github.stronghorse44.tunnels.model.TunnelModule
 import io.github.stronghorse44.tunnels.notifrules.NotifAggregator
+import io.github.stronghorse44.tunnels.notifrules.NotifDeviceState
 import io.github.stronghorse44.tunnels.notifrules.NotifEvent
 import io.github.stronghorse44.tunnels.notifrules.NotifKeys
 import io.github.stronghorse44.tunnels.notifrules.NotifRecord
@@ -64,9 +65,16 @@ class NotificationsTunnel(private val context: Context) : TunnelModule, TunnelUi
         val aggregate = NotifAggregator.aggregate(events, System.currentTimeMillis())
 
         progress.report(2, STEPS, "naming ${aggregate.perPackage.size} apps")
+        val state = NotifDeviceState(
+            listenerConnected = connected,
+            accessGranted = granted,
+            dropped = NotifListenerService.dropped,
+            lockScreenShowsNotifications = lockScreenShowsNotifications(),
+            eventsTruncated = rows.size >= MAX_EVENTS,
+        )
         val pm = context.packageManager
         val labels = HashMap<String, String?>()
-        val observations = NotifAggregator.observations(aggregate, connected, granted) { pkg -> labels.getOrPut(pkg) { labelOf(pm, pkg) } }
+        val observations = NotifAggregator.observations(aggregate, state) { pkg -> labels.getOrPut(pkg) { labelOf(pm, pkg) } }
         progress.report(STEPS, STEPS, "done")
         return observations
     }
@@ -77,8 +85,17 @@ class NotificationsTunnel(private val context: Context) : TunnelModule, TunnelUi
         null // uninstalled since it notified (NameNotFoundException): the package name stands in
     }
 
+    /**
+     * Whether the lock screen shows notifications at all (Settings > Display > Lock screen). A per-user secure
+     * setting readable without any permission; null when this build does not expose it. Missing means the default, on.
+     */
+    private fun lockScreenShowsNotifications(): Boolean? = runCatching {
+        Settings.Secure.getInt(context.contentResolver, LOCK_SCREEN_SHOW_NOTIFICATIONS, 1) != 0
+    }.getOrNull()
+
     override fun actionsFor(draft: FindingDraft): List<FindingAction> {
         if (draft.subject == NotifKeys.SUMMARY) {
+            // LISTENER_DISCONNECTED and LISTENER_DROPPED: toggling access rebinds (and recreates) the service.
             return listOf(
                 FindingAction.OpenSettings(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS, "Notification access"),
                 FindingAction.Perform("Reconnect listener") {
@@ -120,7 +137,12 @@ class NotificationsTunnel(private val context: Context) : TunnelModule, TunnelUi
         const val ACCESS_ID = "notification_access"
         /** The system-wide notification screen (lock screen notifications, DND). `Settings.ACTION_NOTIFICATION_SETTINGS` is not public API. */
         const val ACTION_NOTIFICATION_SETTINGS = "android.settings.NOTIFICATION_SETTINGS"
-        /** Most events a scan reads; at one row per post this covers well over a month of heavy use. */
+        /** `Settings.Secure.LOCK_SCREEN_SHOW_NOTIFICATIONS`, not public API: 1 when the lock screen shows notifications. */
+        const val LOCK_SCREEN_SHOW_NOTIFICATIONS = "lock_screen_show_notifications"
+        /**
+         * Most events a scan reads, newest first; about 670 posts a day fill it in 30 days. Beyond that the scan
+         * says so with [NotifKeys.EVENTS_TRUNCATED] and the 30-day totals undercount (the 7-day ones rarely do).
+         */
         const val MAX_EVENTS = 20_000
         private const val EVENTS_TIMEOUT_MS = 30_000L
         private const val STEPS = 3
