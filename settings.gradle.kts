@@ -19,6 +19,7 @@ rootProject.name = "Tunnels"
 include(
     ":app",
     ":core:model",
+    ":core:metro",
     ":core:engine",
     ":core:archive",
     ":core:install",

@@ -86,12 +86,15 @@ fun MetroHome(onOpenTunnel: (String) -> Unit) {
         store?.events(TunnelCatalog.UNZIP, 1)?.collect { value = it.firstOrNull() }
     }
 
+    val liveIds = runtime?.registry?.modules?.keys.orEmpty()
+    // Live when the catalog says it shipped or its module registered: a stale catalog entry can't hide a built tunnel.
+    fun live(t: TunnelInfo) = t.isLive || t.id in liveIds
+
     fun status(t: TunnelInfo): String = when (t.id) {
         TunnelCatalog.INSTALLER -> lastInstall?.let { "last: ${it.summary}" } ?: "ready"
         TunnelCatalog.UNZIP -> lastUnzip?.let { "last: ${it.subject}" } ?: "ready"
-        else -> if (t.isLive) summaries[t.id]?.label() ?: "ready" else "phase ${t.phase}"
+        else -> if (live(t)) summaries[t.id]?.label() ?: "ready" else t.phase?.let { "phase $it" } ?: "not in this build"
     }
-    val liveIds = runtime?.registry?.modules?.keys.orEmpty()
 
     GlassBackground {
         Column(
@@ -101,13 +104,13 @@ fun MetroHome(onOpenTunnel: (String) -> Unit) {
                 .statusBarsPadding()
                 .padding(horizontal = 14.dp, vertical = 8.dp),
         ) {
-            ConsoleHeader(version, netOn, keyLevel, TunnelCatalog.all.count { it.isLive || it.id in liveIds }, TunnelCatalog.all.count { !(it.isLive || it.id in liveIds) })
+            ConsoleHeader(version, netOn, keyLevel, TunnelCatalog.all.count(::live), TunnelCatalog.all.count { !live(it) })
             Spacer(Modifier.height(14.dp))
             GlassPanel(Modifier.fillMaxWidth()) {
                 MetroMap(
                     status = ::status,
-                    isLive = { t -> t.isLive || t.id in liveIds },
-                    onStation = { t -> if (t.isLive || t.id in liveIds) onOpenTunnel(t.id) else placeholder = t },
+                    isLive = ::live,
+                    onStation = { t -> if (live(t)) onOpenTunnel(t.id) else placeholder = t },
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 20.dp),
                 )
             }
@@ -122,7 +125,8 @@ fun MetroHome(onOpenTunnel: (String) -> Unit) {
             title = { Text(t.title) },
             text = {
                 Text(
-                    "${t.blurb}.\n\nStation under construction on the ${t.line.label} line. Opens in phase ${t.phase}." +
+                    "${t.blurb}.\n\nStation under construction on the ${t.line.label} line. " +
+                        (t.phase?.let { "Opens in phase $it." } ?: "It is not part of this build.") +
                         if (t.line == MetroLine.EXPLORE) "\n\nExplore is curiosity only: nothing here is a security finding." else "",
                     color = GlassColors.dim,
                 )
@@ -142,7 +146,7 @@ private fun ConsoleHeader(version: String, netOn: Boolean, keyLevel: String, liv
             ConsoleLine("build", "v$version")
             ConsoleLine("net", if (netOn) "ON" else "OFF", if (netOn) "[sessions only]" to StatusColors.info else "[ok]" to StatusColors.ok)
             ConsoleLine("store", "SQLCipher", "[$keyLevel]" to StatusColors.info)
-            ConsoleLine("map", "$live live · $planned planned")
+            ConsoleLine("map", if (planned > 0) "$live live · $planned planned" else "$live live")
             Row(verticalAlignment = Alignment.CenterVertically) {
                 BlinkingPrompt()
                 Spacer(Modifier.weight(1f))

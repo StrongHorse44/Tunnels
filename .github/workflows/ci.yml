@@ -58,7 +58,7 @@ jobs:
             git log -1 --format=%B
             echo
             echo "---"
-            echo "Debug build #$N of \`$short\` from \`$GITHUB_REF_NAME\`. Installs as \"Tunnels (debug)\" and updates over earlier debug builds."
+            echo "Debug build #$N of \`$short\` from \`$GITHUB_REF_NAME\`. Installs as \"Tunnels\" (package \`io.github.stronghorse44.tunnels.debug\`) and updates over earlier debug builds."
           } > notes.md
           gh release create "debug-$N" "$apk" --prerelease --target "$GITHUB_SHA" \
             --title "Debug build #$N ($short)" --notes-file notes.md

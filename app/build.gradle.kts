@@ -104,6 +104,7 @@ tasks.matching { it.name == "check" }.configureEach { dependsOn(verifyPermission
 
 dependencies {
     implementation(project(":core:common"))
+    implementation(project(":core:metro"))
     implementation(project(":core:store"))
     implementation(project(":core:runtime"))
     implementation(project(":tunnels:installer"))
