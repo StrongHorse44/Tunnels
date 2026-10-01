@@ -71,7 +71,7 @@ fun ApkSummaryPanel(state: TunnelScreenState) {
             SectionLabel("By category · apps")
             val catMax = stats.perCategory.firstOrNull()?.second?.coerceAtLeast(1) ?: 1
             stats.perCategory.forEach { (category, apps) ->
-                BarRow(title = category.label, subtitle = null, count = apps, fraction = apps.toFloat() / catMax, color = Color.White.copy(alpha = 0.6f))
+                BarRow(title = category.label, subtitle = null, count = apps, fraction = apps.toFloat() / catMax, color = GlassColors.text.copy(alpha = 0.6f))
             }
         }
     }
@@ -93,7 +93,7 @@ private fun BarRow(title: String, subtitle: String?, count: Int, fraction: Float
             }
             Text("$count", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = color)
         }
-        Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.08f))) {
+        Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(GlassColors.text.copy(alpha = 0.08f))) {
             Box(Modifier.fillMaxWidth(fraction.coerceIn(0.02f, 1f)).height(4.dp).background(color.copy(alpha = 0.85f)))
         }
     }

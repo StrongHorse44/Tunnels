@@ -106,7 +106,7 @@ class ApkExcavationTunnel(private val context: Context) : TunnelModule, TunnelUi
             app?.sourceDir?.let { add(File(it)) }
             app?.splitSourceDirs?.forEach { add(File(it)) }
         }.filter { it.isFile }
-        val contents = if (files.isEmpty()) ApkContents.EMPTY else ApkContents.read(files, matcher)
+        val contents = ApkContents.read(files, matcher)
         cache[pkg] = CachedContents(lastUpdateTime, contents)
         return contents
     }

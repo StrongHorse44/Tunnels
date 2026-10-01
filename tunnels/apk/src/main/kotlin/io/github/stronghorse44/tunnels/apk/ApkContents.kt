@@ -35,6 +35,8 @@ data class ApkContents(
         const val SKIPPED_TOO_LARGE = "dex too large"
         const val SKIPPED_TOO_MANY = "too many dex bytes"
         const val SKIPPED_NO_MEMORY = "not enough memory"
+        /** No dex could be read at all: the APK files were missing, not zips, or held no valid dex. */
+        const val SKIPPED_UNREADABLE = "unreadable"
 
         private val DEX_NAME = Regex("classes\\d*\\.dex")
         private val LIB_NAME = Regex("lib/([^/]+)/[^/]+\\.so")
@@ -95,6 +97,8 @@ data class ApkContents(
                     }
                 }
             }
+            // Nothing read and something broken: say so, or the app would look clean with sdk:count = 0.
+            if (skipped == null && dexRead == 0 && (dexInvalid > 0 || apks.isEmpty())) skipped = SKIPPED_UNREADABLE
             return ApkContents(dexFiles, dexRead, dexInvalid, skipped, hits, abis, libs, bytes)
         }
     }
