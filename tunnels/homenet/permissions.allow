@@ -1,1 +1,11 @@
 # Permissions the homenet module may declare, one per line. CI fails on anything else.
+# Local-network sockets (mDNS/SSDP discovery, TCP connect scan, router probes) during a user-started scan only.
+android.permission.INTERNET
+# Which network is active and its gateway/DNS (LinkProperties).
+android.permission.ACCESS_NETWORK_STATE
+# The current Wi-Fi connection (SSID for the own-network gate, DHCP gateway fallback).
+android.permission.ACCESS_WIFI_STATE
+# MulticastLock so SSDP answers are not filtered by the Wi-Fi chip.
+android.permission.CHANGE_WIFI_MULTICAST_STATE
+# Runtime permission, requested when the tunnel opens, declared neverForLocation.
+android.permission.NEARBY_WIFI_DEVICES
