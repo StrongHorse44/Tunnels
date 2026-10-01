@@ -161,7 +161,7 @@ private fun AppList(observations: List<Observation>) {
     val labels = remember(rows) { mutableMapOf<String, String>() }
     val pm = context.packageManager
     fun label(subject: String): String = labels.getOrPut(subject) {
-        if (!TrafficKeys.isPackageSubject(subject)) subject
+        if (!TrafficKeys.isPackageSubject(subject)) TrafficKeys.systemUidLabel(subject) ?: subject
         else runCatching { pm.getApplicationInfo(subject, 0).loadLabel(pm).toString() }.getOrNull()?.takeIf { it.isNotBlank() } ?: subject
     }
 

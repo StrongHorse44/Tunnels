@@ -173,6 +173,13 @@ object TrackerDomains {
         r("datadoghq.com", TrackerKind.TELEMETRY, "Datadog"),
         r("datadoghq.eu", TrackerKind.TELEMETRY, "Datadog"),
         r("browser-intake-datadoghq.com", TrackerKind.TELEMETRY, "Datadog"),
+        // Datadog RUM regional intake sites are separate registrable domains.
+        r("browser-intake-us3-datadoghq.com", TrackerKind.TELEMETRY, "Datadog"),
+        r("browser-intake-us5-datadoghq.com", TrackerKind.TELEMETRY, "Datadog"),
+        r("browser-intake-ap1-datadoghq.com", TrackerKind.TELEMETRY, "Datadog"),
+        r("browser-intake-ddog-gov.com", TrackerKind.TELEMETRY, "Datadog"),
+        r("siftscience.com", TrackerKind.TELEMETRY, "Sift (device fingerprinting)"),
+        r("sift.com", TrackerKind.TELEMETRY, "Sift (device fingerprinting)"),
         r("dynatrace.com", TrackerKind.TELEMETRY, "Dynatrace"),
         r("instana.io", TrackerKind.TELEMETRY, "Instana"),
         r("appdynamics.com", TrackerKind.TELEMETRY, "AppDynamics"),

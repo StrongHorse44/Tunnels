@@ -38,6 +38,26 @@ object TrafficKeys {
 
     const val TOP_MAX = 5
 
+    /**
+     * Readable name for a `uid:<n>` subject that is a well-known Android system uid (AIDs from
+     * system/core), else null. Lookups from these come from the OS, not from an app.
+     */
+    fun systemUidLabel(subject: String): String? {
+        if (!subject.startsWith(UID_PREFIX)) return null
+        return when (subject.removePrefix(UID_PREFIX).toIntOrNull()) {
+            0 -> "Kernel / root (system)"
+            1000 -> "Android system"
+            1001 -> "Telephony (radio)"
+            1002 -> "Bluetooth"
+            1010 -> "Wi-Fi service"
+            1013 -> "Media server"
+            1021 -> "GPS / PSDS (satellite data)"
+            1051 -> "System DNS resolver (netd)"
+            1073 -> "Network stack"
+            else -> null
+        }
+    }
+
     fun isPackageSubject(subject: String): Boolean =
         subject != SUMMARY && subject != UNKNOWN_SUBJECT && subject != OTHER_SUBJECT && !subject.startsWith(UID_PREFIX)
 
