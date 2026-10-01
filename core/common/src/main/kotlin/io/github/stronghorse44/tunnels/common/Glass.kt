@@ -6,7 +6,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -74,6 +76,8 @@ fun GlassBackground(modifier: Modifier = Modifier, content: @Composable BoxScope
                 glow(Color(0xFF8B5CF6), 0.95f, 0.42f, 0.8f, 0.18f)
                 glow(Color(0xFFF59E0B), 0.15f, 0.88f, 0.75f, 0.10f)
             },
-        content = content,
-    )
+    ) {
+        // Glass screens have no Surface, so give text a light default instead of black.
+        CompositionLocalProvider(LocalContentColor provides GlassColors.text) { content() }
+    }
 }

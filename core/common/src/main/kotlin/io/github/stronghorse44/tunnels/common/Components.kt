@@ -71,6 +71,7 @@ fun TunnelScaffold(
                 }
             },
             containerColor = Color.Transparent,
+            contentColor = GlassColors.text,
             modifier = Modifier.fillMaxSize(),
         ) { padding -> content(padding) }
     }
