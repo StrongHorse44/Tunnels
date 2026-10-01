@@ -1,5 +1,11 @@
 package io.github.stronghorse44.tunnels.unzip
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -113,7 +119,10 @@ fun UnzipScreen(vm: UnzipViewModel, onBack: () -> Unit) {
                 is UnzipState.Done -> {
                     Spacer(Modifier.height(24.dp))
                     Text("Extracted", style = MaterialTheme.typography.titleLarge, color = StatusColors.ok)
-                    Text("${s.result.files} files · ${formatBytes(s.result.bytes)} into folder \"${s.folder}\"")
+                    Text("${s.result.files} ${if (s.result.files == 1) "file" else "files"} · ${formatBytes(s.result.bytes)}")
+                    Spacer(Modifier.height(8.dp))
+                    Text("Saved to", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(s.location, style = MaterialTheme.typography.bodyLarge)
                     if (s.result.skipped.isNotEmpty()) {
                         Spacer(Modifier.height(12.dp))
                         Text("Skipped ${s.result.skipped.size} for safety:", color = StatusColors.warn)
@@ -123,7 +132,8 @@ fun UnzipScreen(vm: UnzipViewModel, onBack: () -> Unit) {
                     }
                     Spacer(Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = vm::backToListing) { Text("Back to contents") }
+                        Button(onClick = { openFolder(context, s.folderUri) }) { Text("Open folder") }
+                        OutlinedButton(onClick = vm::backToListing) { Text("Back") }
                         TextButton(onClick = onBack) { Text("Done") }
                     }
                 }
@@ -239,5 +249,17 @@ private fun Busy(message: String) {
         CircularProgressIndicator()
         Spacer(Modifier.height(12.dp))
         Text(message)
+    }
+}
+
+/** Shows an extracted folder in the system Files app. */
+private fun openFolder(context: Context, folder: Uri) {
+    val intent = Intent(Intent.ACTION_VIEW)
+        .setDataAndType(folder, DocumentsContract.Document.MIME_TYPE_DIR)
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    try {
+        context.startActivity(intent)
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(context, "Open the Files app to find it.", Toast.LENGTH_LONG).show()
     }
 }

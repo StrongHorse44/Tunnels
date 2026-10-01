@@ -162,3 +162,17 @@ class ArchiveTest {
         }
     }
 }
+
+class ArchiveLayoutTest {
+    private fun e(path: String, dir: Boolean = path.endsWith("/")) = ArchiveEntry(0, path, dir, false, 1, 1, false)
+
+    @org.junit.Test
+    fun detectsSingleRootFolder() {
+        org.junit.Assert.assertEquals("pusher", ArchiveLayout.singleRoot(listOf(e("pusher/"), e("pusher/a.py"), e("pusher/static/i.html"))))
+        org.junit.Assert.assertEquals("pusher", ArchiveLayout.singleRoot(listOf(e("pusher/a.py"), e("./pusher/b.py"))))
+        org.junit.Assert.assertEquals(null, ArchiveLayout.singleRoot(listOf(e("pusher/a.py"), e("readme.txt"))))
+        org.junit.Assert.assertEquals(null, ArchiveLayout.singleRoot(listOf(e("a/x"), e("b/y"))))
+        org.junit.Assert.assertEquals(null, ArchiveLayout.singleRoot(listOf(e("only.txt"))))
+        org.junit.Assert.assertEquals(null, ArchiveLayout.singleRoot(listOf(e("empty/"))))
+    }
+}

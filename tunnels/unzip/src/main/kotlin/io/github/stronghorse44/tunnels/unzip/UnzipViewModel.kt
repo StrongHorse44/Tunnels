@@ -2,6 +2,7 @@ package io.github.stronghorse44.tunnels.unzip
 
 import android.app.Application
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -9,10 +10,12 @@ import io.github.stronghorse44.tunnels.archive.ArchiveEntry
 import io.github.stronghorse44.tunnels.archive.ArchiveError
 import io.github.stronghorse44.tunnels.archive.ArchiveException
 import io.github.stronghorse44.tunnels.archive.ArchiveFormat
+import io.github.stronghorse44.tunnels.archive.ArchiveLayout
 import io.github.stronghorse44.tunnels.archive.Archives
 import io.github.stronghorse44.tunnels.archive.DirectorySink
 import io.github.stronghorse44.tunnels.archive.ExtractResult
 import io.github.stronghorse44.tunnels.archive.SafePath
+import io.github.stronghorse44.tunnels.archive.StripFirstSegmentSink
 import io.github.stronghorse44.tunnels.common.StagedFile
 import io.github.stronghorse44.tunnels.common.Staging
 import io.github.stronghorse44.tunnels.install.Bundles
@@ -41,7 +44,8 @@ sealed interface UnzipState {
         val shape: PackageShape,
     ) : UnzipState
     data class Extracting(val name: String, val bytesDone: Long, val bytesTotal: Long, val current: String) : UnzipState
-    data class Done(val name: String, val folder: String, val result: ExtractResult) : UnzipState
+    /** [location] is a readable path like "Download/pusher"; [folderUri] opens it in Files. */
+    data class Done(val name: String, val location: String, val folderUri: Uri, val result: ExtractResult) : UnzipState
     data class Failed(val title: String, val detail: String) : UnzipState
 }
 
@@ -118,15 +122,18 @@ class UnzipViewModel(private val app: Application) : AndroidViewModel(app) {
             return
         }
         job = viewModelScope.launch {
-            val folderName = baseName(listing.name)
+            // An archive whose contents already sit in one folder gets that folder, not a second wrapper.
+            val singleRoot = ArchiveLayout.singleRoot(listing.entries.filter { it.index in listing.selected })
+            val folderName = singleRoot ?: baseName(listing.name)
             _state.value = UnzipState.Extracting(listing.name, 0, -1, "")
             try {
-                val result = withContext(Dispatchers.IO) {
+                val (root, result) = withContext(Dispatchers.IO) {
                     val root = DocumentFile.fromTreeUri(app, tree)?.createDirectory(folderName)
                         ?: throw ArchiveException(ArchiveError.Corrupt("Couldn't create a folder there. Pick another location."))
-                    val sink = DocumentTreeSink(app.contentResolver, root)
+                    val treeSink = DocumentTreeSink(app.contentResolver, root)
+                    val sink = if (singleRoot != null) StripFirstSegmentSink(treeSink) else treeSink
                     var lastEmit = 0L
-                    Archives.open(file.file, file.displayName, password).use { reader ->
+                    root to Archives.open(file.file, file.displayName, password).use { reader ->
                         reader.extract(
                             selection = listing.selected,
                             sink = sink,
@@ -142,7 +149,7 @@ class UnzipViewModel(private val app: Application) : AndroidViewModel(app) {
                     }
                 }
                 pendingTree = null
-                _state.value = UnzipState.Done(listing.name, folderName, result)
+                _state.value = UnzipState.Done(listing.name, describeLocation(tree, root.name ?: folderName), root.uri, result)
             } catch (e: CancellationException) {
                 _state.value = UnzipState.Failed("Cancelled", "Files extracted so far were kept.")
                 throw e
@@ -211,6 +218,13 @@ class UnzipViewModel(private val app: Application) : AndroidViewModel(app) {
     override fun onCleared() = release()
 
     companion object {
+        /** "primary:Download/Stuff" + "pusher" -> "Download/Stuff/pusher". */
+        fun describeLocation(tree: Uri, folder: String): String {
+            val base = runCatching { DocumentsContract.getTreeDocumentId(tree) }.getOrNull()
+                ?.substringAfter(':')?.trim('/').orEmpty()
+            return if (base.isEmpty()) folder else "$base/$folder"
+        }
+
         private val suffixes = listOf(".tar.gz", ".tar.xz", ".tar.bz2", ".tgz", ".txz", ".tbz2", ".zip", ".7z", ".tar", ".gz", ".xz", ".bz2", ".apks", ".xapk", ".apkm")
 
         fun baseName(name: String): String {
