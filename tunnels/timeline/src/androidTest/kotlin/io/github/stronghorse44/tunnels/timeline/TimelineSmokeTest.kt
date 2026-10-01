@@ -60,6 +60,8 @@ class TimelineSmokeTest {
         if (!granted) {
             assertTrue("no per-app data without usage access", apps.isEmpty())
             assertEquals(summary.size, obs.size)
+            // Without access the summary is deterministic, so a second scan must describe the same world.
+            assertEquals(obs.toSet(), module.scan(ScanProgress.NONE).toSet())
         } else {
             assertEquals(TimelineKeys.longValue(summary, TimelineKeys.APPS_TOTAL)!!.toInt(), apps.size)
             assertTrue(apps.containsKey("android"))
