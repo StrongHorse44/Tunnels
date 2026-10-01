@@ -11,3 +11,7 @@ keystore.properties
 
 # Public debug key, committed on purpose so CI debug builds update over each other.
 !app/debug.keystore
+scripts/jvm-check/build/
+scripts/jvm-check/out/
+scripts/jvm-check/run.log
+scripts/jvm-check/.gradle/

@@ -1,0 +1,1 @@
+# Permissions the apk module may declare, one per line. CI fails on anything else.

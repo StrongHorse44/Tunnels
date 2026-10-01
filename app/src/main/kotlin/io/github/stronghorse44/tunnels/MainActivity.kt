@@ -8,6 +8,7 @@ import androidx.activity.enableEdgeToEdge
 import io.github.stronghorse44.tunnels.common.TunnelsTheme
 import io.github.stronghorse44.tunnels.installer.InstallActivity
 import io.github.stronghorse44.tunnels.model.TunnelCatalog
+import io.github.stronghorse44.tunnels.runtime.TunnelActivity
 import io.github.stronghorse44.tunnels.unzip.UnzipActivity
 
 class MainActivity : ComponentActivity() {
@@ -20,6 +21,7 @@ class MainActivity : ComponentActivity() {
                     when (id) {
                         TunnelCatalog.INSTALLER -> startActivity(Intent(this, InstallActivity::class.java))
                         TunnelCatalog.UNZIP -> startActivity(Intent(this, UnzipActivity::class.java))
+                        else -> startActivity(TunnelActivity.intent(this, id))
                     }
                 })
             }

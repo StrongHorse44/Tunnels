@@ -47,9 +47,8 @@ import io.github.stronghorse44.tunnels.model.MetroLine
 import io.github.stronghorse44.tunnels.model.TunnelCatalog
 import io.github.stronghorse44.tunnels.model.TunnelInfo
 import io.github.stronghorse44.tunnels.store.EventEntity
-import io.github.stronghorse44.tunnels.store.TunnelsStore
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import io.github.stronghorse44.tunnels.runtime.TunnelSummary
+import io.github.stronghorse44.tunnels.runtime.TunnelsRuntime
 
 private val Mono = FontFamily.Monospace
 
@@ -60,8 +59,12 @@ fun MetroHome(onOpenTunnel: (String) -> Unit) {
     var placeholder by remember { mutableStateOf<TunnelInfo?>(null) }
     val offline = remember { declaresNoInternet(context) }
     val version = remember { versionName(context) }
-    val store by produceState<TunnelsStore?>(null) {
-        value = withContext(Dispatchers.IO) { runCatching { TunnelsStore.get(context) }.getOrNull() }
+    val runtime by produceState<TunnelsRuntime?>(null) {
+        value = runCatching { TunnelsRuntime.get(context) }.getOrNull()
+    }
+    val store = runtime?.store
+    val summaries by produceState<Map<String, TunnelSummary>>(emptyMap(), store) {
+        store?.dao?.findingCounts()?.collect { value = TunnelSummary.from(it) }
     }
     val keyLevel by produceState("…", store) {
         if (store != null) value = withContext(Dispatchers.IO) { TunnelsStore.keySecurityLevel() }
@@ -76,8 +79,9 @@ fun MetroHome(onOpenTunnel: (String) -> Unit) {
     fun status(t: TunnelInfo): String = when (t.id) {
         TunnelCatalog.INSTALLER -> lastInstall?.let { "last: ${it.summary}" } ?: "ready"
         TunnelCatalog.UNZIP -> lastUnzip?.let { "last: ${it.subject}" } ?: "ready"
-        else -> "phase ${t.phase}"
+        else -> if (t.isLive) summaries[t.id]?.label() ?: "ready" else "phase ${t.phase}"
     }
+    val liveIds = runtime?.registry?.modules?.keys.orEmpty()
 
     GlassBackground {
         Column(
@@ -87,12 +91,13 @@ fun MetroHome(onOpenTunnel: (String) -> Unit) {
                 .statusBarsPadding()
                 .padding(horizontal = 14.dp, vertical = 8.dp),
         ) {
-            ConsoleHeader(version, offline, keyLevel, TunnelCatalog.all.count { it.isLive }, TunnelCatalog.all.count { !it.isLive })
+            ConsoleHeader(version, offline, keyLevel, TunnelCatalog.all.count { it.isLive || it.id in liveIds }, TunnelCatalog.all.count { !(it.isLive || it.id in liveIds) })
             Spacer(Modifier.height(14.dp))
             GlassPanel(Modifier.fillMaxWidth()) {
                 MetroMap(
                     status = ::status,
-                    onStation = { t -> if (t.isLive) onOpenTunnel(t.id) else placeholder = t },
+                    isLive = { t -> t.isLive || t.id in liveIds },
+                    onStation = { t -> if (t.isLive || t.id in liveIds) onOpenTunnel(t.id) else placeholder = t },
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 20.dp),
                 )
             }

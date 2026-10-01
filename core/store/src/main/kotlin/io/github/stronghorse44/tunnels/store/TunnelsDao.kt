@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 abstract class TunnelsDao {
+    // Snapshots and observations
+
     @Insert
     abstract suspend fun insertSnapshot(snapshot: SnapshotEntity): Long
 
@@ -18,8 +20,26 @@ abstract class TunnelsDao {
     @Query("SELECT * FROM snapshots ORDER BY taken_at DESC, id DESC")
     abstract suspend fun snapshots(): List<SnapshotEntity>
 
+    @Query("SELECT * FROM snapshots ORDER BY taken_at DESC, id DESC")
+    abstract fun snapshotsFlow(): Flow<List<SnapshotEntity>>
+
+    @Query("SELECT * FROM snapshots WHERE id = :id")
+    abstract suspend fun snapshot(id: Long): SnapshotEntity?
+
     @Query("SELECT * FROM observations WHERE snapshot_id = :snapshotId")
     abstract suspend fun observations(snapshotId: Long): List<ObservationEntity>
+
+    @Query("SELECT * FROM observations WHERE snapshot_id = :snapshotId AND tunnel_id = :tunnelId")
+    abstract suspend fun observations(snapshotId: Long, tunnelId: String): List<ObservationEntity>
+
+    /** The newest snapshot (before [before], if given) that holds observations for [tunnelId]. */
+    @Query(
+        "SELECT MAX(snapshot_id) FROM observations WHERE tunnel_id = :tunnelId AND (:before IS NULL OR snapshot_id < :before)",
+    )
+    abstract suspend fun latestSnapshotIdFor(tunnelId: String, before: Long? = null): Long?
+
+    @Query("SELECT DISTINCT tunnel_id FROM observations WHERE snapshot_id = :snapshotId")
+    abstract suspend fun tunnelsIn(snapshotId: Long): List<String>
 
     @Query("UPDATE snapshots SET pinned = :pinned WHERE id = :id")
     abstract suspend fun setPinned(id: Long, pinned: Boolean)
@@ -36,11 +56,36 @@ abstract class TunnelsDao {
         deleteSnapshotRows(ids)
     }
 
+    // Findings
+
     @Upsert
     abstract suspend fun upsertFindings(findings: List<FindingEntity>)
 
     @Query("SELECT * FROM findings")
     abstract suspend fun findings(): List<FindingEntity>
+
+    @Query("SELECT * FROM findings WHERE tunnel_id = :tunnelId")
+    abstract suspend fun findingsFor(tunnelId: String): List<FindingEntity>
+
+    @Query("SELECT * FROM findings WHERE tunnel_id = :tunnelId AND dismissed = 0 ORDER BY severity DESC, last_seen DESC")
+    abstract fun findingsFlow(tunnelId: String): Flow<List<FindingEntity>>
+
+    @Query("SELECT * FROM findings WHERE dismissed = 0 ORDER BY last_seen DESC")
+    abstract fun allFindingsFlow(): Flow<List<FindingEntity>>
+
+    @Query("SELECT tunnel_id, severity, COUNT(*) AS count FROM findings WHERE dismissed = 0 GROUP BY tunnel_id, severity")
+    abstract fun findingCounts(): Flow<List<SeverityCount>>
+
+    @Query("DELETE FROM findings WHERE id IN (:ids)")
+    abstract suspend fun deleteFindings(ids: List<String>)
+
+    @Query("UPDATE findings SET dismissed = 1 WHERE id = :id")
+    abstract suspend fun dismissFinding(id: String)
+
+    @Query("DELETE FROM findings WHERE sticky = 1 AND last_seen <= :cutoff")
+    abstract suspend fun deleteStickyFindingsLastSeenBefore(cutoff: Long)
+
+    // Events
 
     @Insert
     abstract suspend fun insertEvent(event: EventEntity)

@@ -1,9 +1,12 @@
 name: CI
 
+# Full build of the integration branch and main: everything compiles, every unit test passes,
+# permissions are allowed, the app launches on an emulator, and a numbered debug build is published.
 on:
   push:
-    branches: ["**"]
+    branches: ["ccr-dff99af5-ij1rle", "main"]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -25,14 +28,14 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Unit tests, no-INTERNET check, debug build
+      - name: Unit tests, permission checks, debug build
         run: >
-          ./gradlew --no-daemon test verifyNoInternet assembleDebug
+          ./gradlew --no-daemon test verifyPermissions assembleDebug
           -Ptunnels.versionCode=${{ github.run_number }}
           -Ptunnels.versionName=0.1.0-dev.${{ github.run_number }}
 
       - name: Check built APK permissions
-        run: scripts/check-apk-permissions.sh app/build/outputs/apk/debug/app-debug.apk
+        run: scripts/check-apk-permissions.sh app/build/outputs/apk/debug/app-debug.apk debug
 
       - uses: actions/upload-artifact@v4
         with:
@@ -43,7 +46,7 @@ jobs:
       # One prerelease per build, newest first, with a plain .apk you can tap on the phone
       # (Actions artifacts always arrive zipped). Keeps the newest 10.
       - name: Publish debug build
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref_name != 'main'
         env:
           GH_TOKEN: ${{ github.token }}
           N: ${{ github.run_number }}
@@ -63,3 +66,36 @@ jobs:
           gh release list --limit 100 --json tagName --jq '.[].tagName' \
             | grep -E '^debug-[0-9]+$' | sort -t- -k2 -n -r | tail -n +11 \
             | xargs -r -I{} gh release delete {} --yes --cleanup-tag
+
+  smoke:
+    name: App smoke test (emulator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Launch the app on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: ./gradlew --no-daemon :app:connectedDebugAndroidTest :core:runtime:connectedDebugAndroidTest
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: app-smoke-reports
+          path: app/build/reports/androidTests/
+          retention-days: 7

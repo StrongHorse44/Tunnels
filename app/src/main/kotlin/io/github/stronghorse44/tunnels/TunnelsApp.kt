@@ -2,7 +2,7 @@ package io.github.stronghorse44.tunnels
 
 import android.app.Application
 import io.github.stronghorse44.tunnels.common.Staging
-import io.github.stronghorse44.tunnels.store.TunnelsStore
+import io.github.stronghorse44.tunnels.runtime.TunnelsRuntime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -15,7 +15,7 @@ class TunnelsApp : Application() {
         super.onCreate()
         scope.launch {
             Staging.clearStale(this@TunnelsApp)
-            runCatching { TunnelsStore.get(this@TunnelsApp).maintain() }
+            runCatching { TunnelsRuntime.get(this@TunnelsApp).store.maintain() }
         }
     }
 }

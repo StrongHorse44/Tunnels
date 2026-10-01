@@ -1,0 +1,1 @@
+# Permissions the hardening module may declare, one per line. CI fails on anything else.

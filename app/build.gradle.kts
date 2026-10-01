@@ -6,30 +6,6 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-/** Fails the build if the merged manifest asks for any forbidden permission. Hard rule #1. */
-abstract class VerifyNoInternetTask : DefaultTask() {
-    @get:InputFile
-    @get:PathSensitive(PathSensitivity.NONE)
-    abstract val mergedManifest: RegularFileProperty
-
-    @get:OutputFile
-    abstract val report: RegularFileProperty
-
-    @TaskAction
-    fun verify() {
-        val forbidden = setOf("android.permission.INTERNET")
-        val manifest = mergedManifest.get().asFile.readText()
-        val declared = Regex("""<uses-permission(?:-sdk-23)?\b[^>]*?android:name\s*=\s*"([^"]+)"""")
-            .findAll(manifest).map { it.groupValues[1] }.toSet()
-        val hits = declared intersect forbidden
-        if (hits.isNotEmpty()) {
-            throw GradleException("Merged manifest declares forbidden permission(s): ${hits.joinToString()}. Tunnels must stay offline.")
-        }
-        report.get().asFile.writeText(declared.sorted().joinToString("\n", postfix = "\n"))
-        logger.lifecycle("No INTERNET permission. Declared: ${declared.sorted().joinToString()}")
-    }
-}
-
 val versionCodeProp = (findProperty("tunnels.versionCode") as String?)?.toInt() ?: 1
 val versionNameProp = (findProperty("tunnels.versionName") as String?) ?: "0.1.0-dev"
 val keystorePath: String? = System.getenv("TUNNELS_KEYSTORE")
@@ -44,6 +20,7 @@ android {
         targetSdk = 36
         versionCode = versionCodeProp
         versionName = versionNameProp
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
@@ -99,28 +76,50 @@ kotlin {
     compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
 }
 
-val verifyNoInternet = tasks.register("verifyNoInternet") {
+val verifyPermissions = tasks.register("verifyPermissions") {
     group = "verification"
-    description = "Checks every variant's merged manifest for forbidden permissions."
+    description = "Checks every variant's merged manifest against the union of module permissions.allow files."
 }
 
 androidComponents {
     onVariants { variant ->
         val cap = variant.name.replaceFirstChar { it.uppercase() }
-        val task = tasks.register<VerifyNoInternetTask>("verifyNoInternet$cap") {
+        val task = tasks.register<VerifyAppPermissionsTask>("verifyPermissions$cap") {
             mergedManifest.set(variant.artifacts.get(SingleArtifact.MERGED_MANIFEST))
-            report.set(layout.buildDirectory.file("reports/permissions/${variant.name}.txt"))
+            allowFiles.from(rootProject.fileTree(rootDir) { include("tunnels/*/permissions.allow", "core/*/permissions.allow", "app/permissions.allow") })
+            applicationId.set(variant.applicationId)
+            unionFile.set(layout.buildDirectory.file("reports/permissions/allowed-${variant.name}.txt"))
         }
-        verifyNoInternet.configure { dependsOn(task) }
+        verifyPermissions.configure { dependsOn(task) }
         tasks.matching { it.name == "assemble$cap" }.configureEach { dependsOn(task) }
     }
 }
 
-tasks.matching { it.name == "check" }.configureEach { dependsOn(verifyNoInternet) }
+tasks.matching { it.name == "check" }.configureEach { dependsOn(verifyPermissions) }
 
 dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:store"))
+    implementation(project(":core:runtime"))
     implementation(project(":tunnels:installer"))
     implementation(project(":tunnels:unzip"))
+    implementation(project(":tunnels:permissions"))
+    implementation(project(":tunnels:apk"))
+    implementation(project(":tunnels:hardening"))
+    implementation(project(":tunnels:doors"))
+    implementation(project(":tunnels:truststore"))
+    implementation(project(":tunnels:syspackages"))
+    implementation(project(":tunnels:silicon"))
+    implementation(project(":tunnels:explore"))
+    implementation(project(":tunnels:snapshots"))
+    implementation(project(":tunnels:timeline"))
+    implementation(project(":tunnels:notifications"))
+    implementation(project(":tunnels:traffic"))
+    implementation(project(":tunnels:surroundings"))
+    implementation(project(":tunnels:homenet"))
+    implementation(project(":tunnels:deepmode"))
+
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.junit)
+    androidTestImplementation(libs.androidx.test.core)
 }
