@@ -6,5 +6,5 @@ import io.github.stronghorse44.tunnels.runtime.TunnelProvider
 
 /** Registers this module's tunnels (surroundings). Discovered through META-INF/services. */
 class SurroundingsTunnels : TunnelProvider {
-    override fun create(context: Context): List<TunnelModule> = emptyList()
+    override fun create(context: Context): List<TunnelModule> = listOf(SurroundingsTunnel(context.applicationContext))
 }

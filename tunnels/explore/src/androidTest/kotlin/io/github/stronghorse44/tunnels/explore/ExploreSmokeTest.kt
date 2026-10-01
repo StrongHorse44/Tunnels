@@ -25,7 +25,7 @@ class ExploreSmokeTest {
 
     @Test
     fun providerRegistersSensorsAndCameras() {
-        val modules = ExploreTunnels().create(context)
+        val modules = ExploreTunnels().create(context).filter { it.id == Sensors.TUNNEL_ID || it.id == Cameras.TUNNEL_ID }
         assertEquals(listOf(Sensors.TUNNEL_ID, Cameras.TUNNEL_ID), modules.map { it.id })
         for (m in modules) {
             assertTrue(m.id, m.requiredPermissions.isEmpty())

@@ -6,11 +6,13 @@ import io.github.stronghorse44.tunnels.runtime.TunnelProvider
 
 /**
  * Registers this module's tunnels. Discovered through META-INF/services. Phase 1 ships sensors and
- * cameras; satellites and radio (phase 4) are one more line each here.
+ * cameras; phase 4 adds satellites and radio.
  */
 class ExploreTunnels : TunnelProvider {
     override fun create(context: Context): List<TunnelModule> = listOf(
         SensorsTunnel(context),
         CamerasTunnel(context),
+        SatellitesTunnel(context),
+        RadioTunnel(context),
     )
 }
