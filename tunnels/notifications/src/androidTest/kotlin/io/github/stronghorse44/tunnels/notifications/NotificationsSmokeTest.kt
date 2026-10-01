@@ -12,6 +12,7 @@ import io.github.stronghorse44.tunnels.model.Severity
 import io.github.stronghorse44.tunnels.notifrules.NotifKeys
 import io.github.stronghorse44.tunnels.notifrules.NotifRecord
 import io.github.stronghorse44.tunnels.notifrules.NotifRules
+import io.github.stronghorse44.tunnels.runtime.TunnelUi
 import io.github.stronghorse44.tunnels.store.TunnelsStore
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -33,6 +34,7 @@ class NotificationsSmokeTest {
         assertEquals(NotifKeys.TUNNEL_ID, module.id)
         assertTrue(module.requiredPermissions.isEmpty())
         assertEquals(NotifRules.all.size, module.rules.size)
+        assertTrue("the tunnel draws its own summary panel", module is TunnelUi && module.showObservations)
         val access = module.specialAccess.single()
         assertEquals(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS, access.settingsAction)
         assertFalse("a stock emulator has not granted notification access", access.isGranted())
