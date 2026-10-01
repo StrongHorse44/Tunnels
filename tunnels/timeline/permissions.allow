@@ -1,1 +1,3 @@
 # Permissions the timeline module may declare, one per line. CI fails on anything else.
+# Usage access: which apps were in the foreground and how much data each uid moved. Granted from Settings, never a dialog.
+android.permission.PACKAGE_USAGE_STATS
