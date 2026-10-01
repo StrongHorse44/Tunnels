@@ -5,8 +5,8 @@ layer is a *tunnel*; every security finding comes with an action. Home screen: a
 clickable glass metro map, one line per tunnel group.
 
 **No network egress by design.** CI fails the build if any module declares a permission outside its own
-`permissions.allow`, and `android.permission.INTERNET` is allowed in exactly two modules (Traffic and
-Home network), used only during sessions you start. The built APK is audited again with `aapt2`.
+`permissions.allow`, and `android.permission.INTERNET` is allowed in exactly three modules (Traffic, Home
+network and the updater), used only during sessions you start. The built APK is audited again with `aapt2`.
 
 ## Tunnels
 
@@ -25,12 +25,18 @@ Home network), used only during sessions you start. The built APK is audited aga
 | Activity | Timeline | Usage and data per app over 30 days (Usage access), unused apps, background data |
 | Activity | Notifications | Counts and flags per app from a notification listener (never contents), noise and lock-screen exposure |
 | Network | Traffic | DNS-only VPN sessions you start: registrable domains per app, tracker domains; refuses while another VPN is up |
-| Network | Surroundings | BLE trackers (AirTag, SmartTag, Tile, FMDN), Wi-Fi security and evil twins, cell downgrade; optional background monitor |
+| Network | Surroundings | BLE trackers (AirTag, SmartTag, Tile, FMDN) judged per identity, including whether one travelled with you between places (a move counter, never a position); Wi-Fi security and evil twins, cell downgrade; optional background monitor |
 | Network | Home network | Own-network gate, mDNS/SSDP discovery, TCP port scan, UPnP IGD and DNS-hijack checks |
 | Explore | Sensors, Cameras, Satellites, Radio | Curiosity only: hardware facts, no findings |
 
 Plus a **Snapshots** screen: on-demand full snapshot of every tunnel, history with pinning, a diff viewer
 between any two snapshots, encrypted export/import (PBKDF2 + AES-GCM), and the optional app lock.
+
+And **in-app updates** (home screen → update ›): when you tap Check, Tunnels asks this repository's GitHub
+releases for a newer build of its channel (debug builds follow "Debug build #N", release builds the vX.Y.Z
+tags), downloads it, checks that it is the same app, newer, signed with the same key and matching the published
+SHA-256, and hands it to Android's installer. While the repository is private it needs a read-only token,
+kept in the encrypted store.
 
 ## Principles
 

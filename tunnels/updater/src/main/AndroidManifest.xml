@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Declare only what permissions.allow lists. -->
+    <!-- The project's GitHub releases: the release list and one APK, when the user taps Check or Download. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application>
+        <!-- Check for, download and install a newer Tunnels. Reached from the home screen; not exported. -->
+        <activity
+            android:name=".UpdateActivity"
+            android:exported="false"
+            android:label="Tunnels updates"
+            android:theme="@style/Theme.Tunnels" />
+    </application>
+</manifest>

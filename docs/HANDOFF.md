@@ -18,6 +18,10 @@
 > **Status (2026-10-01):** phases 0-6 are built and merged; see README for the tunnel list and
 > docs/BUILD_PLAN.md for follow-ups and device checks.
 > RAR is not supported (no good open-source RAR5 decoder; unrar's licence is restrictive).
+> **Update (2026-10-01):** in-app updates from this repository's GitHub releases (`tunnels/updater`, INTERNET
+> approved for user-started checks and downloads only); Surroundings judges following by whether a tag was seen
+> on both sides of a move (a move counter and a keyed hash of a ~250 m grid cell, never a position); the
+> Timeline and Notifications gates explain Android's restricted settings.
 
 ## Instructions for Claude Code
 This is the full spec for Tunnels, a native Android app for my GrapheneOS Pixel 10.

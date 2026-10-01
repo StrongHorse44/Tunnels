@@ -37,6 +37,7 @@ include(
     ":core:dns",
     ":core:ble",
     ":core:lan",
+    ":core:updates",
     ":tunnels:installer",
     ":tunnels:unzip",
     ":tunnels:permissions",
@@ -54,4 +55,5 @@ include(
     ":tunnels:surroundings",
     ":tunnels:homenet",
     ":tunnels:deepmode",
+    ":tunnels:updater",
 )

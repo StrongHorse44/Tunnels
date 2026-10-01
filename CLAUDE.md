@@ -5,12 +5,13 @@ Full spec: `docs/HANDOFF.md`. Read it before starting work.
 
 ## Hard rules (never violate)
 
-1. **No network egress, except two modules.** Only `tunnels/traffic` and `tunnels/homenet`
-   may declare `android.permission.INTERNET` (approved 2026-10-01 for user-started sessions).
-   Every other module's manifest is checked against its `permissions.allow` file and CI
-   fails the build on any permission not listed there. Do not add dependencies that open
-   sockets outside those two modules, and never work around a missing permission. The
-   GrapheneOS Network toggle stays off outside a session.
+1. **No network egress, except three modules.** Only `tunnels/traffic` and `tunnels/homenet`
+   (approved 2026-10-01 for user-started sessions) and `tunnels/updater` (approved 2026-10-01
+   for user-started update checks and downloads from the project's own GitHub releases, nothing
+   else) may declare `android.permission.INTERNET`. Every other module's manifest is checked
+   against its `permissions.allow` file and CI fails the build on any permission not listed
+   there. Do not add dependencies that open sockets outside those three modules, and never work
+   around a missing permission. The GrapheneOS Network toggle stays off outside a session.
 2. **Nothing leaves the device.** No analytics, crash reporting, telemetry,
    cloud sync, ads, remote config, or any SDK that phones home (no Firebase,
    Play Services, Sentry, Crashlytics, etc.). Exports are manual, user-initiated,
@@ -48,6 +49,8 @@ everything, so uninstall wipes all data and nothing goes to cloud backup.
 - `core:store` Room + SQLCipher, Keystore-wrapped key
 - `core:common` theme, shared composables, private staging area for incoming files
 - `tunnels:installer`, `tunnels:unzip` one module per tunnel group; each declares its own permissions
+- `core:metro` home map geometry and label placement (plain Kotlin, unit-tested)
+- `core:updates` + `tunnels:updater` in-app updates from GitHub releases (user-started; INTERNET allowed)
 - `app` metro home (console readout + glass metro map); `verifyPermissions` runs before every assemble
 
 Keep Android-free logic in the plain Kotlin modules so it can be tested without an emulator.

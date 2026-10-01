@@ -54,13 +54,15 @@ jobs:
           short="${GITHUB_SHA::7}"
           apk="tunnels-debug-$N.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$apk"
+          # The in-app updater checks the download against this.
+          sha256sum "$apk" > "$apk.sha256"
           {
             git log -1 --format=%B
             echo
             echo "---"
             echo "Debug build #$N of \`$short\` from \`$GITHUB_REF_NAME\`. Installs as \"Tunnels\" (package \`io.github.stronghorse44.tunnels.debug\`) and updates over earlier debug builds."
           } > notes.md
-          gh release create "debug-$N" "$apk" --prerelease --target "$GITHUB_SHA" \
+          gh release create "debug-$N" "$apk" "$apk.sha256" --prerelease --target "$GITHUB_SHA" \
             --title "Debug build #$N ($short)" --notes-file notes.md
           gh release delete debug-latest --yes --cleanup-tag 2>/dev/null || true
           gh release list --limit 100 --json tagName --jq '.[].tagName' \
@@ -100,10 +102,12 @@ jobs:
           disk-size: 4096M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: ./gradlew --no-daemon :app:connectedDebugAndroidTest :core:runtime:connectedDebugAndroidTest
+          script: ./gradlew --no-daemon :app:connectedDebugAndroidTest :core:runtime:connectedDebugAndroidTest :tunnels:updater:connectedDebugAndroidTest
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: app-smoke-reports
-          path: app/build/reports/androidTests/
+          path: |
+            app/build/reports/androidTests/
+            tunnels/updater/build/reports/androidTests/
           retention-days: 7

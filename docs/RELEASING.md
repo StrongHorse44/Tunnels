@@ -10,6 +10,20 @@ signed with a public debug key committed in `app/debug.keystore`, so each one up
 Pushing a tag like `v0.1.0` builds a **signed release** APK and attaches it to a GitHub Release.
 Obtainium can follow those releases directly.
 
+## Updating from inside Tunnels
+
+Home screen → **update ›**. A debug build follows the "Debug build #N" prereleases, a release build the
+`vX.Y.Z` releases. Tapping **Check** asks `api.github.com` for this repository's releases; **Download** fetches
+the APK (and its `.sha256`) and Tunnels refuses it unless it is the same package, newer, signed with the same key
+as the installed copy and matching the checksum. Android then asks you to confirm the update.
+
+- GrapheneOS: turn on Tunnels' **Network** permission for the check (App info → Permissions → Network), and off
+  again afterwards. Tunnels never connects in the background.
+- While the repository is private, GitHub needs a token: github.com → Settings → Developer settings →
+  Fine-grained tokens → Generate new token, repository access **only StrongHorse44/Tunnels**, permission
+  **Contents: read-only**. Paste it on the update screen. It is stored in the encrypted database, sent to
+  `api.github.com` only, and forgotten after 30 days without a check.
+
 ## One-time: create the signing key
 
 Do this on a computer you trust, not on the phone. Keep an offline backup of the keystore and passwords:

@@ -33,8 +33,8 @@ class AppSmokeTest {
         val runtime = TunnelsRuntime.get(context)
         val modules = runtime.registry.modules.keys
 
-        // Rule #1: INTERNET is approved for the Traffic and Home network session modules only, so it may
-        // appear in the merged manifest only when one of them is in the build. (The Gradle verifyPermissions
+        // Rule #1: INTERNET is approved for the Traffic and Home network session modules and the updater only, so
+        // it may appear in the merged manifest only when one of them is in the build. (The Gradle verifyPermissions
         // task and the aapt2 audit check which module declared it; this checks the shipped APK's shape.)
         if ("android.permission.INTERNET" in perms) {
             assertTrue(

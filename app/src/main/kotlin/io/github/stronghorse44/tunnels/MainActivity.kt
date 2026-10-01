@@ -11,6 +11,7 @@ import io.github.stronghorse44.tunnels.model.TunnelCatalog
 import io.github.stronghorse44.tunnels.runtime.AppLockGate
 import io.github.stronghorse44.tunnels.runtime.TunnelActivity
 import io.github.stronghorse44.tunnels.unzip.UnzipActivity
+import io.github.stronghorse44.tunnels.updater.UpdateActivity
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -19,13 +20,16 @@ class MainActivity : ComponentActivity() {
         setContent {
             TunnelsTheme {
                 AppLockGate {
-                MetroHome(onOpenTunnel = { id ->
-                    when (id) {
-                        TunnelCatalog.INSTALLER -> startActivity(Intent(this, InstallActivity::class.java))
-                        TunnelCatalog.UNZIP -> startActivity(Intent(this, UnzipActivity::class.java))
-                        else -> startActivity(TunnelActivity.intent(this, id))
-                    }
-                })
+                MetroHome(
+                    onOpenTunnel = { id ->
+                        when (id) {
+                            TunnelCatalog.INSTALLER -> startActivity(Intent(this, InstallActivity::class.java))
+                            TunnelCatalog.UNZIP -> startActivity(Intent(this, UnzipActivity::class.java))
+                            else -> startActivity(TunnelActivity.intent(this, id))
+                        }
+                    },
+                    onOpenUpdates = { startActivity(UpdateActivity.intent(this)) },
+                )
                 }
             }
         }

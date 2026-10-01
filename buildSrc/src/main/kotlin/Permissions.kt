@@ -17,8 +17,11 @@ import java.io.File
 object Permissions {
     const val INTERNET = "android.permission.INTERNET"
 
-    /** Module directories (relative to the repo root) whose allowlist may contain INTERNET. */
-    val internetAllowedIn = setOf("tunnels/traffic", "tunnels/homenet")
+    /**
+     * Module directories (relative to the repo root) whose allowlist may contain INTERNET: the Traffic and Home
+     * network sessions and the updater's user-started checks and downloads (approved 2026-10-01).
+     */
+    val internetAllowedIn = setOf("tunnels/traffic", "tunnels/homenet", "tunnels/updater")
 
     private val usesPermission = Regex("""<uses-permission(?:-sdk-23)?\b[^>]*?android:name\s*=\s*"([^"]+)"""")
 

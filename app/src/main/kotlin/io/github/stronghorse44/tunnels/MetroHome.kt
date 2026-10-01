@@ -64,7 +64,7 @@ const val SNAPSHOTS_ACTION = "io.github.stronghorse44.tunnels.action.SNAPSHOTS"
 
 /** Home: a console readout above a clickable glass metro map. */
 @Composable
-fun MetroHome(onOpenTunnel: (String) -> Unit) {
+fun MetroHome(onOpenTunnel: (String) -> Unit, onOpenUpdates: () -> Unit = {}) {
     val context = LocalContext.current
     var placeholder by remember { mutableStateOf<TunnelInfo?>(null) }
     val netOn = networkAllowed(context)
@@ -104,7 +104,7 @@ fun MetroHome(onOpenTunnel: (String) -> Unit) {
                 .statusBarsPadding()
                 .padding(horizontal = 14.dp, vertical = 8.dp),
         ) {
-            ConsoleHeader(version, netOn, keyLevel, TunnelCatalog.all.count(::live), TunnelCatalog.all.count { !live(it) })
+            ConsoleHeader(version, netOn, keyLevel, TunnelCatalog.all.count(::live), TunnelCatalog.all.count { !live(it) }, onOpenUpdates)
             Spacer(Modifier.height(14.dp))
             GlassPanel(Modifier.fillMaxWidth()) {
                 MetroMap(
@@ -137,7 +137,7 @@ fun MetroHome(onOpenTunnel: (String) -> Unit) {
 }
 
 @Composable
-private fun ConsoleHeader(version: String, netOn: Boolean, keyLevel: String, live: Int, planned: Int) {
+private fun ConsoleHeader(version: String, netOn: Boolean, keyLevel: String, live: Int, planned: Int, onOpenUpdates: () -> Unit) {
     val context = LocalContext.current
     GlassPanel(Modifier.fillMaxWidth(), tint = LineColors.of(MetroLine.FILES)) {
         Column(Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
@@ -150,6 +150,7 @@ private fun ConsoleHeader(version: String, netOn: Boolean, keyLevel: String, liv
             Row(verticalAlignment = Alignment.CenterVertically) {
                 BlinkingPrompt()
                 Spacer(Modifier.weight(1f))
+                TextButton(onClick = onOpenUpdates) { Text("update ›", fontFamily = Mono, color = LineColors.of(MetroLine.FILES)) }
                 TextButton(onClick = {
                     val intent = Intent(SNAPSHOTS_ACTION).setPackage(context.packageName)
                     if (context.packageManager.resolveActivity(intent, 0) != null) context.startActivity(intent)
@@ -201,7 +202,8 @@ private fun versionName(context: Context): String = runCatching {
 
 /**
  * Whether this app may reach the network right now. INTERNET is declared only for the Traffic and Home
- * network sessions (rule #1); GrapheneOS's Network toggle revokes it, which is what this reads.
+ * network sessions and the updater's checks (rule #1); GrapheneOS's Network toggle revokes it, which is what
+ * this reads.
  */
 private fun networkAllowed(context: Context): Boolean =
     context.checkSelfPermission(Manifest.permission.INTERNET) == PackageManager.PERMISSION_GRANTED

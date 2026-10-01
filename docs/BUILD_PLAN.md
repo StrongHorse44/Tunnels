@@ -34,6 +34,8 @@ compile and test locally.
 | 4 | `tunnels:surroundings` | `core:ble` | surroundings |
 | 5 | `tunnels:homenet` (INTERNET allowed) | `core:lan` | home_network |
 | 6 | `tunnels:deepmode` | — | deep_mode |
+| — | `tunnels:updater` (INTERNET allowed: user-started update checks) | `core:updates` | — |
+| — | `app` (metro home) | `core:metro` (map geometry, label placement) | — |
 
 Shared, lead-owned: `core:model`, `core:engine`, `core:store`, `core:common`, `core:runtime`, `app`.
 
@@ -55,8 +57,9 @@ Shared, lead-owned: `core:model`, `core:engine`, `core:store`, `core:common`, `c
 
 Each Android module has a `permissions.allow` file: the permissions its manifest may declare, one
 per line. `./gradlew verifyPermissions` fails if a module declares anything else, if INTERNET
-appears outside `tunnels/traffic` and `tunnels/homenet`, or if the app's merged manifest contains
-a permission no module allows. `scripts/check-apk-permissions.sh` repeats the check on the APK.
+appears outside `tunnels/traffic`, `tunnels/homenet` and `tunnels/updater`, or if the app's merged
+manifest contains a permission no module allows. `scripts/check-apk-permissions.sh` repeats the check
+on the APK.
 
 ## Local testing of plain-Kotlin modules
 
@@ -83,6 +86,13 @@ instrumented smoke test that ran on an API 36 emulator. Nothing has been verifie
 each module's report lists the device checks that matter, collected in the pull request description.
 
 ## Follow-ups (deferred, not blockers)
+
+- Updates: when the repository goes public the token becomes optional (the API answers without one, at 60
+  requests an hour per address). Debug releases now carry `tunnels-debug-N.apk.sha256` for the updater.
+- Surroundings places: verify on device how quickly a fix arrives indoors on GrapheneOS (fused provider,
+  network location off by default) and how often scans end with "no fix"; those scans fall back to time.
+- Restricted settings: verify the Timeline and Notifications gates on GrapheneOS after "Allow restricted
+  settings", and that the direct screens (Tunnels' own Usage access and listener pages) open.
 
 - Surroundings (v3, per-identity following): verify on device how often non-Apple tags (SmartTag,
   Tile, Chipolo, Find Hub) rotate their key while separated. Per-key following only catches a tag whose

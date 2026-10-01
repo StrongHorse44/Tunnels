@@ -1,0 +1,5 @@
+# Permissions the updater module may declare, one per line. CI fails on anything else.
+# INTERNET is approved here (and in tunnels/traffic and tunnels/homenet) only: the updater asks GitHub for the
+# project's release list and downloads one APK, only while the user is on the update screen and taps Check or
+# Download. Nothing else is sent; a read-only token goes to api.github.com alone when the repository is private.
+android.permission.INTERNET
