@@ -15,3 +15,6 @@ scripts/jvm-check/build/
 scripts/jvm-check/out/
 scripts/jvm-check/run.log
 scripts/jvm-check/.gradle/
+
+# Harness worktrees for parallel agents live inside the repo.
+.claude/
