@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Strata, surface to core. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#5E7F45" android:pathData="M0,0h108v30h-108z" />
+    <path android:fillColor="#6E4A2E" android:pathData="M0,30h108v28h-108z" />
+    <path android:fillColor="#474B54" android:pathData="M0,58h108v26h-108z" />
+    <path android:fillColor="#B4441D" android:pathData="M0,84h108v24h-108z" />
+</vector>

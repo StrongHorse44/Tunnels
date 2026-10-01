@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Unzip tunnel. No permissions: files arrive by intent grant, output goes to a folder you pick. -->
+    <application>
+        <activity
+            android:name=".UnzipActivity"
+            android:exported="true"
+            android:label="Tunnels Unzip"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.Tunnels">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+                <data android:mimeType="application/x-7z-compressed" />
+                <data android:mimeType="application/x-tar" />
+                <data android:mimeType="application/x-gtar" />
+                <data android:mimeType="application/x-compressed-tar" />
+                <data android:mimeType="application/gzip" />
+                <data android:mimeType="application/x-gzip" />
+                <data android:mimeType="application/x-xz" />
+                <data android:mimeType="application/x-bzip2" />
+                <data android:mimeType="application/x-bzip" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-7z-compressed" />
+                <data android:mimeType="application/x-tar" />
+                <data android:mimeType="application/gzip" />
+                <data android:mimeType="application/x-xz" />
+                <data android:mimeType="application/x-bzip2" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
