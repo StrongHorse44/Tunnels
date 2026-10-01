@@ -21,10 +21,11 @@ class ApkRulesTest {
         targetSdk: Int = 35,
         abis: String = "arm64-v8a",
         skipped: String? = null,
+        version: String = "1.0 (1)",
     ): List<Observation> = buildList {
         add(Observation(t, pkg, ApkKeys.LABEL, pkg.substringAfterLast('.')))
         add(Observation(t, pkg, ApkKeys.SYSTEM, system.toString()))
-        add(Observation(t, pkg, ApkKeys.VERSION, "1.0 (1)"))
+        add(Observation(t, pkg, ApkKeys.VERSION, version))
         trackers.forEach { (id, cats) -> add(Observation(t, pkg, ApkKeys.sdkKey(id), cats)) }
         add(Observation(t, pkg, ApkKeys.SDK_COUNT, trackers.size.toString()))
         skipped?.let { add(Observation(t, pkg, ApkKeys.SDK_SKIPPED, it)) }
@@ -90,7 +91,10 @@ class ApkRulesTest {
         val d = evaluate(after, before).of(ApkRules.INSTALLER_CHANGED).single()
         assertEquals(Severity.WARN, d.severity)
         assertTrue(d.sticky)
-        assertEquals("Install source changed from com.android.vending to unknown.", d.evidence)
+        assertTrue(d.evidence, d.evidence.startsWith("Install source changed from com.android.vending to unknown."))
+        assertTrue(d.evidence, d.evidence.contains("store that installed the app was itself uninstalled"))
+        val toStore = evaluate(app("com.a", installer = "org.fdroid.fdroid"), before).of(ApkRules.INSTALLER_CHANGED).single()
+        assertEquals("Install source changed from com.android.vending to org.fdroid.fdroid.", toStore.evidence)
     }
 
     @Test
@@ -98,7 +102,8 @@ class ApkRulesTest {
         val old = app("com.old", targetSdk = 28)
         val oldSystem = app("com.sys", system = true, targetSdk = 23)
         val fine = app("com.fine", targetSdk = 29)
-        val drafts = evaluate(old + oldSystem + fine).of(ApkRules.LOW_TARGET_SDK)
+        val unknown = app("com.unknown", targetSdk = 0)
+        val drafts = evaluate(old + oldSystem + fine + unknown).of(ApkRules.LOW_TARGET_SDK)
         assertEquals(listOf("com.old"), drafts.map { it.subject })
         assertEquals(Severity.WARN, drafts.single().severity)
         assertTrue(drafts.single().evidence.contains("API 28"))
@@ -118,9 +123,9 @@ class ApkRulesTest {
     fun newTrackerFiresOnlyForUpdatedApps() {
         val before = app("com.a", trackers = mapOf("sentry" to "crash")) + app("com.gone", trackers = mapOf("sentry" to "crash"), skipped = null) +
             app("com.skip", skipped = "dex too large")
-        val after = app("com.a", trackers = mapOf("sentry" to "crash", "appsflyer" to "attribution,analytics", "applovin" to "ads")) +
+        val after = app("com.a", trackers = mapOf("sentry" to "crash", "appsflyer" to "attribution,analytics", "applovin" to "ads"), version = "1.1 (2)") +
             app("com.fresh", trackers = mapOf("mixpanel" to "analytics")) +
-            app("com.skip", trackers = mapOf("amplitude" to "analytics"))
+            app("com.skip", trackers = mapOf("amplitude" to "analytics"), version = "2.0 (2)")
         val drafts = evaluate(after, before).of(ApkRules.NEW_TRACKER)
         assertEquals(listOf("com.a"), drafts.map { it.subject })
         val d = drafts.single()
@@ -128,6 +133,24 @@ class ApkRulesTest {
         assertEquals(Severity.NOTICE, d.severity)
         assertEquals("An update added AppLovin MAX (ads), AppsFlyer (analytics,attribution)", d.evidence)
         assertTrue(evaluate(after).of(ApkRules.NEW_TRACKER).isEmpty())
+    }
+
+    @Test
+    fun newTrackerIgnoresCatalogGrowthWithoutAnUpdate() {
+        // Same app version, one more sdk key: a grown tracker catalog, not an app update.
+        val before = app("com.a", trackers = mapOf("sentry" to "crash")) + app("com.b", trackers = mapOf("sentry" to "crash"))
+        val grown = app("com.a", trackers = mapOf("sentry" to "crash", "appsflyer" to "attribution,analytics")) +
+            app("com.b", trackers = mapOf("sentry" to "crash", "appsflyer" to "attribution,analytics"))
+        assertTrue(evaluate(grown, before).of(ApkRules.NEW_TRACKER).isEmpty())
+        // The same key change together with a version change is a real update and must fire, for that app only.
+        val updated = app("com.a", trackers = mapOf("sentry" to "crash", "appsflyer" to "attribution,analytics"), version = "1.0 (2)") +
+            app("com.b", trackers = mapOf("sentry" to "crash", "appsflyer" to "attribution,analytics"))
+        val drafts = evaluate(updated, before).of(ApkRules.NEW_TRACKER)
+        assertEquals(listOf("com.a"), drafts.map { it.subject })
+        assertEquals("An update added AppsFlyer (analytics,attribution)", drafts.single().evidence)
+        // An update that changes nothing about trackers is silent.
+        val bumped = app("com.a", trackers = mapOf("sentry" to "crash"), version = "1.0 (2)") + app("com.b", trackers = mapOf("sentry" to "crash"))
+        assertTrue(evaluate(bumped, before).of(ApkRules.NEW_TRACKER).isEmpty())
     }
 
     @Test

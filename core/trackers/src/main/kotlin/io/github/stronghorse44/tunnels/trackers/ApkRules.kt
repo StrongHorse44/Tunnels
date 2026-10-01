@@ -48,14 +48,20 @@ object ApkRules {
     val installerChanged: FindingRule = Rules.onChange(INSTALLER_CHANGED, Severity.WARN) { e ->
         val c = e as? DiffEntry.Changed ?: return@onChange null
         if (c.key.key != ApkKeys.INSTALLER) return@onChange null
-        "Install source changed from ${c.before.value} to ${c.after.value}."
+        if (c.after.value == ApkKeys.UNKNOWN_INSTALLER) {
+            "Install source changed from ${c.before.value} to unknown. " +
+                "This also happens when the store that installed the app was itself uninstalled."
+        } else {
+            "Install source changed from ${c.before.value} to ${c.after.value}."
+        }
     }
 
     /** State WARN: a user-installed app targets an old Android API level. */
     val lowTargetSdk: FindingRule = Rules.perSubject(LOW_TARGET_SDK, Severity.WARN) { _, obs ->
         if (ApkKeys.isSystem(obs)) return@perSubject null
         val target = ApkKeys.value(obs, ApkKeys.TARGET_SDK)?.toIntOrNull() ?: return@perSubject null
-        if (target >= MIN_TARGET_SDK) return@perSubject null
+        // 0 means the level could not be read, not that the app targets API 0.
+        if (target <= 0 || target >= MIN_TARGET_SDK) return@perSubject null
         "Targets Android API $target (below $MIN_TARGET_SDK): it runs under older storage and permission rules than current apps."
     }
 
@@ -67,16 +73,23 @@ object ApkRules {
     }
 
     /**
-     * Sticky NOTICE: an update brought a tracker the app did not have before. Freshly installed apps and
-     * apps whose dex was skipped last time are left out, since all their sdk keys look new.
+     * Sticky NOTICE: an update brought a tracker the app did not have before. Fires only for apps whose
+     * version changed in the same diff, so a grown tracker catalog (a Tunnels update) cannot blame apps
+     * that did not change. Freshly installed apps and apps whose dex was skipped last time are left out
+     * too, since all their sdk keys look new.
      */
     val newTracker: FindingRule = FindingRule { ctx ->
         if (ctx.isFirstScan) return@FindingRule emptyList()
+        val updated = ctx.diff.filter { it is DiffEntry.Changed && it.key.key == ApkKeys.VERSION }.map { it.key.subject }.toSet()
+        if (updated.isEmpty()) return@FindingRule emptyList()
         val newApps = ctx.diff.filter { it is DiffEntry.Added && it.key.key == ApkKeys.LABEL }.map { it.key.subject }.toSet()
         val wasSkipped = ctx.diff.filter { it is DiffEntry.Removed && it.key.key == ApkKeys.SDK_SKIPPED }.map { it.key.subject }.toSet()
         ctx.diff.asSequence()
             .filterIsInstance<DiffEntry.Added>()
-            .filter { ApkKeys.isTrackerKey(it.key.key) && it.key.subject !in newApps && it.key.subject !in wasSkipped }
+            .filter {
+                ApkKeys.isTrackerKey(it.key.key) && it.key.subject in updated &&
+                    it.key.subject !in newApps && it.key.subject !in wasSkipped
+            }
             .groupBy { it.key.subject }
             .map { (subject, added) ->
                 val trackers = added.map { trackerEntry(it.observation) }

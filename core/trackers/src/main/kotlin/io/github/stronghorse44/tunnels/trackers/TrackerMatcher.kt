@@ -19,13 +19,14 @@ data class TrackerSummary(
 /** Matches dex type descriptors against a [Tracker] catalog. */
 class TrackerMatcher(private val catalog: List<Tracker> = TrackerCatalog.all) {
     private val trie = PrefixTrie(catalog.flatMap { t -> t.classPrefixes.map { it to t.id } })
+    private val byId: Map<String, Tracker> = catalog.associateBy { it.id }
 
     /** Tracker id owning the descriptor in [bytes] [start, end), or null. */
     fun match(bytes: ByteArray, start: Int, end: Int): String? = trie.longestMatch(bytes, start, end)
 
     fun match(descriptor: String): String? = trie.longestMatch(descriptor)
 
-    fun tracker(id: String): Tracker? = catalog.firstOrNull { it.id == id }
+    fun tracker(id: String): Tracker? = byId[id]
 
     /** Merges per-dex hit counts (tracker id to classes) into one summary, sorted by tracker name. */
     fun summarise(vararg hitMaps: Map<String, Int>): TrackerSummary {

@@ -34,6 +34,9 @@ data class ApkContents(
         const val MAX_TOTAL_DEX_BYTES = 256L * 1024 * 1024
         const val SKIPPED_TOO_LARGE = "dex too large"
         const val SKIPPED_TOO_MANY = "too many dex bytes"
+        const val SKIPPED_NO_MEMORY = "not enough memory"
+        /** No dex could be read at all: the APK files were missing, not zips, or held no valid dex. */
+        const val SKIPPED_UNREADABLE = "unreadable"
 
         private val DEX_NAME = Regex("classes\\d*\\.dex")
         private val LIB_NAME = Regex("lib/([^/]+)/[^/]+\\.so")
@@ -70,8 +73,13 @@ data class ApkContents(
                                 size < 0 || size > maxDexBytes -> { skipped = skipped ?: SKIPPED_TOO_LARGE }
                                 dexBytes + size > maxTotalDexBytes -> { skipped = skipped ?: SKIPPED_TOO_MANY }
                                 else -> {
+                                    // A 48 MB buffer may not fit on a low-memory device: that is a skip, not a crash.
+                                    val buf = try { ByteArray(size.toInt()) } catch (_: OutOfMemoryError) { null }
+                                    if (buf == null) {
+                                        skipped = skipped ?: SKIPPED_NO_MEMORY
+                                        continue
+                                    }
                                     dexBytes += size
-                                    val buf = ByteArray(size.toInt())
                                     val ok = try {
                                         zip.getInputStream(entry).use { DataInputStream(it).readFully(buf) }
                                         true
@@ -89,6 +97,8 @@ data class ApkContents(
                     }
                 }
             }
+            // Nothing read and something broken: say so, or the app would look clean with sdk:count = 0.
+            if (skipped == null && dexRead == 0 && (dexInvalid > 0 || apks.isEmpty())) skipped = SKIPPED_UNREADABLE
             return ApkContents(dexFiles, dexRead, dexInvalid, skipped, hits, abis, libs, bytes)
         }
     }

@@ -42,7 +42,7 @@ class ApkContentsTest {
         assertEquals(3, c.dexFiles)
         assertEquals(0, c.dexRead)
         assertEquals(3, c.dexInvalid)
-        assertNull(c.dexSkipped)
+        assertEquals(ApkContents.SKIPPED_UNREADABLE, c.dexSkipped)   // nothing parsed: say so
         assertEquals(setOf("arm64-v8a", "armeabi-v7a", "x86_64"), c.abis)
         assertEquals(3, c.nativeLibs)
         assertEquals(base.length() + split.length(), c.bytes)
@@ -67,6 +67,16 @@ class ApkContentsTest {
         val c = ApkContents.read(listOf(junk, missing))
         assertEquals(2, c.dexInvalid)
         assertEquals(0, c.dexFiles)
-        assertEquals(ApkContents.EMPTY.copy(dexInvalid = 2, bytes = 64), c)
+        assertEquals(ApkContents.EMPTY.copy(dexInvalid = 2, dexSkipped = ApkContents.SKIPPED_UNREADABLE, bytes = 64), c)
+        assertEquals(ApkContents.EMPTY.copy(dexSkipped = ApkContents.SKIPPED_UNREADABLE), ApkContents.read(emptyList()))
+    }
+
+    @Test
+    fun apkWithoutDexIsNotFlaggedUnreadable() {
+        val apk = zip("nocode.apk", mapOf("lib/arm64-v8a/libfoo.so" to ByteArray(10), "res/raw/thing" to ByteArray(2)))
+        val c = ApkContents.read(listOf(apk))
+        assertEquals(0, c.dexFiles)
+        assertNull(c.dexSkipped)
+        assertEquals(1, c.nativeLibs)
     }
 }
