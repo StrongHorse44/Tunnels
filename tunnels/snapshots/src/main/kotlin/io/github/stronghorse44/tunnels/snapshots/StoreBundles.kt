@@ -6,10 +6,13 @@ import io.github.stronghorse44.tunnels.export.SnapshotBundle
 import io.github.stronghorse44.tunnels.store.ObservationEntity
 import io.github.stronghorse44.tunnels.store.SnapshotEntity
 import io.github.stronghorse44.tunnels.store.TunnelsDao
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
 /** Moves snapshots between the encrypted store and a [SnapshotBundle]. Call on Dispatchers.IO. */
 object StoreBundles {
-    data class ImportResult(val snapshots: Int, val observations: Int)
+    /** [skipped] snapshots were already in the store (same takenAt) and were left alone. */
+    data class ImportResult(val snapshots: Int, val observations: Int, val skipped: Int)
 
     /** Every snapshot in the store, oldest first, with all its observations. Findings are not part of a bundle. */
     suspend fun read(dao: TunnelsDao): SnapshotBundle {
@@ -23,19 +26,35 @@ object StoreBundles {
     }
 
     /**
-     * Inserts each snapshot with its original takenAt and pinned, so retention keeps what the user brought back,
-     * then its observations under the new row id. Findings are re-derived by later scans, never imported.
+     * Inserts each snapshot with its original takenAt, pinned so retention keeps what the user brought back, then
+     * its observations under the new row id. A snapshot taken at a moment the store already holds is skipped, so
+     * importing the same file twice does not double the history. Findings are re-derived by later scans, never
+     * imported. If anything fails midway, the snapshots inserted so far are removed again before the error
+     * propagates, so the store never keeps half an import.
      */
     suspend fun write(dao: TunnelsDao, bundle: SnapshotBundle): ImportResult {
         val clean = bundle.deduplicated()
         val byLocalId = clean.observations.groupBy { it.snapshotLocalId }
-        var inserted = 0
-        for (s in clean.snapshots.sortedWith(compareBy({ it.takenAt }, { it.localId }))) {
-            val id = dao.insertSnapshot(SnapshotEntity(takenAt = s.takenAt, pinned = true))
-            val rows = byLocalId[s.localId].orEmpty().map { ObservationEntity(id, it.tunnelId, it.subject, it.key, it.value) }
-            if (rows.isNotEmpty()) dao.insertObservations(rows)
-            inserted += rows.size
+        val takenAts = dao.snapshots().mapTo(HashSet()) { it.takenAt }
+        val inserted = ArrayList<Long>()
+        var observations = 0
+        var skipped = 0
+        try {
+            for (s in clean.snapshots.sortedWith(compareBy({ it.takenAt }, { it.localId }))) {
+                if (!takenAts.add(s.takenAt)) {
+                    skipped++
+                    continue
+                }
+                val id = dao.insertSnapshot(SnapshotEntity(takenAt = s.takenAt, pinned = true))
+                inserted += id
+                val rows = byLocalId[s.localId].orEmpty().map { ObservationEntity(id, it.tunnelId, it.subject, it.key, it.value) }
+                if (rows.isNotEmpty()) dao.insertObservations(rows)
+                observations += rows.size
+            }
+        } catch (e: Exception) {
+            if (inserted.isNotEmpty()) withContext(NonCancellable) { runCatching { dao.deleteSnapshots(inserted) } }
+            throw e
         }
-        return ImportResult(clean.snapshots.size, inserted)
+        return ImportResult(inserted.size, observations, skipped)
     }
 }

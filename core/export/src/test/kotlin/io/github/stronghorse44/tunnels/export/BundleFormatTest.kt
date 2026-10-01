@@ -55,11 +55,35 @@ class BundleFormatTest {
     }
 
     @Test
+    fun commentsAndBlankLinesMayPrecedeTheHeader() {
+        val parsed = BundleFormat.parse("# a note\n\nTSNAP1\nsnapshot\t3\t12\t1\tdoors\n")
+        assertEquals(listOf(BundleSnapshot(3, 12, true, listOf("doors"))), parsed.snapshots)
+        assertRejected("# only a comment\n")
+    }
+
+    @Test
+    fun parsesFromAReaderWithoutAStringCopy() {
+        val bytes = BundleFormat.write(sample).toByteArray(Charsets.UTF_8)
+        assertEquals(sample, BundleFormat.parse(bytes.inputStream().reader(Charsets.UTF_8)))
+    }
+
+    @Test
     fun rejectsUnknownHeader() {
         assertRejected("TSNAP2\n")
         assertRejected("hello\n")
         assertRejected("")
         assertRejected("\n\n")
+        assertRejected("\nsnapshot\t1\t2\t0\t\n") // a record where the header should be
+    }
+
+    @Test
+    fun writerRefusesTunnelIdsWithCommas() {
+        val bundle = SnapshotBundle(listOf(BundleSnapshot(1, 0, false, listOf("a,b"))), emptyList())
+        try {
+            BundleFormat.write(bundle)
+            fail("comma in tunnel id accepted")
+        } catch (_: IllegalArgumentException) {
+        }
     }
 
     @Test

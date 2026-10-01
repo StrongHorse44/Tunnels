@@ -90,10 +90,24 @@ class SnapshotsViewModel(private val app: Application, private val saved: SavedS
     )
     val state: StateFlow<SnapshotsState> = _state.asStateFlow()
 
-    /** Bumped after a scan or import so observation counts are re-read (Room only watches the snapshots table). */
+    /** What a snapshot holds. Immutable once its scan or import has finished writing, so read once per id. */
+    private data class SnapshotFacts(val tunnelIds: List<String>, val observations: Int)
+
+    /** Bumped after a scan or import so the rows written by it are read again (Room only watches the snapshots table). */
     private val refresh = MutableStateFlow(0)
     private var runtime: TunnelsRuntime? = null
+
+    /** Facts per snapshot id; only the history collector touches these. */
+    private val facts = HashMap<Long, SnapshotFacts>()
+
+    /** Ids described while a scan or import was still writing: their facts were not cached and are read again. */
+    private val unsettled = HashSet<Long>()
+    private var importing = false
+
     private var diffJob: Job? = null
+
+    /** The pair [diffJob] is computing, so a repeat request for the same pair does not restart it. */
+    private var diffPair: Set<Long>? = null
     private var exportPassword: CharArray? = null
 
     init {
@@ -105,26 +119,59 @@ class SnapshotsViewModel(private val app: Application, private val saved: SavedS
             runtime = rt
             val keyLevel = withContext(Dispatchers.IO) { runCatching { TunnelsStore.keySecurityLevel() }.getOrDefault("?") }
             _state.update { it.copy(tunnelCount = rt.registry.modules.size, keyLevel = keyLevel) }
-            launch { rt.engine.state.collect { s -> _state.update { it.copy(scan = s) } } }
             launch {
-                combine(rt.store.dao.snapshotsFlow(), refresh) { rows, _ -> rows }.collect { rows ->
-                    val detailed = withContext(Dispatchers.IO) { rows.map { describe(rt.store.dao, it) } }
-                    val ids = detailed.map { it.id }.toSet()
-                    _state.update { it.copy(ready = true, snapshots = detailed, selected = it.selected.filter { id -> id in ids }) }
-                    saveSelection()
-                    refreshDiff()
+                var wasRunning = false
+                rt.engine.state.collect { s ->
+                    _state.update { it.copy(scan = s) }
+                    // A scan started from another screen also writes snapshots this screen shows.
+                    if (wasRunning && !s.running) refresh.update { it + 1 }
+                    wasRunning = s.running
                 }
+            }
+            launch {
+                combine(rt.store.dao.snapshotsFlow(), refresh) { rows, _ -> rows }.collect { rows -> onSnapshots(rt, rows) }
             }
         }
     }
 
-    private suspend fun describe(dao: TunnelsDao, row: SnapshotEntity) = SnapshotRow(
-        id = row.id,
-        takenAt = row.takenAt,
-        pinned = row.pinned,
-        tunnelIds = dao.tunnelsIn(row.id).sorted(),
-        observations = dao.observations(row.id).size,
-    )
+    /**
+     * Turns store rows into [SnapshotRow]s, reading each snapshot's facts from the observations table only once:
+     * on screen open, after a scan or import (new ids only) and after retention drops rows (none). A pin toggle
+     * re-emits the rows and costs nothing here. Rows seen while a scan or import is still writing are not cached,
+     * because their observations may be incomplete; the refresh after it finishes reads them again.
+     */
+    private suspend fun onSnapshots(rt: TunnelsRuntime, rows: List<SnapshotEntity>) {
+        val settled = !rt.engine.state.value.running && !importing
+        val ids = rows.mapTo(HashSet()) { it.id }
+        facts.keys.retainAll(ids)
+        unsettled.retainAll(ids)
+        val nowSettled = HashSet<Long>()
+        val detailed = withContext(Dispatchers.IO) {
+            rows.map { row ->
+                val f = facts[row.id] ?: describe(rt.store.dao, row.id).also {
+                    if (settled) {
+                        facts[row.id] = it
+                        if (unsettled.remove(row.id)) nowSettled += row.id
+                    } else {
+                        unsettled += row.id
+                    }
+                }
+                SnapshotRow(row.id, row.takenAt, row.pinned, f.tunnelIds, f.observations)
+            }
+        }
+        var selectionChanged = false
+        _state.update { s ->
+            val kept = s.selected.filter { id -> id in ids }
+            selectionChanged = kept != s.selected
+            s.copy(ready = true, snapshots = detailed, selected = kept)
+        }
+        if (selectionChanged) saveSelection()
+        // A diff computed from a snapshot that was still being written is redone once that snapshot has settled.
+        syncDiff(force = _state.value.selected.any { it in nowSettled })
+    }
+
+    private suspend fun describe(dao: TunnelsDao, id: Long): SnapshotFacts =
+        SnapshotFacts(tunnelIds = dao.tunnelsIn(id).sorted(), observations = dao.observations(id).size)
 
     // Take snapshot
 
@@ -152,31 +199,43 @@ class SnapshotsViewModel(private val app: Application, private val saved: SavedS
     fun toggleSelect(id: Long) {
         _state.update { s -> s.copy(selected = if (id in s.selected) s.selected - id else (s.selected + id).takeLast(2)) }
         saveSelection()
-        refreshDiff()
+        syncDiff()
     }
 
     fun clearSelection() {
-        _state.update { it.copy(selected = emptyList(), diff = null) }
+        _state.update { it.copy(selected = emptyList()) }
         saveSelection()
-        diffJob?.cancel()
+        syncDiff()
     }
 
     private fun saveSelection() {
         saved[KEY_SELECTED] = _state.value.selected.toLongArray()
     }
 
-    private fun refreshDiff() {
-        val rt = runtime ?: return
+    /** Brings [SnapshotsState.diff] in line with the selection, recomputing only when the pair changed (or [force]). */
+    private fun syncDiff(force: Boolean = false) {
         val selected = _state.value.selected
-        diffJob?.cancel()
         if (selected.size < 2) {
-            _state.update { it.copy(diff = null) }
+            diffJob?.cancel()
+            diffPair = null
+            if (_state.value.diff != null) _state.update { it.copy(diff = null) }
             return
         }
+        val pair = selected.toSet()
+        val shown = _state.value.diff?.let { setOf(it.fromId, it.toId) }
+        if (!force && (pair == shown || (pair == diffPair && diffJob?.isActive == true))) return
+        refreshDiff(pair)
+    }
+
+    private fun refreshDiff(pair: Set<Long>) {
+        val rt = runtime ?: return
+        diffJob?.cancel()
+        diffPair = pair
+        val (first, second) = pair.toList()
         diffJob = viewModelScope.launch(Dispatchers.IO) {
             val dao = rt.store.dao
-            val a = dao.snapshot(selected[0])
-            val b = dao.snapshot(selected[1])
+            val a = dao.snapshot(first)
+            val b = dao.snapshot(second)
             if (a == null || b == null) {
                 _state.update { it.copy(diff = null) }
                 return@launch
@@ -230,7 +289,10 @@ class SnapshotsViewModel(private val app: Application, private val saved: SavedS
     }
 
     private fun runExport(uri: Uri, password: CharArray) {
-        val rt = runtime ?: return
+        val rt = runtime ?: run {
+            password.fill('\u0000')
+            return
+        }
         viewModelScope.launch {
             _state.update { it.copy(busy = "Exporting…", error = null, message = null) }
             val outcome = runCatching {
@@ -273,34 +335,40 @@ class SnapshotsViewModel(private val app: Application, private val saved: SavedS
     }
 
     fun importWithPassword(password: CharArray) {
-        val rt = runtime ?: return
-        val uri = saved.get<String>(KEY_IMPORT_URI)?.let(Uri::parse) ?: run {
+        val uri = saved.get<String>(KEY_IMPORT_URI)?.let(Uri::parse)
+        val rt = runtime
+        if (uri == null || rt == null) {
             password.fill('\u0000')
             cancelImport()
             return
         }
         viewModelScope.launch {
             _state.update { it.copy(busy = "Importing…", error = null, message = null, importError = null) }
+            importing = true
             val outcome = runCatching {
                 withContext(Dispatchers.IO) {
                     val sealed = readCapped(uri)
                     val plain = EncryptedFile.open(sealed, password)
+                    // Parsed straight from the bytes: no String copy of the whole bundle.
                     val bundle = try {
-                        BundleFormat.parse(String(plain, Charsets.UTF_8))
+                        BundleFormat.parse(plain.inputStream().reader(Charsets.UTF_8))
                     } finally {
                         plain.fill(0)
                     }
                     StoreBundles.write(rt.store.dao, bundle)
                 }
             }
+            importing = false
             password.fill('\u0000')
             outcome.onSuccess { r ->
                 saved.remove<String>(KEY_IMPORT_URI)
+                val skipped = if (r.skipped > 0) " ${r.skipped} already here, skipped." else ""
                 _state.update {
                     it.copy(
                         busy = null,
                         importPending = false,
-                        message = "Imported ${r.snapshots} snapshots with ${r.observations} observations. They're pinned, so retention keeps them.",
+                        message = "Imported ${r.snapshots} snapshots with ${r.observations} observations.$skipped" +
+                            if (r.snapshots > 0) " They're pinned, so retention keeps them." else "",
                     )
                 }
                 refresh.update { it + 1 }
@@ -317,6 +385,8 @@ class SnapshotsViewModel(private val app: Application, private val saved: SavedS
                             else -> e.message ?: e.javaClass.simpleName
                         }
                         _state.update { it.copy(busy = null, importPending = false, error = "Import failed: $why") }
+                        // A failed write may have rolled rows back; make the list agree with the store.
+                        refresh.update { it + 1 }
                     }
                 }
             }
@@ -364,6 +434,8 @@ class SnapshotsViewModel(private val app: Application, private val saved: SavedS
         const val KEY_SELECTED = "selected"
         const val KEY_EXPORT_URI = "export_uri"
         const val KEY_IMPORT_URI = "import_uri"
-        const val MAX_IMPORT_BYTES = 64L * 1024 * 1024
+
+        /** A full 12-snapshot export of a 300-app phone is ~10-15 MB; anything past this is not a Tunnels export. */
+        const val MAX_IMPORT_BYTES = 32L * 1024 * 1024
     }
 }

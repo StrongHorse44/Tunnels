@@ -44,6 +44,15 @@ class EncryptedFileTest {
     }
 
     @Test
+    fun emptyPasswordCannotSeal() {
+        try {
+            EncryptedFile.seal("secret".toByteArray(), CharArray(0))
+            fail("empty password accepted")
+        } catch (_: IllegalArgumentException) {
+        }
+    }
+
+    @Test
     fun flippedBytesFail() {
         val sealed = EncryptedFile.seal("secret summary".toByteArray(), password)
         for (index in listOf(7, 7 + 15, 7 + 16, 7 + 16 + 11, 7 + 16 + 12, sealed.size - 17, sealed.size - 1)) {

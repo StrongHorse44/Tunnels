@@ -61,7 +61,6 @@ import java.text.DateFormat
 import java.util.Date
 
 private val Mono = FontFamily.Monospace
-private val DialogColor = Color(0xFF0D121A)
 private const val MIN_PASSWORD = 8
 private val IMPORT_TYPES = arrayOf("application/octet-stream", "*/*")
 
@@ -148,7 +147,7 @@ fun SnapshotsScreen(vm: SnapshotsViewModel, onBack: () -> Unit) {
             if (note != null) {
                 Snackbar(
                     Modifier.align(Alignment.BottomCenter).padding(12.dp),
-                    containerColor = if (state.error != null) Color(0xFF3A1B1B) else Color(0xFF151C27),
+                    containerColor = if (state.error != null) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceVariant,
                     contentColor = GlassColors.text,
                     action = { TextButton(onClick = vm::clearMessage) { Text("OK", color = tint) } },
                 ) { Text(note) }
@@ -416,7 +415,7 @@ private fun PasswordDialog(
     val ok = password.isNotEmpty() && !tooShort && !mismatch
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = DialogColor,
+        containerColor = MaterialTheme.colorScheme.surface,
         title = { Text(title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
