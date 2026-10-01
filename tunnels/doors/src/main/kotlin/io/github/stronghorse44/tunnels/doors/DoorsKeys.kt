@@ -7,6 +7,8 @@ object DoorsKeys {
     const val APP_LABEL = "app:label"
     /** "true" for system and updated-system apps. */
     const val APP_SYSTEM = "app:system"
+    /** Component kinds too large to read ("activities,receivers"), whose counts below are 0; absent when everything was read. */
+    const val APP_PARTIAL = "app:partial"
 
     const val EXPORTED_ACTIVITIES = "exported:activities"
     const val EXPORTED_SERVICES = "exported:services"

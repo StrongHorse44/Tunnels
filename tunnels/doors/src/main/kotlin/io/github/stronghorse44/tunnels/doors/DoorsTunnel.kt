@@ -52,8 +52,8 @@ class DoorsTunnel(private val context: Context) : TunnelModule {
             progress.report(index, packages.size, pkg)
             yield()
             try {
-                val info = pm.getPackageInfo(pkg, PackageManager.PackageInfoFlags.of(COMPONENT_FLAGS))
-                observe(pm, info, verification, pkg in shareTargets, pkg in browsers, out, seenSystem)
+                val components = readComponents(pm, pkg)
+                observe(pm, components, verification, pkg in shareTargets, pkg in browsers, out, seenSystem)
             } catch (_: Exception) {
                 // One unreadable app must not sink the scan; it is simply absent from this snapshot.
             }
@@ -64,15 +64,46 @@ class DoorsTunnel(private val context: Context) : TunnelModule {
         return out
     }
 
+    /** One app's component lists, plus the kinds that were too large to read. */
+    private class Components(val info: PackageInfo, val unreadable: List<String>)
+
+    /**
+     * All four component lists in one call. A huge app can overflow the Binder transaction; then each
+     * kind is read on its own and whatever still fails is noted instead of sinking the app.
+     */
+    private fun readComponents(pm: PackageManager, pkg: String): Components {
+        try {
+            return Components(pm.getPackageInfo(pkg, PackageManager.PackageInfoFlags.of(COMPONENT_FLAGS)), emptyList())
+        } catch (e: PackageManager.NameNotFoundException) {
+            throw e
+        } catch (_: RuntimeException) {
+            // Fall through to the per-kind reads below.
+        }
+        val base = pm.getPackageInfo(pkg, PackageManager.PackageInfoFlags.of(0))
+        val unreadable = ArrayList<String>(4)
+        fun <T> part(flag: Int, kind: String, pick: (PackageInfo) -> Array<T>?): Array<T>? = try {
+            pick(pm.getPackageInfo(pkg, PackageManager.PackageInfoFlags.of(flag.toLong())))
+        } catch (_: RuntimeException) {
+            unreadable += kind
+            null
+        }
+        base.activities = part(PackageManager.GET_ACTIVITIES, "activities") { it.activities }
+        base.services = part(PackageManager.GET_SERVICES, "services") { it.services }
+        base.receivers = part(PackageManager.GET_RECEIVERS, "receivers") { it.receivers }
+        base.providers = part(PackageManager.GET_PROVIDERS, "providers") { it.providers }
+        return Components(base, unreadable)
+    }
+
     private fun observe(
         pm: PackageManager,
-        info: PackageInfo,
+        components: Components,
         verification: DomainVerificationManager?,
         share: Boolean,
         browser: Boolean,
         out: MutableList<Observation>,
         seenSystem: MutableMap<String, Boolean>,
     ) {
+        val info = components.info
         val app = info.applicationInfo ?: return
         val pkg = info.packageName
         val system = app.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
@@ -82,6 +113,7 @@ class DoorsTunnel(private val context: Context) : TunnelModule {
 
         obs(DoorsKeys.APP_LABEL, runCatching { pm.getApplicationLabel(app).toString() }.getOrDefault(pkg))
         obs(DoorsKeys.APP_SYSTEM, system.toString())
+        if (components.unreadable.isNotEmpty()) obs(DoorsKeys.APP_PARTIAL, components.unreadable.joinToString(","))
 
         val activities = info.activities.orEmpty().filter { it.exported }
         val services = info.services.orEmpty().filter { it.exported }
