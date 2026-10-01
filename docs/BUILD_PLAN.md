@@ -67,7 +67,9 @@ tests; Maven Central rate-limits (HTTP 429) are transient, retry.
 ## CI
 
 - `compile-check.yml`: `phase/**` pushes. Fast.
-- `ci-phase-<n>.yml`: path-filtered to that phase's modules; unit tests + emulator
-  (`connectedDebugAndroidTest`) for those modules.
+- `ci-phase-<n>.yml`: that phase's branches, integration and main, path-filtered to its modules; unit
+  tests always, emulator (`connectedDebugAndroidTest`) on integration/main and on a phase branch only
+  when the commit message contains `[emulator]` (tag your final commit so the smoke test runs once).
+  The repo is private, so Actions minutes are limited: do not tag every push.
 - `ci.yml`: integration, `main`, PRs. Full build, all unit tests, permission checks, app emulator
   smoke test, numbered debug release on integration pushes.

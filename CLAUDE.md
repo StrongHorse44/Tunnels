@@ -75,6 +75,8 @@ Google's Maven is not reachable from the cloud dev container: Android modules on
   scratch project described in BUILD_PLAN. Android modules stay thin adapters.
 - Work on your assigned branch (`phase/<n>-<name>`); push; read the `compile-check` run for
   that branch via the GitHub tools; fix; repeat until green. Never push to another branch.
+  Put `[emulator]` in the message of your final commit so the phase emulator job runs once
+  for your branch (Actions minutes are limited; do not tag every push).
 - Touch only the modules you own plus their `permissions.allow`. Shared files
   (`settings.gradle.kts`, `app/`, `core/common`, `core/runtime`, `core/model`, the catalog,
   CI) are owned by the lead; ask instead of editing them.

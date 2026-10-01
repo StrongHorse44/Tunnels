@@ -1,8 +1,12 @@
 name: Phase 4
 
-# Tests only the modules that belong to phase 4. Runs when they change, on any branch.
+# Tests only the modules that belong to phase 4. Runs on this phase's branches, integration and main when they change.
 on:
   push:
+    branches:
+      - 'phase/4-**'
+      - 'ccr-dff99af5-ij1rle'
+      - 'main'
     paths:
       - 'tunnels/surroundings/**'
       - 'tunnels/explore/**'
@@ -47,6 +51,9 @@ jobs:
 
   emulator:
     name: Instrumented tests (emulator)
+    # Emulator minutes are the expensive part: always on integration and main, and on a phase branch
+    # only when the commit message carries [emulator] (builders tag their final commit).
+    if: github.ref_name == 'ccr-dff99af5-ij1rle' || github.ref_name == 'main' || github.event_name != 'push' || contains(github.event.head_commit.message, '[emulator]')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -56,6 +63,13 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
+      - name: Free disk space for the emulator image
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift /usr/local/share/powershell \
+            /usr/lib/jvm/temurin-8-jdk-amd64 /usr/lib/jvm/temurin-11-jdk-amd64 /usr/lib/jvm/temurin-21-jdk-amd64 || true
+          sudo docker image prune --all --force > /dev/null 2>&1 || true
+          df -h / | tail -1
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -68,6 +82,7 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_6
+          disk-size: 4096M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: ./gradlew --no-daemon :tunnels:surroundings:connectedDebugAndroidTest :tunnels:explore:connectedDebugAndroidTest
