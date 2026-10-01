@@ -11,7 +11,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
-import android.view.HapticFeedbackConstants
+import android.os.VibrationEffect
+import android.os.VibratorManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -47,7 +48,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -61,6 +61,7 @@ import io.github.stronghorse44.tunnels.ble.DultProtocol
 import io.github.stronghorse44.tunnels.ble.Proximity
 import io.github.stronghorse44.tunnels.ble.RssiMeter
 import io.github.stronghorse44.tunnels.ble.RssiSmoother
+import io.github.stronghorse44.tunnels.ble.ScanFailure
 import io.github.stronghorse44.tunnels.ble.SurroundingsKeys
 import io.github.stronghorse44.tunnels.ble.TrackerSignatures
 import io.github.stronghorse44.tunnels.ble.TrackerState
@@ -75,6 +76,7 @@ import io.github.stronghorse44.tunnels.common.TunnelsTheme
 import io.github.stronghorse44.tunnels.model.MetroLine
 import io.github.stronghorse44.tunnels.runtime.AppLockGate
 import io.github.stronghorse44.tunnels.store.TunnelsStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -171,7 +173,7 @@ class FindItViewModel(app: Application) : AndroidViewModel(app) {
             override fun onScanResult(callbackType: Int, result: ScanResult) = handle(result)
             override fun onBatchScanResults(results: MutableList<ScanResult>) = results.forEach { handle(it) }
             override fun onScanFailed(errorCode: Int) {
-                stop("Bluetooth scan failed (code $errorCode).")
+                stop(ScanFailure.describe(errorCode))
             }
         }
         val filters = TrackerSignatures.of(s.type).filters.mapNotNull { spec -> runCatching { with(BleWindow) { spec.toPlatform() } }.getOrNull() }
@@ -190,7 +192,10 @@ class FindItViewModel(app: Application) : AndroidViewModel(app) {
         }
         callback = cb
         _state.update {
-            it.copy(running = true, available = SurroundingsKeys.AVAILABLE_YES, startedAt = now, now = now, stopReason = null, smoothed = null, trend = Trend.STEADY, lastHeardAt = 0L, target = it.lockedKey, others = emptyList())
+            it.copy(
+                running = true, available = SurroundingsKeys.AVAILABLE_YES, startedAt = now, now = now, stopReason = null, smoothed = null,
+                trend = Trend.STEADY, lastHeardAt = 0L, closest = null, target = it.lockedKey, others = emptyList(),
+            )
         }
         ticker = viewModelScope.launch {
             while (isActive && _state.value.running) {
@@ -237,6 +242,10 @@ class FindItViewModel(app: Application) : AndroidViewModel(app) {
             stop("Stopped after ${MAX_DURATION_MS / 60_000} minutes. Start again if you need more time.")
             return
         }
+        if (getApplication<Application>().getSystemService(BluetoothManager::class.java)?.adapter?.isEnabled != true) {
+            stop("Bluetooth was turned off.")
+            return
+        }
         val smoothed = s.smoothed
         var trend = s.trend
         if (smoothed != null && now - trendSampledAt >= TREND_WINDOW_MS) {
@@ -244,9 +253,10 @@ class FindItViewModel(app: Application) : AndroidViewModel(app) {
             trendSample = smoothed
             trendSampledAt = now
         }
-        // Without a fresh reading the meter decays: silence means the tag moved away or sleeps.
+        // After a gap the average starts afresh: the tag moved or slept, and old readings would mislead.
         if (smoothed != null && now - s.lastHeardAt > STALE_MS) {
-            smoother.add(RssiMeter.WORST_DBM)
+            smoother.reset()
+            trendSample = null
         }
         val recent = live.values.filter { now - it.seenAt < OTHERS_TTL_MS && it.key != s.target }.sortedByDescending { it.rssi }
         // When nothing is locked and the followed identity went quiet, follow the strongest voice instead.
@@ -307,7 +317,7 @@ class FindItViewModel(app: Application) : AndroidViewModel(app) {
         val r = client.request(opcode)
         val message = when {
             r == null -> "No answer from the tag."
-            r is DultProtocol.Response.CommandResponse && r.ok -> if (start) "The tag is ringing (5 to 30 seconds)." else "Stopped."
+            r is DultProtocol.Response.CommandResponse && r.ok -> if (start) "The tag accepted the request and should be ringing." else "Stopped."
             r is DultProtocol.Response.CommandResponse -> DultProtocol.explainRefusal(opcode, r.status)
             else -> "Unexpected answer."
         }
@@ -354,6 +364,8 @@ class FindItViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
                 withContext(Dispatchers.IO) { block(client) }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _state.update { it.copy(dult = it.dult.copy(message = "DULT failed: ${e.javaClass.simpleName}")) }
             } finally {
@@ -394,9 +406,16 @@ class FindItViewModel(app: Application) : AndroidViewModel(app) {
     }
 }
 
-/** Hosts find-it mode for one tracker family. Foreground only: leaving the screen stops the scan. */
+/**
+ * Hosts find-it mode for one tracker family. Foreground only: leaving the screen (another app, the app
+ * lock, the home screen) stops the scan, and coming back resumes it; a rotation keeps it running.
+ */
 class FindItActivity : ComponentActivity() {
     private val vm: FindItViewModel by viewModels()
+    private var stoppedByLifecycle = false
+
+    /** For the smoke test: what the screen currently shows. */
+    internal val currentState: FindItState get() = vm.state.value
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -406,9 +425,21 @@ class FindItActivity : ComponentActivity() {
         setContent { TunnelsTheme { AppLockGate { FindItScreen(vm, onBack = ::finish) } } }
     }
 
+    override fun onStart() {
+        super.onStart()
+        if (stoppedByLifecycle) {
+            stoppedByLifecycle = false
+            vm.start()
+        }
+    }
+
     override fun onStop() {
         super.onStop()
-        vm.stop("Stopped because the screen was left. Find-it mode only runs while you watch it.")
+        if (isChangingConfigurations) return
+        if (vm.state.value.running) {
+            vm.stop("Paused because the screen was left. Find-it mode only runs while you watch it.")
+            stoppedByLifecycle = true
+        }
     }
 
     companion object {
@@ -443,14 +474,17 @@ fun FindItScreen(vm: FindItViewModel, onBack: () -> Unit) {
 
 @Composable
 private fun MeterCard(state: FindItState, vm: FindItViewModel) {
-    val view = LocalView.current
-    // Short pulses, faster as the signal rises; silent while the tag is not heard.
+    val context = LocalContext.current
+    // Short pulses, faster as the signal rises; silent while the tag is not heard. The Vibrator is used
+    // rather than view haptics so the pulses come through with the system touch-feedback switch off.
     LaunchedEffect(state.running) {
+        val vibrator = runCatching { context.getSystemService(VibratorManager::class.java)?.defaultVibrator }.getOrNull()
+        val tick = VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
         while (vm.state.value.running) {
             val s = vm.state.value
             val rssi = s.smoothed
             if (s.fresh && rssi != null) {
-                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                runCatching { vibrator?.vibrate(tick) }
                 delay(RssiMeter.pulseIntervalMs(rssi))
             } else {
                 delay(400)
@@ -460,6 +494,7 @@ private fun MeterCard(state: FindItState, vm: FindItViewModel) {
     val rssi = state.smoothed
     val fraction = rssi?.let(RssiMeter::fraction) ?: 0f
     val proximity = rssi?.let { Proximity.of(Math.round(it).toInt()) }
+    val heardOnce = state.lastHeardAt > 0L
     val tint = when {
         !state.running -> GlassColors.dim
         !state.fresh -> GlassColors.dim
@@ -480,14 +515,14 @@ private fun MeterCard(state: FindItState, vm: FindItViewModel) {
                 Text(SurroundingsFormat.elapsed(state.elapsedMs), fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = GlassColors.dim)
             }
             Text(
-                if (rssi != null && state.fresh) "${Math.round(rssi)} dBm" else if (rssi != null) "lost" else "—",
+                if (rssi != null && state.fresh) "${Math.round(rssi)} dBm" else if (heardOnce && state.running) "lost" else "—",
                 style = MaterialTheme.typography.displaySmall, color = tint, fontFamily = FontFamily.Monospace,
             )
             LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth().height(10.dp), color = tint)
             Text(
                 when {
                     !state.running -> state.stopReason ?: "Stopped."
-                    rssi == null -> "Listening. A tag advertises every one to two seconds; bring the phone to where you suspect it."
+                    !heardOnce -> "Listening. A tag advertises every one to two seconds; bring the phone to where you suspect it."
                     !state.fresh -> "No signal for a few seconds: the tag moved out of range or paused."
                     else -> "${proximity!!.label.replaceFirstChar { it.uppercase() }} (${proximity.hint}) · getting ${state.trend.label}" +
                         (state.closest?.let { " · best so far $it dBm" } ?: "")
@@ -554,9 +589,9 @@ private fun DultCard(state: FindItState, vm: FindItViewModel) {
                 Text("experimental", fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = StatusColors.warn)
             }
             Text(
-                "Tags that follow the cross-platform unwanted-tracker spec (DULT: AirTags with recent firmware, Find My Device tags, newer SmartTags) " +
-                    "let any phone connect without pairing to read maker, model and battery and to make them ring while they are away from their owner. " +
-                    "This connects to the identity being followed and to nothing else.",
+                "Tags that implement the IETF unwanted-tracker draft (DULT) let any phone connect without pairing to read maker, model and " +
+                    "battery and to make them ring while they are away from their owner. Which tags do is not yet verified with any; this connects " +
+                    "to the identity being followed and to nothing else.",
                 style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
             )
             if (!granted()) {
@@ -581,8 +616,8 @@ private fun DultCard(state: FindItState, vm: FindItViewModel) {
                 OutlinedButton(onClick = { withPermission { vm.dultIdentifier() } }, enabled = !d.busy && state.target != null) { Text("Read identifier") }
             }
             Text(
-                "A tag answers Play sound only after it has been away from its owner for a while, and Read identifier only for " +
-                    "${DultProtocol.IDENTIFIER_READ_WINDOW_MINUTES} minutes after you press its button (AirTags have none: use NFC). " +
+                "Per the draft a tag answers Play sound only while it is in separated mode, and Read identifier only for " +
+                    "${DultProtocol.IDENTIFIER_READ_WINDOW_MINUTES} minutes after a user action on the tag itself (often holding its button). " +
                     "Only a one-line summary (maker, battery, whether it rang) is kept.",
                 style = MaterialTheme.typography.labelSmall, color = GlassColors.dim,
             )

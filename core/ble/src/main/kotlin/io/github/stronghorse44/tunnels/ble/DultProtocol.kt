@@ -64,7 +64,7 @@ object DultProtocol {
 
     const val PRODUCT_DATA_LENGTH = 8
     const val NAME_MAX_LENGTH = 64
-    /** Once the user presses the tag's button (or whatever the maker requires) Get_Identifier is answered for this long. */
+    /** The draft: identifier read state "MUST be enabled for 5 minutes once the user action on the accessory is successfully performed". */
     const val IDENTIFIER_READ_WINDOW_MINUTES = 5
 
     /** The two-byte little-endian command frame for an opcode without operands. */
@@ -148,10 +148,13 @@ object DultProtocol {
         }
     }
 
-    /** Names are UTF-8 up to 64 bytes, either exact-length or zero-terminated and zero-padded. */
+    /**
+     * Names are UTF-8 up to 64 bytes, either exact-length or zero-terminated and zero-padded. Control
+     * characters and line breaks are stripped: the string goes straight into the UI and an events row.
+     */
     private fun utf8(body: ByteArray): String {
         val end = body.indexOf(0).let { if (it < 0) body.size else it }.coerceAtMost(NAME_MAX_LENGTH)
-        return String(body, 0, end, Charsets.UTF_8).trim()
+        return String(body, 0, end, Charsets.UTF_8).filter { !it.isISOControl() && it != '�' }.trim()
     }
 
     /** Uint32: byte 0 revision, byte 1 minor, bytes 2..3 major (1.0.0 = 0x00010000). */
@@ -185,9 +188,9 @@ object DultProtocol {
     fun explainRefusal(commandOpcode: Int, status: Int): String = when (commandOpcode) {
         GET_IDENTIFIER -> when (status) {
             STATUS_INVALID_COMMAND, STATUS_INVALID_STATE ->
-                "The tag is not in identifier-read mode. It only hands out its identifier for $IDENTIFIER_READ_WINDOW_MINUTES minutes after a " +
-                    "user action on the tag itself (for example holding its button for about 10 seconds), and only while it has been away from its " +
-                    "owner for a while. Press the tag's button, then try again. An AirTag has no button: tap it with NFC instead."
+                "The tag is not in identifier-read mode. The spec only lets it hand out its identifier for $IDENTIFIER_READ_WINDOW_MINUTES minutes " +
+                    "after a user action on the tag itself (which action is up to its maker, often holding a button), and only while it has been away " +
+                    "from its owner for a while. Do that, then try again. A tag without a button may offer its serial over NFC instead."
             else -> "The tag refused the identifier request (${statusName(status)})."
         }
         SOUND_START, SOUND_STOP -> when (status) {

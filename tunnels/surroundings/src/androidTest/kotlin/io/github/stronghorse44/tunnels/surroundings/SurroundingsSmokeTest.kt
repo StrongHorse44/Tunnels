@@ -28,6 +28,8 @@ import io.github.stronghorse44.tunnels.model.Observation
 import io.github.stronghorse44.tunnels.model.ScanProgress
 import io.github.stronghorse44.tunnels.model.Severity
 import io.github.stronghorse44.tunnels.runtime.TunnelUi
+import io.github.stronghorse44.tunnels.store.TunnelsStore
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -88,18 +90,14 @@ class SurroundingsSmokeTest {
             assertTrue(d.kind, actions.isNotEmpty())
             assertTrue(d.kind, actions.all { it.label.isNotBlank() })
         }
-        // Tracker findings: find it, Android's alerts, the three brand guides and the mute.
+        // Tracker findings: find it, Android's alerts and the mute; the brand guides are sheets in the detail, not snackbar text.
         val tracker = module.actionsFor(drafts[0])
-        assertEquals(6, tracker.size)
-        assertEquals(
-            listOf(TrackerActions.LABEL_FIND_IT, TrackerActions.LABEL_ALERTS, TrackerActions.LABEL_IDENTIFY, TrackerActions.LABEL_DISABLE, TrackerActions.LABEL_REPORT, "Known tracker: mute 30 days"),
-            tracker.map { it.label },
-        )
-        // The guide actions answer with the brand text without touching any radio.
-        val identify = tracker[2] as FindingAction.Perform
-        assertEquals(TrackerGuides.apple.identify, runBlocking { identify.run() })
-        val report = tracker[4] as FindingAction.Perform
-        assertTrue(runBlocking { report.run() }.contains("police"))
+        assertEquals(3, tracker.size)
+        assertEquals(listOf(TrackerActions.LABEL_FIND_IT, TrackerActions.LABEL_ALERTS, "Known tracker: mute 30 days"), tracker.map { it.label })
+        assertTrue(tracker.all { it is FindingAction.Perform })
+        // A subject that is not a tracker subject gets no find-it entry rather than a guess at the family.
+        val odd = module.actionsFor(FindingDraft(module.id, "not a tracker", SurroundingsRules.TRACKER_FOLLOWING, Severity.WARN, ""))
+        assertEquals(listOf(TrackerActions.LABEL_ALERTS, "Known tracker: mute 30 days"), odd.map { it.label })
     }
 
     @Test
@@ -129,7 +127,7 @@ class SurroundingsSmokeTest {
         val verdict = TrackerVerdict.line(facts, FollowingProgress(1, 0), FollowingLevel.NONE)
         assertTrue(verdict, verdict.startsWith("Seen in 1 scan over 0 min."))
         assertTrue(verdict, verdict.contains("3 separate scans spread over at least 30 minutes"))
-        assertEquals("1 tag nearby: 1 near its owner", ThreatSummary.line(listOf(facts), emptyMap()))
+        assertEquals("1 identity nearby: 1 near its owner", ThreatSummary.line(listOf(facts), emptyMap()))
         for (type in TrackerType.entries) assertTrue(type.name, TrackerGuides.of(type).identify.isNotBlank())
 
         val response = DultProtocol.parse(DultProtocol.command(DultProtocol.COMMAND_RESPONSE) + byteArrayOf(0x00, 0x03, 0x00, 0x00)) as DultProtocol.Response.CommandResponse
@@ -140,14 +138,31 @@ class SurroundingsSmokeTest {
     }
 
     @Test
-    fun findItModeOpensAndStopsWithoutBluetooth() {
+    fun findItModeOpensAndStopsWithoutBluetooth() = runBlocking {
         // A stock emulator has no adapter: the screen must open, say so, and leave exactly nothing behind when closed.
+        val store = TunnelsStore.get(context)
+        val before = store.events(SurroundingsKeys.TUNNEL_ID, 500).first().count { it.kind == SurroundingsKeys.EVENT_FINDIT }
+        var ran = false
         ActivityScenario.launch<FindItActivity>(FindItActivity.intent(context, TrackerType.APPLE_FINDMY, "deadbeef")).use { scenario ->
             scenario.moveToState(Lifecycle.State.RESUMED)
             Thread.sleep(1_500)
-            scenario.onActivity { activity -> assertFalse(activity.isFinishing) }
+            scenario.onActivity { activity ->
+                assertFalse(activity.isFinishing)
+                val s = activity.currentState
+                Log.i(TAG, "find-it: available=${s.available} running=${s.running}")
+                assertEquals(TrackerType.APPLE_FINDMY, s.type)
+                assertEquals("deadbeef", s.lockedKey)
+                assertTrue(s.available, s.available in availability)
+                // Without an adapter (the stock emulator) the screen says so and never starts; with one it may be scanning.
+                if (s.available != SurroundingsKeys.AVAILABLE_YES) assertFalse(s.running) else ran = s.running
+                if (!context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_BLUETOOTH_LE)) assertEquals(SurroundingsKeys.AVAILABLE_NO_ADAPTER, s.available)
+            }
             scenario.moveToState(Lifecycle.State.DESTROYED)
         }
+        Thread.sleep(500)
+        // A session that never scanned writes no summary row; one that did writes exactly one.
+        val after = store.events(SurroundingsKeys.TUNNEL_ID, 500).first().count { it.kind == SurroundingsKeys.EVENT_FINDIT }
+        assertEquals(if (ran) before + 1 else before, after)
     }
 
     @Test

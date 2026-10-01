@@ -31,17 +31,17 @@ object TrackerGuides {
     val samsung = TrackerGuide(
         identify = "SmartTags have no NFC page. On any phone, open the SmartThings app → SmartThings Find → Unknown tag search (\"Search nearby\"); " +
             "it lists tags in separated mode near you and lets them ring. The tag's serial is printed inside the back cover.",
-        disable = "Pry the back cover off at the seam (a coin or fingernail in the notch), take out the CR2032 (SmartTag, SmartTag2) or " +
-            "CR2450 (SmartTag+). Without the battery it stays silent. Keep the tag as evidence.",
+        disable = "Pry the back cover off at the seam (a coin or fingernail in the notch) and take out the coin cell (a CR2032 on the " +
+            "SmartTag and SmartTag2; other models may differ). Without the battery it stays silent. Keep the tag as evidence.",
         reportNote = "Samsung can link the tag to its owner's Samsung account from the serial under the back cover.",
     )
 
     val tile = TrackerGuide(
         identify = "Open the Tile app (an account is enough, no Tile needed) → Settings → \"Scan and Secure\" and let it run for about ten minutes " +
             "while you move; it lists Tiles that move with you. The Tile's serial is printed on its back or under the battery door.",
-        disable = "Tile Pro and Tile Mate (2022 and newer) have a battery door: slide it open and remove the CR2032 or CR1632. Tile Slim and " +
-            "Sticker have sealed batteries and cannot be switched off: put the Tile in a metal tin or wrap it in several layers of foil " +
-            "until it is handed over; the metal blocks its signal.",
+        disable = "Only the Tile Pro has a battery door: slide it open and take out the coin cell. Tile Mate, Slim and Sticker are sealed " +
+            "and cannot be switched off: put the Tile in a metal tin or wrap it in several layers of foil until it is handed over; the " +
+            "metal blocks its signal.",
         reportNote = "Tile (Life360) hands owner details to the police on request, matched by the serial on the Tile.",
     )
 
@@ -96,7 +96,7 @@ object TrackerGuides {
     )
 
     /** What Android's own alerts do and why Tunnels offers them next to its own. */
-    const val UNKNOWN_TRACKER_ALERTS = "Android 14+ ships Unknown tracker alerts (Settings → Safety & emergency) that use Google's and Apple's " +
-        "cross-platform spec to warn about a tag travelling with you and to make it ring. It runs through Google Play services, so a " +
-        "GrapheneOS phone without them has no such screen; Tunnels' background monitor is the substitute."
+    const val UNKNOWN_TRACKER_ALERTS = "Android with Google Play services offers Unknown tracker alerts (Settings → Safety & emergency) that " +
+        "use Google's and Apple's cross-platform spec to warn about a tag travelling with you and to make it ring. It runs through Play " +
+        "services, so a GrapheneOS phone without them has no such screen; Tunnels' background monitor is the substitute."
 }

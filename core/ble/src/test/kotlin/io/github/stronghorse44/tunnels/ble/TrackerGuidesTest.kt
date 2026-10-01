@@ -34,5 +34,8 @@ class TrackerGuidesTest {
         assertTrue(TrackerGuides.report.any { it.contains("police") })
         assertTrue(TrackerGuides.SEARCH.contains("Find-it"))
         assertTrue(TrackerGuides.UNKNOWN_TRACKER_ALERTS.contains("Safety & emergency"))
+        assertTrue(TrackerGuides.UNKNOWN_TRACKER_ALERTS.contains("Google Play services"))
+        // Only the Tile Pro has a battery door; the guide must not promise one on the Mate.
+        assertTrue(TrackerGuides.tile.disable.contains("Only the Tile Pro"))
     }
 }

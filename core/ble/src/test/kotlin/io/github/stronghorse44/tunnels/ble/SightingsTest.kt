@@ -96,6 +96,29 @@ class SightingsTest {
     }
 
     @Test
+    fun foldKeepsKindBatteryAndSeparatedAcrossAWindow() {
+        val fold = SightingFold(TrackerType.APPLE_FINDMY)
+        fold.add(TrackerMatch(TrackerType.APPLE_FINDMY, TrackerState.WITH_OWNER, "mfr:004c", Confidence.HIGH, battery = "full", kind = AppleFindMyFrame.KIND_AIRTAG), -60)
+        fold.add(TrackerMatch(TrackerType.APPLE_FINDMY, TrackerState.SEPARATED, "mfr:004c", Confidence.HIGH, battery = "low", kind = AppleFindMyFrame.KIND_AIRTAG), -70)
+        fold.add(TrackerMatch(TrackerType.APPLE_FINDMY, TrackerState.WITH_OWNER, "mfr:004c", Confidence.HIGH), -80)
+        val r = fold.record("s1", t0, "deadbeef")
+        // The kind the first frame carried survives a later frame without one and reaches the stored row.
+        assertEquals(AppleFindMyFrame.KIND_AIRTAG, r.kind)
+        assertEquals("low", r.battery)
+        assertEquals(TrackerState.SEPARATED, r.state)
+        assertEquals(3, r.count)
+        assertEquals(-70, r.rssi)
+        assertTrue(r.encode().contains("kind=airtag"))
+        assertEquals(AppleFindMyFrame.KIND_AIRTAG, SightingAggregator.aggregate(listOf(r)).devices["deadbeef"]!!.kind)
+        // A Tile never states kind or battery: both stay null and the state stays unknown.
+        val tile = SightingFold(TrackerType.TILE).apply { add(TrackerMatch(TrackerType.TILE, TrackerState.UNKNOWN, "svc:feed", Confidence.HIGH), -55) }.record("s1", t0, "k")
+        assertNull(tile.kind)
+        assertNull(tile.battery)
+        assertEquals(TrackerState.UNKNOWN, tile.state)
+        assertEquals(0, SightingFold(TrackerType.TILE).record("s", t0, "k").rssi)
+    }
+
+    @Test
     fun typeStateFollowsItsDevices() {
         // Two identities both near their owner in one scan: the family is near its owner, not "unknown".
         val withOwner = SightingAggregator.aggregate(

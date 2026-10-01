@@ -59,6 +59,9 @@ class DultProtocolTest {
         assertEquals(DultProtocol.Response.ManufacturerName("Apple Inc."), exact)
         val padded = DultProtocol.command(DultProtocol.GET_MODEL_NAME_RESPONSE) + ("AirTag".toByteArray() + ByteArray(58))
         assertEquals(DultProtocol.Response.ModelName("AirTag"), DultProtocol.parse(padded))
+        // Control characters and line breaks from a hostile tag never reach the UI or the events row.
+        val hostile = DultProtocol.command(DultProtocol.GET_MANUFACTURER_NAME_RESPONSE) + "Ev\u0007il\nCorp\r\u001b[31m".toByteArray()
+        assertEquals(DultProtocol.Response.ManufacturerName("EvilCorp[31m"), DultProtocol.parse(hostile))
         assertEquals("location tracker", (DultProtocol.parse(frame(DultProtocol.GET_ACCESSORY_CATEGORY_RESPONSE, 1)) as DultProtocol.Response.AccessoryCategory).name)
         assertEquals("keys", DultProtocol.categoryName(158))
         assertEquals("category 99", DultProtocol.categoryName(99))

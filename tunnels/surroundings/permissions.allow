@@ -5,6 +5,9 @@ android.permission.BLUETOOTH_SCAN
 # (read maker/model/battery, make it ring). Requested only when the user taps a DULT action; never
 # used to pair or to talk to anything but the selected tag.
 android.permission.BLUETOOTH_CONNECT
+# Find-it mode's haptic pulses (normal permission, no prompt). View haptics honour the system
+# touch-feedback switch, which many people turn off; the Vibrator does not.
+android.permission.VIBRATE
 # Nearby Wi-Fi scan results (neverForLocation).
 android.permission.NEARBY_WIFI_DEVICES
 # Android ties cell identity (TelephonyManager.allCellInfo) to location; fine must come with coarse.

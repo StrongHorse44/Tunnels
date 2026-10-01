@@ -69,6 +69,45 @@ data class SightingRecord(
     }
 }
 
+/**
+ * Folds the advertisements one device sent within a scan window into one [SightingRecord]: signal is
+ * averaged, "separated" beats everything else (a tag that said it is away is away), the latest battery
+ * and device kind win. Shared by the scan window and find-it mode; thread-safe since scan callbacks race.
+ */
+class SightingFold(val type: TrackerType) {
+    var state: TrackerState = TrackerState.UNKNOWN
+        private set
+    var battery: String? = null
+        private set
+    var kind: String? = null
+        private set
+    var count: Int = 0
+        private set
+    private var rssiSum = 0L
+
+    @Synchronized
+    fun add(match: TrackerMatch, rssi: Int) {
+        rssiSum += rssi
+        count++
+        if (match.state == TrackerState.SEPARATED || state == TrackerState.UNKNOWN) state = match.state
+        match.battery?.let { battery = it }
+        match.kind?.let { kind = it }
+    }
+
+    @Synchronized
+    fun record(session: String, at: Long, key: String): SightingRecord = SightingRecord(
+        session = session,
+        at = at,
+        type = type,
+        key = key,
+        state = state,
+        rssi = if (count == 0) 0 else (rssiSum / count).toInt(),
+        count = count,
+        battery = battery,
+        kind = kind,
+    )
+}
+
 /** Everything known about one pseudonymous device across sessions. */
 data class DeviceSighting(
     val type: TrackerType,

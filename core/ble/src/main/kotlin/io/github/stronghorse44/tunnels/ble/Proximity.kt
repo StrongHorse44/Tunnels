@@ -53,22 +53,43 @@ class RssiSmoother(private val alpha: Double = DEFAULT_ALPHA) {
         require(alpha > 0.0 && alpha <= 1.0) { "alpha must be in (0, 1]" }
     }
 
-    var value: Double? = null
-        private set
+    /** Read from the UI thread while scan callbacks write: every access is synchronised. */
+    private val lock = Any()
+    private var current: Double? = null
 
-    fun add(rssi: Int): Double {
-        val v = value
+    val value: Double? get() = synchronized(lock) { current }
+
+    fun add(rssi: Int): Double = synchronized(lock) {
+        val v = current
         val next = if (v == null) rssi.toDouble() else v + alpha * (rssi - v)
-        value = next
-        return next
+        current = next
+        next
     }
 
-    fun reset() {
-        value = null
-    }
+    fun reset() = synchronized(lock) { current = null }
 
     companion object {
         const val DEFAULT_ALPHA = 0.3
+    }
+}
+
+/** Android's ScanCallback.onScanFailed codes in words. The constants are mirrored here so the mapping is testable off-device. */
+object ScanFailure {
+    const val ALREADY_STARTED = 1
+    const val APPLICATION_REGISTRATION_FAILED = 2
+    const val INTERNAL_ERROR = 3
+    const val FEATURE_UNSUPPORTED = 4
+    const val OUT_OF_HARDWARE_RESOURCES = 5
+    const val SCANNING_TOO_FREQUENTLY = 6
+
+    fun describe(code: Int): String = when (code) {
+        ALREADY_STARTED -> "A scan was already running."
+        APPLICATION_REGISTRATION_FAILED -> "Bluetooth refused to register the scan; turning Bluetooth off and on usually clears it."
+        INTERNAL_ERROR -> "Bluetooth reported an internal error."
+        FEATURE_UNSUPPORTED -> "This phone's Bluetooth does not support the scan settings asked for."
+        OUT_OF_HARDWARE_RESOURCES -> "Bluetooth is out of scan slots; close other apps that scan and try again."
+        SCANNING_TOO_FREQUENTLY -> "Too many scans in a short time: wait 30 seconds and start again."
+        else -> "Bluetooth scan failed (code $code)."
     }
 }
 

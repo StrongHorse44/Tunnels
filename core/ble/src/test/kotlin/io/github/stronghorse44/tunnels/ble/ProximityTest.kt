@@ -54,6 +54,13 @@ class ProximityTest {
     }
 
     @Test
+    fun scanFailuresHaveWords() {
+        assertTrue(ScanFailure.describe(ScanFailure.SCANNING_TOO_FREQUENTLY).contains("wait 30 seconds"))
+        for (code in 1..6) assertTrue(ScanFailure.describe(code).isNotBlank() && !ScanFailure.describe(code).contains("code"))
+        assertEquals("Bluetooth scan failed (code 42).", ScanFailure.describe(42))
+    }
+
+    @Test
     fun trendHasADeadband() {
         assertEquals(Trend.STEADY, Trend.of(null, -60.0))
         assertEquals(Trend.STEADY, Trend.of(-60.0, -61.9))

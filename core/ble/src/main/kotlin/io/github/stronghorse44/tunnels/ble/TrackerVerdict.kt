@@ -63,12 +63,19 @@ object TrackerVerdict {
      * threshold and what its state means. [typeProgress] is the family's progress (rotating identities make
      * one tag look like several, so the threshold is judged per family); [level] is the family's assessment.
      */
-    fun line(facts: IdentityFacts, typeProgress: FollowingProgress, level: FollowingLevel): String = buildString {
+    fun line(
+        facts: IdentityFacts,
+        typeProgress: FollowingProgress,
+        level: FollowingLevel,
+        /** The family's separated-only counts, which are what the CRITICAL rule judged; default to the overall ones. */
+        separatedScans: Int = typeProgress.scans,
+        separatedMinutes: Long = typeProgress.spanMinutes,
+    ): String = buildString {
         append(seen(facts.scans, facts.spanMinutes))
         append(' ')
         when {
             facts.muted -> append("Muted as a known tracker: it is listed but never flagged.")
-            level == FollowingLevel.CRITICAL -> append("Flagged as following you: an Apple tag away from its owner was with you across ${typeProgress.scans} scans over ${minutes(typeProgress.spanMinutes)}.")
+            level == FollowingLevel.CRITICAL -> append("Flagged as following you: an Apple tag away from its owner was with you across $separatedScans scans over ${minutes(separatedMinutes)}.")
             level == FollowingLevel.WARN -> append("Flagged as following you: this family has been with you in ${typeProgress.scans} scans over ${minutes(typeProgress.spanMinutes)}, past the threshold of ${FollowingHeuristic.thresholdText}.")
             else -> {
                 append("Flagged as following you only after ${FollowingHeuristic.thresholdText}")
@@ -110,24 +117,33 @@ object TrackerVerdict {
 /** The one line at the top of the tracker section, and the monitor's live counterpart. */
 object ThreatSummary {
     /**
-     * "2 tags nearby: 1 near its owner, 1 separated (seen 1×, not yet following)". Identities seen in this
+     * "2 identities nearby: 1 near its owner, 1 separated (seen 1×, not yet following)". The unit is the
+     * pseudonymous identity, as everywhere else (one tag rotates through several). Identities seen in this
      * scan are "nearby"; the rest come from the 30-day history and are counted separately so the number
-     * never claims more than the last scan heard. [levelByType] is each family's assessment.
+     * never claims more than the last scan heard. [levelByType] is each family's assessment, [scansByType]
+     * each family's scan count (the "seen N×" of a separated or unknown group), [unlisted] the identities
+     * counted but not listed.
      */
-    fun line(identities: List<IdentityFacts>, levelByType: Map<TrackerType, FollowingLevel>): String {
-        if (identities.isEmpty()) return "No trackers seen in 30 days."
+    fun line(
+        identities: List<IdentityFacts>,
+        levelByType: Map<TrackerType, FollowingLevel>,
+        scansByType: Map<TrackerType, Int> = emptyMap(),
+        unlisted: Int = 0,
+    ): String {
+        val total = identities.size + unlisted
+        if (total == 0) return "No trackers seen in 30 days."
         val nearby = identities.count { it.seenThisScan }
         val head = when {
-            nearby == identities.size -> "${tags(identities.size)} nearby"
-            nearby == 0 -> "${tags(identities.size)} in 30 days, none in this scan"
-            else -> "${tags(identities.size)} in 30 days, $nearby in this scan"
+            nearby == total -> "${identities(total)} nearby"
+            nearby == 0 -> "${identities(total)} in 30 days, none in this scan"
+            else -> "${identities(total)} in 30 days, $nearby in this scan"
         }
         val groups = listOf(TrackerState.WITH_OWNER, TrackerState.SEPARATED, TrackerState.UNKNOWN).mapNotNull { state ->
             val group = identities.filter { it.state == state && !it.muted }
-            if (group.isEmpty()) null else "${group.size} ${stateWords(state, group.size)}${qualifier(state, group, levelByType)}"
+            if (group.isEmpty()) null else "${group.size} ${stateWords(state, group.size)}${qualifier(state, group, levelByType, scansByType)}"
         }
         val muted = identities.count { it.muted }
-        val parts = groups + (if (muted > 0) listOf("$muted muted") else emptyList())
+        val parts = groups + (if (muted > 0) listOf("$muted muted") else emptyList()) + (if (unlisted > 0) listOf("$unlisted not listed") else emptyList())
         return "$head: ${parts.joinToString(", ")}"
     }
 
@@ -140,8 +156,6 @@ object ThreatSummary {
         return "${identities(total)} since start: ${parts.joinToString(", ")}"
     }
 
-    fun tags(n: Int): String = "$n tag${if (n == 1) "" else "s"}"
-
     fun identities(n: Int): String = "$n identit${if (n == 1) "y" else "ies"}"
 
     private fun stateWords(state: TrackerState, n: Int): String = when (state) {
@@ -150,12 +164,15 @@ object ThreatSummary {
         TrackerState.UNKNOWN -> "state unknown"
     }
 
-    /** Near-owner tags carry no qualifier: the owner is right there. The others say where they stand against the threshold. */
-    private fun qualifier(state: TrackerState, group: List<IdentityFacts>, levelByType: Map<TrackerType, FollowingLevel>): String {
+    /**
+     * Near-owner tags carry no qualifier: the owner is right there. The others say where they stand against
+     * the threshold, counting the family's scans (the unit the rule judges), not one rotating identity's.
+     */
+    private fun qualifier(state: TrackerState, group: List<IdentityFacts>, levelByType: Map<TrackerType, FollowingLevel>, scansByType: Map<TrackerType, Int>): String {
         if (state == TrackerState.WITH_OWNER) return ""
         val following = group.any { (levelByType[it.type] ?: FollowingLevel.NONE) != FollowingLevel.NONE }
         if (following) return " (following you)"
-        val most = group.maxOf { it.scans }
+        val most = group.maxOf { maxOf(scansByType[it.type] ?: 0, it.scans) }
         return " (seen ${most}×, not yet following)"
     }
 }

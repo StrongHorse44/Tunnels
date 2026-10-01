@@ -10,6 +10,8 @@
          maker, model, battery, ring). Requested only when the user taps a DULT action. The
          neverForLocation flag applies to BLUETOOTH_SCAN only; CONNECT has no location component. -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Find-it mode's haptic pulses that speed up as the signal rises. Normal permission, no prompt. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Wi-Fi scan results: security, bands, evil-twin check. Never used for positioning. -->
     <uses-permission
         android:name="android.permission.NEARBY_WIFI_DEVICES"

@@ -86,7 +86,8 @@ class TrackerVerdictTest {
         val warn = TrackerVerdict.line(facts(type = TrackerType.TILE, scans = 4, span = 95), FollowingProgress(4, 95), FollowingLevel.WARN)
         assertTrue(warn, warn.startsWith("Seen in 4 scans over 1 h 35 min. Flagged as following you: this family has been with you in 4 scans over 1 h 35 min, past the threshold of 3 separate scans spread over at least 30 minutes."))
         assertTrue(warn, warn.endsWith("Tile tags do not say whether their owner is near; Tunnels can only count how often one recurs."))
-        val critical = TrackerVerdict.line(facts(state = TrackerState.SEPARATED, scans = 3, span = 70), FollowingProgress(3, 70), FollowingLevel.CRITICAL)
+        // CRITICAL quotes the separated-only counts the rule judged, not the family's overall ones.
+        val critical = TrackerVerdict.line(facts(state = TrackerState.SEPARATED, scans = 3, span = 70), FollowingProgress(5, 200), FollowingLevel.CRITICAL, separatedScans = 3, separatedMinutes = 70)
         assertTrue(critical, critical.contains("an Apple tag away from its owner was with you across 3 scans over 1 h 10 min."))
         val muted = TrackerVerdict.line(facts(muted = true), FollowingProgress(1, 0), FollowingLevel.NONE)
         assertTrue(muted, muted.contains("Muted as a known tracker"))
@@ -107,15 +108,25 @@ class TrackerVerdictTest {
         val none = emptyMap<TrackerType, FollowingLevel>()
         assertEquals("No trackers seen in 30 days.", ThreatSummary.line(emptyList(), none))
         assertEquals(
-            "2 tags nearby: 1 near its owner, 1 separated (seen 1×, not yet following)",
+            "2 identities nearby: 1 near its owner, 1 separated (seen 1×, not yet following)",
             ThreatSummary.line(listOf(facts(key = "a", state = TrackerState.WITH_OWNER), facts(key = "b", state = TrackerState.SEPARATED)), none),
         )
         assertEquals(
-            "1 tag nearby: 1 state unknown (seen 1×, not yet following)",
+            "1 identity nearby: 1 state unknown (seen 1×, not yet following)",
             ThreatSummary.line(listOf(facts(type = TrackerType.TILE)), none),
         )
+        // "seen N×" counts the family's scans: one rotating tag seen in 2 scans under 2 identities is "seen 2×".
         assertEquals(
-            "3 tags in 30 days, 1 in this scan: 2 near their owners, 1 separated (following you)",
+            "2 identities nearby: 2 separated (seen 2×, not yet following)",
+            ThreatSummary.line(listOf(facts(key = "a", state = TrackerState.SEPARATED), facts(key = "b", state = TrackerState.SEPARATED)), none, mapOf(TrackerType.APPLE_FINDMY to 2)),
+        )
+        // Unlisted identities count in the head and get their own part.
+        assertEquals(
+            "43 identities in 30 days, 1 in this scan: 1 state unknown (seen 1×, not yet following), 42 not listed",
+            ThreatSummary.line(listOf(facts(type = TrackerType.TILE)), none, unlisted = 42),
+        )
+        assertEquals(
+            "3 identities in 30 days, 1 in this scan: 2 near their owners, 1 separated (following you)",
             ThreatSummary.line(
                 listOf(
                     facts(key = "a", state = TrackerState.WITH_OWNER, thisScan = false),
@@ -126,7 +137,7 @@ class TrackerVerdictTest {
             ),
         )
         assertEquals(
-            "2 tags in 30 days, none in this scan: 1 state unknown (seen 2×, not yet following), 1 muted",
+            "2 identities in 30 days, none in this scan: 1 state unknown (seen 2×, not yet following), 1 muted",
             ThreatSummary.line(listOf(facts(type = TrackerType.TILE, key = "a", scans = 2, thisScan = false), facts(key = "b", muted = true, thisScan = false)), none),
         )
     }
@@ -139,7 +150,7 @@ class TrackerVerdictTest {
             "3 identities since start: 1 near its owner, 2 separated",
             ThreatSummary.monitorLine(mapOf(TrackerState.SEPARATED to 2, TrackerState.WITH_OWNER to 1, TrackerState.UNKNOWN to 0)),
         )
-        assertEquals("1 tag", ThreatSummary.tags(1))
+        assertEquals("1 identity", ThreatSummary.identities(1))
         assertEquals("2 identities", ThreatSummary.identities(2))
     }
 }

@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import android.util.Log
-import io.github.stronghorse44.tunnels.ble.TrackerGuides
 import io.github.stronghorse44.tunnels.ble.TrackerType
 import io.github.stronghorse44.tunnels.model.FindingAction
 
@@ -16,14 +15,11 @@ import io.github.stronghorse44.tunnels.model.FindingAction
 object TrackerActions {
     private const val TAG = "Surroundings"
 
-    /** Android 13+ Safety Center; on Pixels with Play services it hosts "Unknown tracker alerts". */
-    const val ACTION_SAFETY_CENTER = "android.settings.SAFETY_CENTER"
+    /** Android 13+ Safety Center (Intent.ACTION_SAFETY_CENTER); on Pixels with Play services it hosts "Unknown tracker alerts". */
+    const val ACTION_SAFETY_CENTER = Intent.ACTION_SAFETY_CENTER
 
     const val LABEL_FIND_IT = "Find it"
     const val LABEL_ALERTS = "Unknown tracker alerts"
-    const val LABEL_IDENTIFY = "How to identify it"
-    const val LABEL_DISABLE = "How to disable it"
-    const val LABEL_REPORT = "Report it"
 
     /** Opens find-it mode for a tracker family, locked to [key] when one is known. */
     fun findIt(context: Context, type: TrackerType, key: String? = null): FindingAction = FindingAction.Perform(LABEL_FIND_IT) {
@@ -38,8 +34,8 @@ object TrackerActions {
     /**
      * Android's own Unknown tracker alerts live in Safety Center (Settings → Safety & emergency) and run
      * through Google Play services. Resolution order, each verified at run time: Safety Center when
-     * something handles its intent; otherwise the Settings home with an explanation, since the Settings
-     * search has no public deep link.
+     * something handles its intent; otherwise the Settings home with a one-line explanation (the Settings
+     * search has no public deep link).
      */
     fun unknownTrackerAlerts(context: Context): FindingAction = FindingAction.Perform(LABEL_ALERTS) { openUnknownTrackerAlerts(context) }
 
@@ -55,8 +51,7 @@ object TrackerActions {
 
     private fun fallback(context: Context): String {
         launch(context, Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        return "This phone has no Unknown tracker alerts screen: it ships with Google Play services, which GrapheneOS does not run by default. " +
-            "Opened Settings so you can search for it; Tunnels' background monitor is the substitute."
+        return "Safety Center is not available on this phone (it needs Google Play services); Tunnels' background monitor is the substitute."
     }
 
     private fun resolves(context: Context, intent: Intent): Boolean =
@@ -70,12 +65,4 @@ object TrackerActions {
         false
     }
 
-    /** The brand guide as finding actions: the card shows the text in its message line, the detail opens a sheet instead. */
-    fun identify(type: TrackerType): FindingAction = FindingAction.Perform(LABEL_IDENTIFY) { TrackerGuides.of(type).identify }
-
-    fun disable(type: TrackerType): FindingAction = FindingAction.Perform(LABEL_DISABLE) { TrackerGuides.of(type).disable }
-
-    fun report(type: TrackerType): FindingAction = FindingAction.Perform(LABEL_REPORT) {
-        (TrackerGuides.report + TrackerGuides.of(type).reportNote).joinToString(" ")
-    }
 }

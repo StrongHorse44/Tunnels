@@ -197,6 +197,10 @@ private fun MonitorCard(actions: TunnelScreenActions) {
 /** A guide sheet: title and body. */
 private data class Sheet(val title: String, val body: String)
 
+private const val LABEL_IDENTIFY = "How to identify it"
+private const val LABEL_DISABLE = "How to disable it"
+private const val LABEL_REPORT = "Report it"
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TrackerSection(state: TunnelScreenState, actions: TunnelScreenActions) {
@@ -204,6 +208,7 @@ private fun TrackerSection(state: TunnelScreenState, actions: TunnelScreenAction
     if (cards.isEmpty()) return
     val identities = remember(cards) { cards.flatMap { it.identities } }
     val levels = remember(cards) { cards.associate { it.type to it.level } }
+    val scansByType = remember(cards) { cards.associate { it.type to it.sessions } }
     val unlisted = state.observations.fact(SurroundingsKeys.BLE_SUMMARY, SurroundingsKeys.TRACKERS_UNLISTED)?.toIntOrNull() ?: 0
     var sheet by remember { mutableStateOf<Sheet?>(null) }
     val worst = levels.values.maxByOrNull { it.ordinal } ?: FollowingLevel.NONE
@@ -217,8 +222,7 @@ private fun TrackerSection(state: TunnelScreenState, actions: TunnelScreenAction
     Text("Trackers · ${identities.size + unlisted}", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = GlassColors.dim, modifier = Modifier.padding(start = 6.dp, top = 6.dp))
     GlassPanel(Modifier.fillMaxWidth(), tint = summaryColor) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(ThreatSummary.line(identities, levels), style = MaterialTheme.typography.titleSmall, color = summaryColor)
-            if (unlisted > 0) Text("$unlisted more identit${if (unlisted == 1) "y is" else "ies are"} counted but not listed.", style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)
+            Text(ThreatSummary.line(identities, levels, scansByType, unlisted), style = MaterialTheme.typography.titleSmall, color = summaryColor)
             MonitorReconcile(state, actions)
         }
     }
@@ -355,15 +359,15 @@ private fun IdentityDetail(
             f.battery?.let { FactRow("battery", it) }
             AppleFindMyFrame.kindLabel(f.kind)?.let { FactRow("kind", it) }
         }
-        Text(TrackerVerdict.line(f, card.progress, level), style = MaterialTheme.typography.bodySmall)
+        Text(TrackerVerdict.line(f, card.progress, level, card.separatedSessions, card.separatedMinutes), style = MaterialTheme.typography.bodySmall)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Button(onClick = { actions.perform(TrackerActions.findIt(context, f.type, f.key)) }) { Text(TrackerActions.LABEL_FIND_IT) }
             OutlinedButton(onClick = { actions.perform(TrackerActions.unknownTrackerAlerts(context)) }) { Text(TrackerActions.LABEL_ALERTS) }
-            OutlinedButton(onClick = { openSheet(Sheet("${TrackerActions.LABEL_IDENTIFY} · ${f.type.label}", guide.identify)) }) { Text(TrackerActions.LABEL_IDENTIFY) }
-            OutlinedButton(onClick = { openSheet(Sheet("${TrackerActions.LABEL_DISABLE} · ${f.type.label}", guide.disable)) }) { Text(TrackerActions.LABEL_DISABLE) }
+            OutlinedButton(onClick = { openSheet(Sheet("${LABEL_IDENTIFY} · ${f.type.label}", guide.identify)) }) { Text(LABEL_IDENTIFY) }
+            OutlinedButton(onClick = { openSheet(Sheet("${LABEL_DISABLE} · ${f.type.label}", guide.disable)) }) { Text(LABEL_DISABLE) }
             OutlinedButton(onClick = {
-                openSheet(Sheet(TrackerActions.LABEL_REPORT, TrackerGuides.report.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n\n") + "\n\n" + guide.reportNote))
-            }) { Text(TrackerActions.LABEL_REPORT) }
+                openSheet(Sheet(LABEL_REPORT, TrackerGuides.report.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n\n") + "\n\n" + guide.reportNote))
+            }) { Text(LABEL_REPORT) }
             if (tunnel != null && !f.muted) OutlinedButton(onClick = { actions.perform(tunnel.muteAction(subject)) }) { Text("Known tracker: mute") }
         }
         Text(TrackerGuides.UNKNOWN_TRACKER_ALERTS, style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)

@@ -21,7 +21,7 @@ import java.util.UUID
  * characteristic and answered by indications on it; this client runs them one at a time with timeouts
  * and never stores anything: the caller folds what it learnt into a [DultProtocol.Summary].
  *
- * Experimental: verified against the draft and open implementations, not yet against a real tag.
+ * Experimental: the codec matches the draft and open implementations; no real tag has been tried yet.
  */
 class DultClient(private val context: Context, private val device: BluetoothDevice) {
     private sealed interface Event {
@@ -35,10 +35,16 @@ class DultClient(private val context: Context, private val device: BluetoothDevi
     private val events = Channel<Event>(Channel.UNLIMITED)
     private val indications = Channel<ByteArray>(Channel.UNLIMITED)
     private var gatt: BluetoothGatt? = null
-    private var characteristic: BluetoothGattCharacteristic? = null
+    /** Set by the caller's coroutine and cleared by the Bluetooth callback thread. */
+    @Volatile private var characteristic: BluetoothGattCharacteristic? = null
 
     private val callback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
+            if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                // The session is over: nothing more can be written, and a pending request must not wait out its timeout.
+                characteristic = null
+                indications.trySend(DISCONNECTED)
+            }
             events.trySend(Event.Connection(status, newState))
         }
 
@@ -63,6 +69,7 @@ class DultClient(private val context: Context, private val device: BluetoothDevi
         }
     }
 
+    /** False once the tag disconnected, even before the next call notices: callers drop such a client. */
     val connected: Boolean get() = characteristic != null
 
     /**
@@ -100,7 +107,7 @@ class DultClient(private val context: Context, private val device: BluetoothDevi
         val c = g.getService(SERVICE)?.getCharacteristic(CHARACTERISTIC)
         if (c == null) {
             close()
-            return "This tag does not offer the DULT non-owner service (older AirTags and most Tiles do not)."
+            return "This tag does not offer the DULT non-owner service."
         }
         if (safe { g.setCharacteristicNotification(c, true) } != true) {
             close()
@@ -118,17 +125,35 @@ class DultClient(private val context: Context, private val device: BluetoothDevi
         return null
     }
 
-    /** Sends one opcode and returns the first indication that follows, parsed; null when nothing came back in time. */
+    /**
+     * Sends one opcode and returns the first indication that follows, parsed; null when nothing came back
+     * in time or the tag disconnected. Requests run one at a time, so stale write acknowledgements and
+     * indications left by an earlier, timed-out request are drained before each new one.
+     */
     suspend fun request(opcode: Int): DultProtocol.Response? {
         val g = gatt ?: return null
         val c = characteristic ?: return null
-        while (indications.tryReceive().isSuccess) { /* drop stale indications */ }
+        drainStale()
         val code = safe { g.writeCharacteristic(c, DultProtocol.command(opcode), BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) }
         if (code != BluetoothGatt.GATT_SUCCESS) return null
         val written = awaitEvent<Event.Written>(STEP_TIMEOUT_MS) { true }
         if (written == null || written.status != BluetoothGatt.GATT_SUCCESS) return null
+        if (characteristic == null) return null
         val frame = withTimeoutOrNull(RESPONSE_TIMEOUT_MS) { indications.receive() } ?: return null
+        if (frame === DISCONNECTED || frame.isEmpty()) return null
         return DultProtocol.parse(frame)
+    }
+
+    private fun drainStale() {
+        while (true) {
+            val e = events.tryReceive().getOrNull() ?: break
+            // A disconnect that arrived while idle must still be seen; everything else is stale.
+            if (e is Event.Connection && e.state == BluetoothProfile.STATE_DISCONNECTED) characteristic = null
+        }
+        while (true) {
+            val i = indications.tryReceive().getOrNull() ?: break
+            if (i === DISCONNECTED) characteristic = null
+        }
     }
 
     /** Reads everything the information opcodes offer; failures of single reads are skipped. */
@@ -168,6 +193,8 @@ class DultClient(private val context: Context, private val device: BluetoothDevi
 
     companion object {
         private const val TAG = "SurroundingsDult"
+        /** Sentinel pushed into the indication channel on disconnect so a waiting request returns at once. */
+        private val DISCONNECTED = ByteArray(0)
         val SERVICE: UUID = UUID.fromString(DultProtocol.SERVICE_UUID)
         val CHARACTERISTIC: UUID = UUID.fromString(DultProtocol.CHARACTERISTIC_UUID)
         val CCCD: UUID = UUID.fromString(DultProtocol.CCCD_UUID)

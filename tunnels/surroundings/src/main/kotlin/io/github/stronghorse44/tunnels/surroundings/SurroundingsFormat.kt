@@ -94,10 +94,10 @@ object SurroundingsFormat {
         /** The family's standing against the following threshold, from the same facts the rule reads. */
         val progress: FollowingProgress get() = FollowingProgress(sessions, spanMinutes)
 
-        val level: FollowingLevel get() = if (muted) FollowingLevel.NONE else FollowingHeuristic.assess(
-            type, sessions, spanMinutes,
-            facts[SurroundingsKeys.SEEN_SESSIONS_SEPARATED]?.toIntOrNull() ?: 0,
-            facts[SurroundingsKeys.SEEN_SPAN_SEPARATED]?.toLongOrNull() ?: 0L,
-        )
+        /** Sessions and minutes in which the family reported itself separated: what the CRITICAL rule judges. */
+        val separatedSessions: Int get() = facts[SurroundingsKeys.SEEN_SESSIONS_SEPARATED]?.toIntOrNull() ?: 0
+        val separatedMinutes: Long get() = facts[SurroundingsKeys.SEEN_SPAN_SEPARATED]?.toLongOrNull() ?: 0L
+
+        val level: FollowingLevel get() = if (muted) FollowingLevel.NONE else FollowingHeuristic.assess(type, sessions, spanMinutes, separatedSessions, separatedMinutes)
     }
 }

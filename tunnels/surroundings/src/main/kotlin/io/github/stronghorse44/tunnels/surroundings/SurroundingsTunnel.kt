@@ -11,7 +11,6 @@ import io.github.stronghorse44.tunnels.ble.SightingAggregator
 import io.github.stronghorse44.tunnels.ble.SightingRecord
 import io.github.stronghorse44.tunnels.ble.SurroundingsKeys
 import io.github.stronghorse44.tunnels.ble.SurroundingsRules
-import io.github.stronghorse44.tunnels.ble.TrackerType
 import io.github.stronghorse44.tunnels.model.FindingAction
 import io.github.stronghorse44.tunnels.model.FindingDraft
 import io.github.stronghorse44.tunnels.model.FindingRule
@@ -127,17 +126,16 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
     }
 
     /**
-     * Every tracker finding, and every identity in the detail, offers the same set: find it, Android's own
-     * alerts, the brand guides, and the mute. [subject] is a type or a device subject.
+     * A tracker finding offers find it, Android's own alerts and the mute; the brand guides (identify,
+     * disable, report) are sheets in the identity detail, too long for a finding's one-line result.
+     * [subject] is a type or a device subject; one that does not parse gets no find-it entry rather than
+     * a guess at the family.
      */
     fun trackerActions(subject: String): List<FindingAction> {
-        val (type, key) = SurroundingsKeys.parseTrackerSubject(subject) ?: (TrackerType.APPLE_FINDMY to null)
-        return listOf(
-            TrackerActions.findIt(context, type, key),
+        val parsed = SurroundingsKeys.parseTrackerSubject(subject)
+        return listOfNotNull(
+            parsed?.let { (type, key) -> TrackerActions.findIt(context, type, key) },
             TrackerActions.unknownTrackerAlerts(context),
-            TrackerActions.identify(type),
-            TrackerActions.disable(type),
-            TrackerActions.report(type),
             muteAction(subject),
         )
     }
