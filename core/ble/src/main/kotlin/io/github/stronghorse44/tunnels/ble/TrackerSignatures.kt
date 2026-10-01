@@ -70,7 +70,70 @@ data class TrackerMatch(
     val confidence: Confidence,
     /** Coarse battery level as the tag reports it (Apple only): full, medium, low, critical. */
     val battery: String? = null,
+    /** What kind of device the frame says it is (Apple only): airtag, accessory, airpods, apple-device. */
+    val kind: String? = null,
 )
+
+/**
+ * One decoded Apple Offline Finding advertisement (company id 0x004C, type 0x12). Apple has not published
+ * the format; this follows the reverse engineering in OpenHaystack and AirGuard (seemoo-lab), which read
+ * the status byte the same way in both frame lengths.
+ */
+data class AppleFindMyFrame(
+    /** The payload length byte: 0x19 while separated from the owner, 0x02 while near it. */
+    val length: Int,
+    /** The status byte that follows the length. */
+    val status: Int,
+) {
+    val state: TrackerState get() = when (length) {
+        TrackerSignatures.APPLE_FINDMY_SEPARATED_LENGTH -> TrackerState.SEPARATED
+        TrackerSignatures.APPLE_FINDMY_NEARBY_LENGTH -> TrackerState.WITH_OWNER
+        else -> TrackerState.UNKNOWN
+    }
+
+    /** Bits 7..6: 0 full, 1 medium, 2 low, 3 critical. */
+    val battery: String get() = TrackerSignatures.appleBattery(status)
+
+    /** Bits 5..4 (AirGuard's `statusByte and 0x30 shr 4`): 0 an Apple device (iPhone, Mac), 1 AirTag, 2 third-party Find My accessory, 3 AirPods. */
+    val kind: String get() = when ((status shr 4) and 0x03) {
+        0 -> KIND_APPLE_DEVICE
+        1 -> KIND_AIRTAG
+        2 -> KIND_ACCESSORY
+        else -> KIND_AIRPODS
+    }
+
+    companion object {
+        const val KIND_APPLE_DEVICE = "apple-device"
+        const val KIND_AIRTAG = "airtag"
+        const val KIND_ACCESSORY = "accessory"
+        const val KIND_AIRPODS = "airpods"
+
+        /** Plain-language label for a stored kind slug; null for an unknown or absent slug. */
+        fun kindLabel(kind: String?): String? = when (kind) {
+            KIND_APPLE_DEVICE -> "Apple device (iPhone, iPad or Mac)"
+            KIND_AIRTAG -> "AirTag"
+            KIND_ACCESSORY -> "Find My accessory (third-party tag)"
+            KIND_AIRPODS -> "AirPods"
+            else -> null
+        }
+
+        /**
+         * Decodes the manufacturer payload for company 0x004C; null when it is not an Offline Finding frame.
+         * The separated frame must carry the bytes its length byte announces (status, 22 key bytes, key bits,
+         * hint); the nearby frame is the status byte and one more.
+         */
+        fun parse(payload: ByteArray): AppleFindMyFrame? {
+            if (payload.size < 3 || payload[0].toInt() and 0xFF != TrackerSignatures.APPLE_FINDMY_TYPE) return null
+            val length = payload[1].toInt() and 0xFF
+            val status = payload[2].toInt() and 0xFF
+            return when (length) {
+                TrackerSignatures.APPLE_FINDMY_SEPARATED_LENGTH -> if (payload.size >= 2 + length) AppleFindMyFrame(length, status) else null
+                TrackerSignatures.APPLE_FINDMY_NEARBY_LENGTH -> AppleFindMyFrame(length, status)
+                else -> null
+            }
+        }
+    }
+}
 
 /**
  * A platform-neutral description of one hardware scan filter, mirroring what Android's ScanFilter can
@@ -158,20 +221,12 @@ object TrackerSignatures {
     val apple = TrackerSignature(
         TrackerType.APPLE_FINDMY,
         Confidence.HIGH,
-        "Apple company id 0x004C with an Offline Finding payload (type 0x12). Length 0x19 means separated from its owner; length 0x02 means it is near its owner.",
+        "Apple company id 0x004C with an Offline Finding payload (type 0x12). Length 0x19 means separated from its owner; length 0x02 means it is near its owner. The status byte gives battery and device kind.",
         filters = listOf(ScanFilterSpec.ManufacturerData(APPLE_COMPANY_ID, byteArrayOf(APPLE_FINDMY_TYPE.toByte()), byteArrayOf(0xFF.toByte()))),
     ) { ad ->
         val payload = ad.manufacturerData[APPLE_COMPANY_ID] ?: return@TrackerSignature null
-        if (payload.size < 2 || payload[0].toInt() and 0xFF != APPLE_FINDMY_TYPE) return@TrackerSignature null
-        when (payload[1].toInt() and 0xFF) {
-            APPLE_FINDMY_SEPARATED_LENGTH -> {
-                if (payload.size < 3) return@TrackerSignature null
-                val status = payload[2].toInt() and 0xFF
-                TrackerMatch(TrackerType.APPLE_FINDMY, TrackerState.SEPARATED, "mfr:004c", Confidence.HIGH, battery = appleBattery(status))
-            }
-            APPLE_FINDMY_NEARBY_LENGTH -> TrackerMatch(TrackerType.APPLE_FINDMY, TrackerState.WITH_OWNER, "mfr:004c", Confidence.HIGH)
-            else -> null
-        }
+        val frame = AppleFindMyFrame.parse(payload) ?: return@TrackerSignature null
+        TrackerMatch(TrackerType.APPLE_FINDMY, frame.state, "mfr:004c", Confidence.HIGH, battery = frame.battery, kind = frame.kind)
     }
 
     val samsung = TrackerSignature(

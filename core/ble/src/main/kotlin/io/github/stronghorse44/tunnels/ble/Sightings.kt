@@ -27,6 +27,8 @@ data class SightingRecord(
     val rssi: Int,
     val count: Int = 1,
     val battery: String? = null,
+    /** Device kind slug from the advertisement (Apple only, see [AppleFindMyFrame]). */
+    val kind: String? = null,
 ) {
     val subject: String get() = SurroundingsKeys.trackerSubject(type, key)
 
@@ -38,6 +40,7 @@ data class SightingRecord(
         append(";rssi=").append(rssi)
         append(";count=").append(count)
         battery?.let { append(";battery=").append(it) }
+        kind?.let { append(";kind=").append(it) }
     }
 
     companion object {
@@ -60,9 +63,49 @@ data class SightingRecord(
                 rssi = fields["rssi"]?.toIntOrNull() ?: 0,
                 count = fields["count"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1,
                 battery = fields["battery"],
+                kind = fields["kind"],
             )
         }
     }
+}
+
+/**
+ * Folds the advertisements one device sent within a scan window into one [SightingRecord]: signal is
+ * averaged, "separated" beats everything else (a tag that said it is away is away), the latest battery
+ * and device kind win. Shared by the scan window and find-it mode; thread-safe since scan callbacks race.
+ */
+class SightingFold(val type: TrackerType) {
+    var state: TrackerState = TrackerState.UNKNOWN
+        private set
+    var battery: String? = null
+        private set
+    var kind: String? = null
+        private set
+    var count: Int = 0
+        private set
+    private var rssiSum = 0L
+
+    @Synchronized
+    fun add(match: TrackerMatch, rssi: Int) {
+        rssiSum += rssi
+        count++
+        if (match.state == TrackerState.SEPARATED || state == TrackerState.UNKNOWN) state = match.state
+        match.battery?.let { battery = it }
+        match.kind?.let { kind = it }
+    }
+
+    @Synchronized
+    fun record(session: String, at: Long, key: String): SightingRecord = SightingRecord(
+        session = session,
+        at = at,
+        type = type,
+        key = key,
+        state = state,
+        rssi = if (count == 0) 0 else (rssiSum / count).toInt(),
+        count = count,
+        battery = battery,
+        kind = kind,
+    )
 }
 
 /** Everything known about one pseudonymous device across sessions. */
@@ -77,6 +120,11 @@ data class DeviceSighting(
     /** State from the most recent session. */
     val state: TrackerState,
     val battery: String? = null,
+    /** Signal in the most recent session. */
+    val rssiLast: Int = rssiAvg,
+    /** The session the device was last seen in. */
+    val lastSession: String = "",
+    val kind: String? = null,
 ) {
     val spanMinutes: Long get() = (lastSeen - firstSeen) / 60_000
 }
@@ -97,10 +145,21 @@ data class TypeSighting(
     val sessionsSeparated: Int,
     val firstSeparated: Long?,
     val lastSeparated: Long?,
+    /** Devices whose latest state was "near its owner"; with [devices] this tells a family of benign tags from unknowns. */
+    val devicesWithOwner: Int = 0,
 ) {
     val spanMinutes: Long get() = (lastSeen - firstSeen) / 60_000
     val spanSeparatedMinutes: Long get() = if (firstSeparated != null && lastSeparated != null) (lastSeparated - firstSeparated) / 60_000 else 0
-    val state: TrackerState get() = if (sessionsSeparated > 0) TrackerState.SEPARATED else TrackerState.UNKNOWN
+
+    /**
+     * Separated as soon as any device of the family said so in any session; near its owner when every
+     * device last said so; unknown otherwise (a family that never states it, or a mix).
+     */
+    val state: TrackerState get() = when {
+        sessionsSeparated > 0 -> TrackerState.SEPARATED
+        devices > 0 && devicesWithOwner == devices -> TrackerState.WITH_OWNER
+        else -> TrackerState.UNKNOWN
+    }
 }
 
 data class SightingAggregate(
@@ -130,10 +189,14 @@ object SightingAggregator {
                 rssiAvg = weightedRssi(rs),
                 state = latest.state,
                 battery = sorted.lastOrNull { it.battery != null }?.battery,
+                rssiLast = latest.rssi,
+                lastSession = latest.session,
+                kind = sorted.lastOrNull { it.kind != null }?.kind,
             )
         }
         val types = records.groupBy { it.type }.mapValues { (type, rs) ->
             val separated = rs.filter { it.state == TrackerState.SEPARATED }
+            val withOwner = devices.values.count { it.type == type && it.state == TrackerState.WITH_OWNER }
             TypeSighting(
                 type = type,
                 devices = rs.map { it.key }.toSet().size,
@@ -145,6 +208,7 @@ object SightingAggregator {
                 sessionsSeparated = separated.map { it.session }.toSet().size,
                 firstSeparated = separated.minOfOrNull { it.at },
                 lastSeparated = separated.maxOfOrNull { it.at },
+                devicesWithOwner = withOwner,
             )
         }
         return SightingAggregate(devices, types)
@@ -168,6 +232,9 @@ object FollowingHeuristic {
     const val MIN_SESSIONS = 3
     const val MIN_SPAN_MINUTES = 30L
     const val CRITICAL_SPAN_MINUTES = 60L
+
+    /** The WARN threshold in words, shared by the finding text, the verdict and the guide so they never drift apart. */
+    val thresholdText: String get() = "$MIN_SESSIONS separate scans spread over at least $MIN_SPAN_MINUTES minutes"
 
     fun assess(type: TrackerType, sessions: Int, spanMinutes: Long, sessionsSeparated: Int, spanSeparatedMinutes: Long): FollowingLevel = when {
         type == TrackerType.APPLE_FINDMY && sessionsSeparated >= MIN_SESSIONS && spanSeparatedMinutes >= CRITICAL_SPAN_MINUTES -> FollowingLevel.CRITICAL

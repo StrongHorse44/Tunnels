@@ -6,6 +6,12 @@
     <uses-permission
         android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
+    <!-- GATT connection to the one tag the user selected in find-it mode (DULT non-owner service:
+         maker, model, battery, ring). Requested only when the user taps a DULT action. The
+         neverForLocation flag applies to BLUETOOTH_SCAN only; CONNECT has no location component. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Find-it mode's haptic pulses that speed up as the signal rises. Normal permission, no prompt. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Wi-Fi scan results: security, bands, evil-twin check. Never used for positioning. -->
     <uses-permission
         android:name="android.permission.NEARBY_WIFI_DEVICES"
@@ -32,5 +38,14 @@
             android:name=".MonitorService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice|location" />
+
+        <!-- Find-it mode: a continuous foreground-only BLE scan for one tracker family with a proximity
+             meter, stopped when the screen is left or after 10 minutes. Keeps addresses in memory for
+             the session only and writes one summary row. Reached from the tracker detail; not exported. -->
+        <activity
+            android:name=".FindItActivity"
+            android:exported="false"
+            android:label="Find it"
+            android:theme="@style/Theme.Tunnels" />
     </application>
 </manifest>

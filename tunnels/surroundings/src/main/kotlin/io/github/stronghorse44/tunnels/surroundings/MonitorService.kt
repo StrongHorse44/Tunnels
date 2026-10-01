@@ -13,6 +13,7 @@ import android.util.Log
 import io.github.stronghorse44.tunnels.ble.CellSummary
 import io.github.stronghorse44.tunnels.ble.SurroundingsKeys
 import io.github.stronghorse44.tunnels.ble.TrackerSignatures
+import io.github.stronghorse44.tunnels.ble.TrackerState
 import io.github.stronghorse44.tunnels.ble.WifiSummary
 import io.github.stronghorse44.tunnels.runtime.TunnelActivity
 import io.github.stronghorse44.tunnels.store.TunnelsStore
@@ -42,10 +43,14 @@ data class MonitorState(
     /** Distinct pseudonymous tracker keys seen since start. */
     val trackerKeys: Int = 0,
     val trackerTypes: Set<String> = emptySet(),
+    /** The same keys by their latest state, so the notification can use the tracker section's words. */
+    val keysByState: Map<TrackerState, Int> = emptyMap(),
     val bleAvailable: String? = null,
     val lastCell: String? = null,
     /** Why the monitor stopped or could not start. */
     val message: String? = null,
+    /** When the last run ended (0 while never run): the panel compares it with the last scan. */
+    val stoppedAt: Long = 0L,
 )
 
 /**
@@ -61,7 +66,8 @@ data class MonitorState(
 class MonitorService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var loop: Job? = null
-    private val keys = HashSet<String>()
+    /** Key → latest state; separated sticks once seen, like the aggregator's family state. */
+    private val keys = HashMap<String, TrackerState>()
     private val types = HashSet<String>()
     private var lastWifiCellAt = 0L
     private var stopping = false
@@ -79,7 +85,7 @@ class MonitorService : Service() {
 
     override fun onDestroy() {
         loop?.cancel()
-        if (isRunning) _state.update { it.copy(running = false, message = it.message ?: "Stopped.") }
+        if (isRunning) _state.update { it.copy(running = false, message = it.message ?: "Stopped.", stoppedAt = System.currentTimeMillis()) }
         scope.cancel()
         super.onDestroy()
     }
@@ -119,7 +125,11 @@ class MonitorService : Service() {
                         }
                     }
                     if (ble != null) {
-                        ble.sightings.forEach { keys += it.key; types += it.type.slug }
+                        ble.sightings.forEach { s ->
+                            val previous = keys[s.key]
+                            keys[s.key] = if (previous == TrackerState.SEPARATED) previous else s.state
+                            types += s.type.slug
+                        }
                     }
                     record(ble, cell, twins)
                     _state.update {
@@ -127,6 +137,7 @@ class MonitorService : Service() {
                             windows = it.windows + 1,
                             trackerKeys = keys.size,
                             trackerTypes = types.toSet(),
+                            keysByState = keys.values.groupingBy { s -> s }.eachCount(),
                             bleAvailable = ble?.available ?: SurroundingsKeys.AVAILABLE_FAILED,
                             lastCell = cell?.registered?.slug ?: it.lastCell,
                         )
@@ -183,7 +194,7 @@ class MonitorService : Service() {
         stopping = true
         loop?.cancel()
         loop = null
-        _state.update { it.copy(running = false, message = reason) }
+        _state.update { it.copy(running = false, message = reason, stoppedAt = System.currentTimeMillis()) }
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -211,7 +222,7 @@ class MonitorService : Service() {
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setContentTitle("Surroundings monitor on")
-            .setContentText(SurroundingsFormat.monitorLine(state.windows, state.trackerKeys, state.lastCell))
+            .setContentText(SurroundingsFormat.monitorLine(state.windows, state.keysByState, state.lastCell))
             .setSubText("BLE every ${BLE_INTERVAL_MS / 60_000} min · stops after ${MAX_DURATION_MS / 3_600_000} h")
             .setOngoing(true)
             .setOnlyAlertOnce(true)

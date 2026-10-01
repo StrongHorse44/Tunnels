@@ -27,11 +27,10 @@ import io.github.stronghorse44.tunnels.ble.CellSummary
 import io.github.stronghorse44.tunnels.ble.CellTech
 import io.github.stronghorse44.tunnels.ble.DeviceKey
 import io.github.stronghorse44.tunnels.ble.ScanFilterSpec
+import io.github.stronghorse44.tunnels.ble.SightingFold
 import io.github.stronghorse44.tunnels.ble.SightingRecord
 import io.github.stronghorse44.tunnels.ble.SurroundingsKeys
 import io.github.stronghorse44.tunnels.ble.TrackerSignatures
-import io.github.stronghorse44.tunnels.ble.TrackerState
-import io.github.stronghorse44.tunnels.ble.TrackerType
 import io.github.stronghorse44.tunnels.ble.WifiHeuristics
 import io.github.stronghorse44.tunnels.ble.WifiNetwork
 import io.github.stronghorse44.tunnels.ble.WifiSummary
@@ -71,11 +70,6 @@ data class BleWindowResult(
  * scan runs with the screen on and may stay unfiltered to count every device around.
  */
 object BleWindow {
-    private class Hit(val type: TrackerType, var state: TrackerState, var battery: String?) {
-        var rssiSum = 0L
-        var count = 0
-    }
-
     /**
      * Listens for [durationMs]. [filters] null means unfiltered (every advertiser counted; screen must be
      * on); a list restricts the stack to those advertisements, which is what keeps a scan alive with the
@@ -95,7 +89,7 @@ object BleWindow {
         val scanner = adapter.bluetoothLeScanner ?: return BleWindowResult(SurroundingsKeys.AVAILABLE_OFF, 0, emptyList())
 
         val addresses = ConcurrentHashMap.newKeySet<String>()
-        val hits = ConcurrentHashMap<String, Hit>()
+        val hits = ConcurrentHashMap<String, SightingFold>()
         var failure: Int? = null
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) = handle(result)
@@ -113,14 +107,7 @@ object BleWindow {
                     val record = result.scanRecord ?: return
                     val match = TrackerSignatures.match(record.toAdvertisement()) ?: return
                     val key = DeviceKey.of(address, match.idSource)
-                    val hit = hits.getOrPut(key) { Hit(match.type, match.state, match.battery) }
-                    synchronized(hit) {
-                        hit.rssiSum += result.rssi
-                        hit.count++
-                        // Separated beats everything else within one window: a tag that said it is away is away.
-                        if (match.state == TrackerState.SEPARATED || hit.state == TrackerState.UNKNOWN) hit.state = match.state
-                        match.battery?.let { hit.battery = it }
-                    }
+                    hits.getOrPut(key) { SightingFold(match.type) }.add(match, result.rssi)
                 } catch (e: Exception) {
                     Log.w(TAG, "scan result skipped: ${e.javaClass.simpleName}")
                 }
@@ -160,24 +147,13 @@ object BleWindow {
             }
         }
         val now = System.currentTimeMillis()
-        val sightings = hits.map { (key, hit) ->
-            SightingRecord(
-                session = session,
-                at = now,
-                type = hit.type,
-                key = key,
-                state = hit.state,
-                rssi = if (hit.count == 0) 0 else (hit.rssiSum / hit.count).toInt(),
-                count = hit.count,
-                battery = hit.battery,
-            )
-        }
+        val sightings = hits.map { (key, fold) -> fold.record(session, now, key) }
         val available = if (failure != null && addresses.isEmpty()) SurroundingsKeys.AVAILABLE_FAILED else SurroundingsKeys.AVAILABLE_YES
         return BleWindowResult(available, addresses.size, sightings)
     }
 
-    /** The platform ScanFilter for one spec; same semantics as [ScanFilterSpec.accepts]. */
-    private fun ScanFilterSpec.toPlatform(): ScanFilter = when (this) {
+    /** The platform ScanFilter for one spec; same semantics as [ScanFilterSpec.accepts]. Shared with find-it mode. */
+    internal fun ScanFilterSpec.toPlatform(): ScanFilter = when (this) {
         is ScanFilterSpec.ManufacturerData -> {
             val m = mask
             if (m == null) ScanFilter.Builder().setManufacturerData(companyId, data).build()
@@ -192,7 +168,7 @@ object BleWindow {
         }
     }
 
-    private fun android.bluetooth.le.ScanRecord.toAdvertisement(): Advertisement {
+    internal fun android.bluetooth.le.ScanRecord.toAdvertisement(): Advertisement {
         val mfr = HashMap<Int, ByteArray>()
         manufacturerSpecificData?.let { sparse ->
             for (i in 0 until sparse.size()) sparse.valueAt(i)?.let { mfr[sparse.keyAt(i)] = it }
