@@ -76,6 +76,13 @@ class TrafficSmokeTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         VpnStatus.anyVpnActive(context)
         VpnStatus.otherVpnActive(context)
+        // The guarded prepare() helpers agree with each other and never throw; on a VPN-free emulator with
+        // no consent given, consent is needed and the dialog intent exists.
+        val needed = VpnStatus.consentNeeded(context)
+        val intent = VpnStatus.consentIntent(context)
+        assertEquals(needed, intent != null)
+        if (!VpnStatus.anyVpnActive(context)) assertTrue("fresh emulator needs consent", needed)
+        assertFalse(DnsVpnService.state.value.ending)
         val cm = context.getSystemService(android.net.ConnectivityManager::class.java)!!
         val resolvers = VpnStatus.resolversOf(cm, VpnStatus.underlyingNetwork(cm))
         assertTrue(resolvers.isNotEmpty())

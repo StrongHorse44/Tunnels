@@ -17,6 +17,7 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.SocketException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -24,30 +25,51 @@ import java.util.concurrent.atomic.AtomicInteger
  * query against the app that owns the socket, forwards it through one protected upstream socket and
  * writes the answer back with fresh IP/UDP headers. Everything else is dropped (TCP 853 is counted as
  * encrypted DNS first). Two plain threads; nothing here touches the UI or the store.
+ *
+ * While the TUN is established the phone's DNS depends on these threads, so neither may die quietly: a
+ * loop that exits while the session is still meant to run reports through [onFailure] exactly once and
+ * the service ends the session, which hands DNS back to the system.
  */
 class DnsForwarder(
     private val tun: ParcelFileDescriptor,
     private val counter: SessionCounter,
-    private val resolvers: List<InetAddress>,
-    /** `VpnService.protect` and `Network.bindSocket`, so our own packets never re-enter the tunnel. */
+    resolvers: List<InetAddress>,
+    /** `VpnService.protect`, so our own packets never re-enter the tunnel. */
     private val prepareSocket: (DatagramSocket) -> Unit,
     /** `ConnectivityManager.getConnectionOwnerUid`, or -1. */
     private val ownerUid: (protocol: Int, src: InetAddress, srcPort: Int, dst: InetAddress, dstPort: Int) -> Int,
     private val subjectOf: (uid: Int) -> String,
+    /** Called once, from a forwarder thread, when a loop ends while the session should still be running. */
+    private val onFailure: (String) -> Unit = {},
 ) {
     private class Pending(val src: InetAddress, val dst: InetAddress, val srcPort: Int, val question: String?, val at: Long)
 
+    /**
+     * Upstream resolvers, tried in order of [resolverIndex]. The service replaces the list when the
+     * underlying network changes (Wi-Fi to cellular, say), so the session keeps resolving.
+     */
+    @Volatile var resolvers: List<InetAddress> = resolvers.ifEmpty { listOf(VpnStatus.FALLBACK_RESOLVER) }
+        set(value) {
+            field = value.ifEmpty { listOf(VpnStatus.FALLBACK_RESOLVER) }
+            resolverIndex.set(0)
+        }
+
     private val output = FileOutputStream(tun.fileDescriptor)
-    private val upstream = DatagramSocket()
-    private val pending = LinkedHashMap<Int, Pending>()
+    @Volatile private var upstream = DatagramSocket()
+    private val pending = LinkedHashMap<String, Pending>()
     private val resolverIndex = AtomicInteger(0)
+    private val failed = AtomicBoolean(false)
     @Volatile private var running = false
+    private var reopens = 0
 
     val dropped = AtomicInteger(0)
     val answered = AtomicInteger(0)
 
     private val reader = Thread(::readLoop, "tunnels-dns-tun")
     private val responder = Thread(::responseLoop, "tunnels-dns-upstream")
+
+    /** Both threads still run. False once either has exited, whether or not [onFailure] fired yet. */
+    val alive: Boolean get() = running && reader.isAlive && responder.isAlive
 
     fun start() {
         running = true
@@ -65,35 +87,56 @@ class DnsForwarder(
         runCatching { responder.join(1500) }
     }
 
+    private fun fail(what: String) {
+        if (!running || !failed.compareAndSet(false, true)) return
+        Log.w(TAG, "forwarder failed: $what")
+        runCatching { onFailure(what) }
+    }
+
     private fun readLoop() {
-        val buffer = ByteArray(32767)
-        val fds = arrayOf(StructPollfd().apply { fd = tun.fileDescriptor; events = OsConstants.POLLIN.toShort() })
-        while (running) {
-            fds[0].revents = 0
-            val ready = try {
-                Os.poll(fds, POLL_MS)
-            } catch (e: ErrnoException) {
-                if (e.errno == OsConstants.EINTR) continue else break
+        var why = "TUN read loop ended"
+        try {
+            val buffer = ByteArray(32767)
+            val fds = arrayOf(StructPollfd().apply { fd = tun.fileDescriptor; events = OsConstants.POLLIN.toShort() })
+            while (running) {
+                fds[0].revents = 0
+                val ready = try {
+                    Os.poll(fds, POLL_MS)
+                } catch (e: ErrnoException) {
+                    if (e.errno == OsConstants.EINTR) continue
+                    why = "poll failed (errno ${e.errno})"
+                    break
+                }
+                if (ready <= 0) continue
+                if (fds[0].revents.toInt() and (OsConstants.POLLERR or OsConstants.POLLHUP or OsConstants.POLLNVAL) != 0) {
+                    why = "the tunnel interface closed"
+                    break
+                }
+                val length = try {
+                    Os.read(tun.fileDescriptor, buffer, 0, buffer.size)
+                } catch (e: ErrnoException) {
+                    if (e.errno == OsConstants.EINTR || e.errno == OsConstants.EAGAIN) continue
+                    why = "tunnel read failed (errno ${e.errno})"
+                    break
+                } catch (_: InterruptedIOException) {
+                    continue
+                } catch (e: IOException) {
+                    why = "tunnel read failed (${e.javaClass.simpleName})"
+                    break
+                }
+                if (length <= 0) continue
+                try {
+                    handle(buffer, length)
+                } catch (e: Exception) {
+                    // One bad packet never ends the session.
+                    dropped.incrementAndGet()
+                    Log.w(TAG, "packet dropped: ${e.javaClass.simpleName}")
+                }
             }
-            if (ready <= 0) continue
-            if (fds[0].revents.toInt() and (OsConstants.POLLERR or OsConstants.POLLHUP or OsConstants.POLLNVAL) != 0) break
-            val length = try {
-                Os.read(tun.fileDescriptor, buffer, 0, buffer.size)
-            } catch (e: ErrnoException) {
-                if (e.errno == OsConstants.EINTR || e.errno == OsConstants.EAGAIN) continue else break
-            } catch (_: InterruptedIOException) {
-                continue
-            } catch (_: IOException) {
-                break
-            }
-            if (length <= 0) continue
-            try {
-                handle(buffer, length)
-            } catch (e: Exception) {
-                // One bad packet never ends the session.
-                dropped.incrementAndGet()
-                Log.w(TAG, "packet dropped: ${e.javaClass.simpleName}")
-            }
+        } catch (e: Throwable) {
+            why = "tunnel reader crashed (${e.javaClass.simpleName})"
+        } finally {
+            fail(why)
         }
     }
 
@@ -117,6 +160,9 @@ class DnsForwarder(
         }
     }
 
+    /** Two apps may pick the same 16-bit id at once; the question name tells their replies apart. */
+    private fun pendingKey(id: Int, question: String?): String = "$id:${question.orEmpty()}"
+
     private fun query(p: IpPacket.Udp) {
         val message = DnsMessage.parseOrNull(p.payload)
         if (message == null || message.isResponse) {
@@ -131,50 +177,79 @@ class DnsForwarder(
         val subject = subjectOf(uid)
         message.queryName?.let { counter.query(subject, it) }
 
+        val key = pendingKey(message.id, message.queryName)
         synchronized(pending) {
             val now = System.currentTimeMillis()
             val stale = pending.entries.filter { now - it.value.at > PENDING_MS }.map { it.key }
             stale.forEach(pending::remove)
             while (pending.size >= MAX_PENDING) pending.remove(pending.keys.first())
-            pending[message.id] = Pending(p.src, p.dst, p.srcPort, message.queryName, now)
+            pending[key] = Pending(p.src, p.dst, p.srcPort, message.queryName, now)
         }
-        val resolver = resolvers[resolverIndex.get() % resolvers.size]
+        val list = resolvers
+        val resolver = list[Math.floorMod(resolverIndex.get(), list.size)]
         try {
             upstream.send(DatagramPacket(p.payload, p.payload.size, resolver, DnsMessage.PORT))
         } catch (e: IOException) {
             // Try the next resolver for the following query; this one is lost (the app retries).
             resolverIndex.incrementAndGet()
-            synchronized(pending) { pending.remove(message.id) }
+            synchronized(pending) { pending.remove(key) }
             dropped.incrementAndGet()
             Log.w(TAG, "upstream send failed: ${e.javaClass.simpleName}")
         }
     }
 
+    /**
+     * Replaces a broken upstream socket so a transient socket error does not end the session. Bounded:
+     * after [MAX_REOPENS] the forwarder gives up and reports failure instead.
+     */
+    private fun reopenUpstream(): Boolean {
+        if (++reopens > MAX_REOPENS) return false
+        return try {
+            runCatching { upstream.close() }
+            val fresh = DatagramSocket()
+            prepareSocket(fresh)
+            fresh.soTimeout = 0
+            upstream = fresh
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "upstream reopen failed: ${e.javaClass.simpleName}")
+            false
+        }
+    }
+
     private fun responseLoop() {
-        val buffer = ByteArray(RESPONSE_MAX)
-        while (running) {
-            val datagram = DatagramPacket(buffer, buffer.size)
-            try {
-                upstream.receive(datagram)
-            } catch (_: SocketException) {
-                break // closed by stop()
-            } catch (_: IOException) {
-                continue
+        var why = "upstream loop ended"
+        try {
+            val buffer = ByteArray(RESPONSE_MAX)
+            while (running) {
+                val datagram = DatagramPacket(buffer, buffer.size)
+                try {
+                    upstream.receive(datagram)
+                } catch (e: SocketException) {
+                    if (!running) break // closed by stop()
+                    if (reopenUpstream()) continue
+                    why = "upstream socket failed (${e.javaClass.simpleName})"
+                    break
+                } catch (_: IOException) {
+                    continue
+                }
+                val message = DnsMessage.parseOrNull(buffer, 0, datagram.length) ?: continue
+                if (!message.isResponse) continue
+                val match = synchronized(pending) { pending.remove(pendingKey(message.id, message.queryName)) } ?: continue
+                val payload = buffer.copyOf(datagram.length)
+                try {
+                    val packet = IpPackets.buildUdp(match.dst, match.src, DnsMessage.PORT, match.srcPort, payload)
+                    synchronized(output) { output.write(packet) }
+                    answered.incrementAndGet()
+                } catch (e: Exception) {
+                    dropped.incrementAndGet()
+                    Log.w(TAG, "reply dropped: ${e.javaClass.simpleName}")
+                }
             }
-            val message = DnsMessage.parseOrNull(buffer, 0, datagram.length) ?: continue
-            if (!message.isResponse) continue
-            val match = synchronized(pending) { pending.remove(message.id) } ?: continue
-            // A reply to a different question under a reused id is not ours to deliver.
-            if (match.question != null && message.queryName != null && match.question != message.queryName) continue
-            val payload = buffer.copyOf(datagram.length)
-            try {
-                val packet = IpPackets.buildUdp(match.dst, match.src, DnsMessage.PORT, match.srcPort, payload)
-                synchronized(output) { output.write(packet) }
-                answered.incrementAndGet()
-            } catch (e: Exception) {
-                dropped.incrementAndGet()
-                Log.w(TAG, "reply dropped: ${e.javaClass.simpleName}")
-            }
+        } catch (e: Throwable) {
+            why = "upstream reader crashed (${e.javaClass.simpleName})"
+        } finally {
+            fail(why)
         }
     }
 
@@ -186,5 +261,7 @@ class DnsForwarder(
         private const val MAX_PENDING = 512
         /** Largest UDP answer we accept: EDNS answers rarely exceed 1232 bytes, none exceed this. */
         private const val RESPONSE_MAX = 4096
+        /** Upstream socket replacements tolerated per session before the forwarder reports failure. */
+        private const val MAX_REOPENS = 8
     }
 }

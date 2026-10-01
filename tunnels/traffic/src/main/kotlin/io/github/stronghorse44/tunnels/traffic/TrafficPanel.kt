@@ -1,7 +1,6 @@
 package io.github.stronghorse44.tunnels.traffic
 
 import android.app.Activity
-import android.net.VpnService
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -60,7 +59,8 @@ private fun SessionCard(session: SessionState, actions: TunnelScreenActions) {
     var refusal by remember { mutableStateOf<String?>(null) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    // Once a session ends, re-scan so the list below picks up what it recorded.
+    // Once a session ends, re-scan so the list below picks up what it recorded. The service flips
+    // running only after its final rows are stored, so this scan sees the whole session.
     var wasRunning by remember { mutableStateOf(session.running) }
     LaunchedEffect(session.running) {
         if (wasRunning && !session.running) actions.scan()
@@ -78,11 +78,13 @@ private fun SessionCard(session: SessionState, actions: TunnelScreenActions) {
     }
     fun startSession() {
         refusal = null
+        // The other-VPN check comes first: asking the system for consent while another VPN is connected
+        // would disconnect it (VpnStatus.consentIntent refuses to ask in that case as a second guard).
         if (VpnStatus.anyVpnActive(context)) {
             refusal = VpnStatus.OTHER_VPN_MESSAGE
             return
         }
-        val intent = runCatching { VpnService.prepare(context) }.getOrNull()
+        val intent = VpnStatus.consentIntent(context)
         if (intent != null) consent.launch(intent) else DnsVpnService.start(context)
     }
 
@@ -92,21 +94,28 @@ private fun SessionCard(session: SessionState, actions: TunnelScreenActions) {
                 Column(Modifier.weight(1f)) {
                     Text("DNS logging session", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
-                        if (session.running) "Running for ${SessionFormat.elapsed(now - session.startedAt)} · stops in ${SessionFormat.remainingMinutes(session.startedAt, now, DnsVpnService.MAX_DURATION_MS)} min"
-                        else "Not running",
+                        when {
+                            session.ending -> "Stopping, writing the summary"
+                            session.running -> "Running for ${SessionFormat.elapsed(now - session.startedAt)} · stops in ${SessionFormat.remainingMinutes(session.startedAt, now, DnsVpnService.MAX_DURATION_MS)} min"
+                            else -> "Not running"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = if (session.running) StatusColors.ok else GlassColors.dim,
                     )
                 }
                 if (session.running) {
-                    OutlinedButton(onClick = { DnsVpnService.stop(context) }) { Text("STOP") }
+                    OutlinedButton(onClick = { DnsVpnService.stop(context) }, enabled = !session.ending) { Text("STOP") }
                 } else {
                     Button(onClick = { startSession() }) { Text("START") }
                 }
             }
             if (session.running) {
                 Text(SessionFormat.counters(session.totals), fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = line)
-                session.resolver?.let { Text("Forwarding to $it", style = MaterialTheme.typography.labelSmall, color = GlassColors.dim) }
+                Text(
+                    session.resolver?.let { "Forwarding to $it" } ?: "Waiting for a network to forward to",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = GlassColors.dim,
+                )
             } else {
                 Text(
                     "Only DNS lookups enter the tunnel; all other traffic flows as usual. Per app, Tunnels keeps counts and " +

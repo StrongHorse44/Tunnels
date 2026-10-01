@@ -37,14 +37,19 @@ class TrafficTunnel(private val context: Context) : TunnelModule, TunnelUi {
         PermissionSpec(Manifest.permission.POST_NOTIFICATIONS, "Shows the session in the notification shade so you always see when it is running"),
     )
 
-    /** VPN consent is a system dialog, not a Settings screen: the gate opens [VpnConsentActivity] for it. */
+    /**
+     * VPN consent is a system dialog, not a Settings screen: the gate opens [VpnConsentActivity] for it.
+     * The gate calls [SpecialAccess.isGranted] on every resume, so it must never reach `prepare()` while
+     * another VPN is connected (that would disconnect it): [VpnStatus.consentNeeded] answers false then,
+     * the gate passes, and the panel's START explains that the other VPN has to be paused first.
+     */
     override val specialAccess: List<SpecialAccess> = listOf(
         SpecialAccess(
             id = ACCESS_ID,
             label = "VPN consent",
             reason = "Android asks once before an app may open a VPN tunnel. Tunnels routes only DNS lookups through it, during sessions you start.",
             settingsAction = VpnConsentActivity.ACTION,
-            isGranted = { !VpnStatus.consentNeeded(context) },
+            isGranted = { VpnStatus.anyVpnActive(context) || !VpnStatus.consentNeeded(context) },
         ),
     )
 

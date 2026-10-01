@@ -1,6 +1,7 @@
 package io.github.stronghorse44.tunnels.traffic
 
 import android.content.Context
+import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -9,15 +10,39 @@ import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
 
-/** Read-only questions about the device's VPN and DNS state. Every call swallows system errors. */
+/**
+ * Read-only questions about the device's VPN and DNS state. Every call swallows system errors.
+ *
+ * `VpnService.prepare()` is not read-only: once the user has consented to Tunnels, the system treats a
+ * later `prepare()` as "make Tunnels the current VPN" and tears down whichever other VPN is connected
+ * (its service gets `onRevoke`). Always-on VPNs are protected from that, ordinary ones are not. So this
+ * object is the only place that calls `prepare()`, and it never does so while any VPN is connected:
+ * the caller's own [anyVpnActive] check then decides what to say ([OTHER_VPN_MESSAGE]).
+ */
 object VpnStatus {
     const val OTHER_VPN_MESSAGE = "Another VPN (e.g. Surfshark) is connected. Pause it first; Tunnels never disconnects it for you."
 
     /** Documented last resort when the underlying network reports no usable resolver. */
     val FALLBACK_RESOLVER: InetAddress = InetAddress.getByAddress("one.one.one.one", byteArrayOf(1, 1, 1, 1))
 
-    /** True when the system still has to show the VPN consent dialog for this app. */
-    fun consentNeeded(context: Context): Boolean = runCatching { VpnService.prepare(context) != null }.getOrDefault(true)
+    /**
+     * True when the system still has to show the VPN consent dialog for this app. False, without asking
+     * the system, while any VPN is connected: asking would disconnect it (see the class comment), and the
+     * START flow refuses to run beside another VPN anyway.
+     */
+    fun consentNeeded(context: Context): Boolean {
+        if (anyVpnActive(context)) return false
+        return runCatching { VpnService.prepare(context) != null }.getOrDefault(true)
+    }
+
+    /**
+     * The consent dialog intent when consent is still needed, else null. Never asks the system while a
+     * VPN is connected (see the class comment); callers check [anyVpnActive] first and explain instead.
+     */
+    fun consentIntent(context: Context): Intent? {
+        if (anyVpnActive(context)) return null
+        return runCatching { VpnService.prepare(context) }.getOrNull()
+    }
 
     /** Any connected network with the VPN transport. While our own session runs, that includes ours. */
     fun anyVpnActive(context: Context): Boolean {
@@ -38,6 +63,10 @@ object VpnStatus {
             .sortedByDescending { (_, c) -> c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) }
             .firstOrNull()?.first
     }.getOrNull()
+
+    /** True when [network] is a VPN (ours included), so its resolvers must not be used upstream. */
+    fun isVpn(cm: ConnectivityManager, network: Network): Boolean =
+        runCatching { cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true }.getOrDefault(false)
 
     /**
      * Resolvers of [network] (IPv4 first, link-local IPv6 dropped since it needs a scope), or
