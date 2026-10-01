@@ -6,7 +6,11 @@ on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -32,3 +36,17 @@ jobs:
           name: tunnels-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14
+
+      # Plain .apk you can tap on the phone (Actions artifacts always arrive zipped).
+      - name: Publish rolling debug build
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk tunnels-debug.apk
+          gh release delete debug-latest --yes --cleanup-tag || true
+          gh release create debug-latest tunnels-debug.apk \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Debug build (latest)" \
+            --notes "Debug build of ${GITHUB_SHA::7} from ${GITHUB_REF_NAME}. Installs as \"Tunnels (debug)\" next to release builds. Signed with the public debug key in the repo, so it updates over earlier debug builds."

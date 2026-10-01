@@ -47,6 +47,13 @@ android {
     }
 
     signingConfigs {
+        // Committed, publicly known key: CI debug builds keep one signature so each installs over the last.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
         if (keystorePath != null) {
             create("release") {
                 storeFile = file(keystorePath)

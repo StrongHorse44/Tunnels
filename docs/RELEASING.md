@@ -1,7 +1,9 @@
 # Releasing Tunnels
 
 Every push builds a **debug** APK (`io.github.stronghorse44.tunnels.debug`, labelled "Tunnels (debug)").
-Download it from the run's *Artifacts* section in GitHub Actions. It installs alongside the release build.
+The latest one is always attached as a plain `tunnels-debug.apk` to the **Debug build (latest)** prerelease
+on the Releases page, so you can tap it on the phone. It installs alongside the release build, and it is
+signed with a public debug key committed in `app/debug.keystore`, so each debug build updates over the last.
 
 Pushing a tag like `v0.1.0` builds a **signed release** APK and attaches it to a GitHub Release.
 Obtainium can follow those releases directly.

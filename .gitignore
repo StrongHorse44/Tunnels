@@ -8,3 +8,6 @@ captures/
 *.jks
 *.keystore
 keystore.properties
+
+# Public debug key, committed on purpose so CI debug builds update over each other.
+!app/debug.keystore
