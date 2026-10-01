@@ -63,7 +63,7 @@ class NotificationsSmokeTest {
             assertTrue(kind, actions.any { it is FindingAction.OpenAppDetails })
         }
         val exposure = module.actionsFor(FindingDraft(module.id, "com.example.app", NotifRules.LOCK_SCREEN_EXPOSURE, Severity.INFO, "x"))
-        assertTrue(exposure.any { it is FindingAction.OpenSettings && it.action == Settings.ACTION_NOTIFICATION_SETTINGS })
+        assertTrue(exposure.any { it is FindingAction.OpenSettings && it.action == NotificationsTunnel.ACTION_NOTIFICATION_SETTINGS })
         val listener = module.actionsFor(FindingDraft(module.id, NotifKeys.SUMMARY, NotifRules.LISTENER_DISCONNECTED, Severity.INFO, "x"))
         assertTrue(listener.any { it is FindingAction.OpenSettings && it.action == Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS })
 

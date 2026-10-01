@@ -76,8 +76,8 @@ class NotifListenerService : NotificationListenerService() {
         val ranking = Ranking()
         val ranked = rankingMap != null && runCatching { rankingMap.getRanking(sbn.key, ranking) }.getOrDefault(false)
         val importance = if (ranked) ranking.importance else NotificationManager.IMPORTANCE_UNSPECIFIED
-        val channelVisibility = if (ranked) ranking.channel?.lockscreenVisibility ?: NotificationManager.VISIBILITY_NO_OVERRIDE else NotificationManager.VISIBILITY_NO_OVERRIDE
-        val visibility = if (channelVisibility != NotificationManager.VISIBILITY_NO_OVERRIDE) channelVisibility else n.visibility
+        val channelVisibility = if (ranked) ranking.channel?.lockscreenVisibility ?: VISIBILITY_NO_OVERRIDE else VISIBILITY_NO_OVERRIDE
+        val visibility = if (channelVisibility != VISIBILITY_NO_OVERRIDE) channelVisibility else n.visibility
         val silent = ranked && importance <= NotificationManager.IMPORTANCE_LOW
         val postTime = if (sbn.postTime > 0) sbn.postTime else System.currentTimeMillis()
         val hour = runCatching { Instant.ofEpochMilli(postTime).atZone(ZoneId.systemDefault()).hour }.getOrDefault(-1)
@@ -92,6 +92,8 @@ class NotifListenerService : NotificationListenerService() {
 
     companion object {
         private const val QUEUE_CAPACITY = 256
+        /** `NotificationManager.VISIBILITY_NO_OVERRIDE`, which is not in the public SDK: the channel defers to the notification. */
+        private const val VISIBILITY_NO_OVERRIDE = -1000
 
         /** True between onListenerConnected and onListenerDisconnected, for the scan's summary. */
         @Volatile

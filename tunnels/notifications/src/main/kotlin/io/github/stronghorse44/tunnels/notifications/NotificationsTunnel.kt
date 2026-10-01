@@ -73,10 +73,8 @@ class NotificationsTunnel(private val context: Context) : TunnelModule, TunnelUi
 
     private fun labelOf(pm: PackageManager, pkg: String): String? = try {
         pm.getApplicationInfo(pkg, PackageManager.ApplicationInfoFlags.of(0)).loadLabel(pm).toString()
-    } catch (_: PackageManager.NameNotFoundException) {
-        null // uninstalled since it notified: the package name stands in
     } catch (_: Exception) {
-        null
+        null // uninstalled since it notified (NameNotFoundException): the package name stands in
     }
 
     override fun actionsFor(draft: FindingDraft): List<FindingAction> {
@@ -95,7 +93,7 @@ class NotificationsTunnel(private val context: Context) : TunnelModule, TunnelUi
             FindingAction.OpenAppDetails(pkg),
         )
         if (draft.kind == NotifRules.LOCK_SCREEN_EXPOSURE) {
-            actions += FindingAction.OpenSettings(Settings.ACTION_NOTIFICATION_SETTINGS, "System notification settings")
+            actions += FindingAction.OpenSettings(ACTION_NOTIFICATION_SETTINGS, "System notification settings")
         }
         return actions
     }
@@ -120,6 +118,8 @@ class NotificationsTunnel(private val context: Context) : TunnelModule, TunnelUi
 
     companion object {
         const val ACCESS_ID = "notification_access"
+        /** The system-wide notification screen (lock screen notifications, DND). `Settings.ACTION_NOTIFICATION_SETTINGS` is not public API. */
+        const val ACTION_NOTIFICATION_SETTINGS = "android.settings.NOTIFICATION_SETTINGS"
         /** Most events a scan reads; at one row per post this covers well over a month of heavy use. */
         const val MAX_EVENTS = 20_000
         private const val EVENTS_TIMEOUT_MS = 30_000L
