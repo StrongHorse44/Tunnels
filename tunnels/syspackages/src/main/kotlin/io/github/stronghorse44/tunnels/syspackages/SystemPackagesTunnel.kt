@@ -25,6 +25,8 @@ import kotlinx.coroutines.yield
  * System packages: every preinstalled package, whether it is enabled, whether it is known and what
  * it does. Rules flag unknown vendor packages, packages that appear after the first scan, enabled
  * state changes, and a single summary finding when an OS update bumps many versions at once.
+ * Observations follow [SysPkgKeys]; at most [SysPkgKeys.MAX_PACKAGES] packages are described per
+ * scan and the rest are counted under the summary subject.
  */
 class SystemPackagesTunnel(private val context: Context) : TunnelModule, TunnelUi {
     override val id: String = SysPkgKeys.TUNNEL_ID
