@@ -84,9 +84,14 @@ each module's report lists the device checks that matter, collected in the pull 
 
 ## Follow-ups (deferred, not blockers)
 
-- Surroundings: FollowingHeuristic aggregates by tracker type; require the same pseudonymous key across
-  3+ sessions for CRITICAL and keep type-level aggregation for WARN. CELL_DOWNGRADED only fires on a
-  snapshot-to-snapshot change; add a change rule on cell:downgradesRecorded for the background monitor.
+- Surroundings (v3, per-identity following): verify on device how often non-Apple tags (SmartTag,
+  Tile, Chipolo, Find Hub) rotate their key while separated. Per-key following only catches a tag whose
+  key stays stable for 30+ min; ROTATING_TRACKER is a NOTICE backstop until this is verified. Also
+  verify DULT (Query tag / Play sound) and the AirTag short-frame battery/kind read with a real tag.
+- Surroundings: mute rows live in their own events stream (`surroundings.mutes`) because TunnelsDao has
+  no kind filter; add `eventsOfKinds(tunnelId, kinds, limit)` and fold them back. The open twin of an
+  open hotspot SSID (xfinitywifi, attwifi) cannot be detected by security type. CELL_DOWNGRADED only
+  fires on a snapshot-to-snapshot change; add a change rule on cell:downgradesRecorded for the monitor.
 - Notifications: a model-level OpenSettings variant carrying a package extra would let the engine own
   the per-app notification-settings intent (currently a Perform action).
 - Deep mode: ShellRunner timeout kills only the shell, not grandchildren; a single dumpsys appops parse
