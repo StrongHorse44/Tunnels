@@ -19,11 +19,21 @@ object TimelineKeys {
     const val SYSTEM = "app:system"
     /** ISO date (day granularity) of the first install. */
     const val FIRST_INSTALL = "app:firstInstall"
-    /** Minutes in the foreground over the last 7 days. */
+    /**
+     * Minutes in the foreground over the last 7 days, rounded. Approximate: only daily buckets that start
+     * inside the window count, so the partial bucket at the window edge is left out (about 6.5 days).
+     */
     const val FG_MINUTES_7 = "usage:fgMinutes7"
-    /** Minutes in the foreground over the last 30 days. */
+    /**
+     * Minutes in the foreground over the last 30 days, rounded (under 30 seconds rounds to 0). Approximate:
+     * the larger of the daily sum (Android keeps about ten days of daily buckets) and the weekly sum, where
+     * a weekly bucket that ends inside the window counts in full, so it may include up to a week of older use.
+     */
     const val FG_MINUTES_30 = "usage:fgMinutes30"
-    /** Distinct days with foreground use in the last 30 days. */
+    /**
+     * Distinct days with foreground use among the daily buckets Android still retains (about the last ten
+     * days), so this is a floor for the 30-day window, not the full count.
+     */
     const val DAYS_USED_30 = "usage:daysUsed30"
     /** Times an activity of the app came to the foreground in the last 7 days. */
     const val LAUNCHES_7 = "usage:launches7"
@@ -37,6 +47,11 @@ object TimelineKeys {
     const val FG_MB_30 = "net:fgMb30"
     /** Megabytes moved in the background; only when the system splits traffic by state. */
     const val BG_MB_30 = "net:bgMb30"
+    /**
+     * Number of other installed apps sharing this app's Linux user id. Traffic is counted per uid, so the
+     * `net:` figures of such apps are the same shared total. Only emitted when greater than zero.
+     */
+    const val SHARED_UID_APPS = "net:sharedUidApps"
 
     /** Summary: [GRANTED] or [NOT_GRANTED]. Without usage access only the summary subject is emitted. */
     const val ACCESS_USAGE = "access:usage"

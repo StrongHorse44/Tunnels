@@ -39,6 +39,15 @@ import java.util.concurrent.TimeUnit
  * Timeline: which apps the user actually opens and how much data each one moves, from the system's
  * own usage and network counters (Usage access). Everything stored is a per-app count, a day or a
  * rounded megabyte figure over the last 7 or 30 days: no session times, no histograms.
+ *
+ * Design notes:
+ * - The foreground/background split comes from `NetworkStatsManager.querySummary`, whose buckets are
+ *   already per uid and per state (STATE_FOREGROUND / STATE_DEFAULT) on API 28+. That is equivalent to
+ *   `queryDetailsForUidTagState` per uid at a fraction of the binder calls; do not re-add the per-uid calls.
+ * - Traffic is counted per Linux uid. Packages sharing a uid all carry the uid's total and say so through
+ *   [TimelineKeys.SHARED_UID_APPS]; the device total is summed per uid, so nothing is double-counted.
+ * - `getInstalledPackages` lists other apps only because the merged manifest carries QUERY_ALL_PACKAGES
+ *   from tunnels/apk and tunnels/installer. If those modules go, this tunnel shrinks to a handful of packages.
  */
 class TimelineTunnel(private val context: Context) : TunnelModule, TunnelUi {
     override val id: String = TimelineKeys.TUNNEL_ID
@@ -98,10 +107,10 @@ class TimelineTunnel(private val context: Context) : TunnelModule, TunnelUi {
 
         val steps = FIXED_STEPS + apps.size
         progress.report(1, steps, "foreground time")
-        val usage = bounded { readUsage(now, zone) }.orEmpty()
+        val usage = bounded { readUsage(now, zone) }.valueOrNull().orEmpty()
         yield()
         progress.report(2, steps, "launches")
-        val launches = bounded { readLaunches(now) }.orEmpty()
+        val launches = bounded { readLaunches(now) }.valueOrNull().orEmpty()
         yield()
         progress.report(3, steps, "Wi-Fi data")
         val wifi = bounded { readTraffic(ConnectivityManager.TYPE_WIFI, now) }
@@ -110,10 +119,13 @@ class TimelineTunnel(private val context: Context) : TunnelModule, TunnelUi {
         val mobile = bounded { readTraffic(ConnectivityManager.TYPE_MOBILE, now) }
         yield()
         val netAvailable = when {
-            wifi == null || mobile == null -> if (lastQueryFailed) TimelineKeys.NET_ERROR else TimelineKeys.NET_TIMEOUT
+            wifi is Query.Error || mobile is Query.Error -> TimelineKeys.NET_ERROR
+            wifi is Query.Timeout || mobile is Query.Timeout -> TimelineKeys.NET_TIMEOUT
             else -> TimelineKeys.NET_YES
         }
-        val traffic = if (wifi != null && mobile != null) UsageAggregation.traffic(wifi, mobile) else null
+        val traffic = if (wifi is Query.Ok && mobile is Query.Ok) UsageAggregation.traffic(wifi.value, mobile.value) else null
+        val uidCount = HashMap<Int, Int>()
+        apps.forEach { (_, uid, _) -> if (uid >= 0) uidCount.merge(uid, 1, Int::plus) }
 
         val out = ArrayList<Observation>(apps.size * 12 + 8)
         val today = LocalDate.now(zone)
@@ -121,7 +133,8 @@ class TimelineTunnel(private val context: Context) : TunnelModule, TunnelUi {
         apps.forEachIndexed { index, (facts, uid, pkg) ->
             progress.report(FIXED_STEPS + index, steps, pkg)
             try {
-                val obs = TimelineObservations.forApp(facts, usage[pkg], launches[pkg] ?: 0, traffic?.get(uid), zone)
+                val sharedWith = (uidCount[uid] ?: 1) - 1
+                val obs = TimelineObservations.forApp(facts, usage[pkg], launches[pkg] ?: 0, traffic?.get(uid), zone, sharedWith)
                 if (TimelineKeys.isUnused(obs, today)) unused++
                 out += obs
             } catch (e: Exception) {
@@ -135,20 +148,31 @@ class TimelineTunnel(private val context: Context) : TunnelModule, TunnelUi {
         return out
     }
 
-    @Volatile private var lastQueryFailed = false
+    /** Outcome of one bounded system query. */
+    private sealed interface Query<out T> {
+        data class Ok<T>(val value: T) : Query<T>
+        data object Error : Query<Nothing>
+        data object Timeout : Query<Nothing>
+    }
 
-    /** Runs a blocking system query off this coroutine; null when it threw or did not finish in time. */
-    private suspend fun <T> bounded(block: () -> T): T? {
-        lastQueryFailed = false
+    private fun <T> Query<T>.valueOrNull(): T? = if (this is Query.Ok) value else null
+
+    /**
+     * Runs a blocking system query off this coroutine. A query that throws is an [Query.Error]; one that does
+     * not finish within [QUERY_TIMEOUT_MS] is a [Query.Timeout] and its result, whenever it arrives, is dropped.
+     */
+    private suspend fun <T> bounded(block: () -> T): Query<T> {
         val deferred = queries.async {
             try {
-                block()
+                Query.Ok(block())
             } catch (e: Exception) {
-                lastQueryFailed = true
-                null
+                Query.Error
             }
         }
-        return withTimeoutOrNull(QUERY_TIMEOUT_MS) { deferred.await() }
+        return withTimeoutOrNull(QUERY_TIMEOUT_MS) { deferred.await() } ?: run {
+            deferred.cancel()
+            Query.Timeout
+        }
     }
 
     private fun readUsage(now: Long, zone: ZoneId): Map<String, PackageUsage> {

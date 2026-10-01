@@ -27,6 +27,8 @@ class TimelineRulesTest {
         mobileMb: Long? = 0,
         fgMb: Long? = null,
         bgMb: Long? = null,
+        launches7: Long = 0,
+        sharedUidApps: Int = 0,
     ): List<Observation> = buildList {
         fun add(key: String, value: String) = add(Observation(t, pkg, key, value))
         add(TimelineKeys.LABEL, pkg.substringAfterLast('.'))
@@ -35,12 +37,13 @@ class TimelineRulesTest {
         add(TimelineKeys.FG_MINUTES_7, "0")
         add(TimelineKeys.FG_MINUTES_30, fgMinutes30.toString())
         add(TimelineKeys.DAYS_USED_30, "1")
-        add(TimelineKeys.LAUNCHES_7, "0")
+        add(TimelineKeys.LAUNCHES_7, launches7.toString())
         add(TimelineKeys.LAST_USED, lastUsed)
         wifiMb?.let { add(TimelineKeys.WIFI_MB_30, it.toString()) }
         mobileMb?.let { add(TimelineKeys.MOBILE_MB_30, it.toString()) }
         fgMb?.let { add(TimelineKeys.FG_MB_30, it.toString()) }
         bgMb?.let { add(TimelineKeys.BG_MB_30, it.toString()) }
+        if (sharedUidApps > 0) add(TimelineKeys.SHARED_UID_APPS, sharedUidApps.toString())
     }
 
     private val summary = TimelineObservations.summary(true, 3, 1, 1_000_000, TimelineKeys.NET_YES)
@@ -104,16 +107,66 @@ class TimelineRulesTest {
 
     @Test
     fun usageWithoutLaunchNeedsTrafficAndNoForeground() {
-        val silent = app("com.silent", fgMinutes30 = 0, wifiMb = 15, mobileMb = 6)
-        val small = app("com.small", fgMinutes30 = 0, wifiMb = 20, mobileMb = 0)
-        val opened = app("com.opened", fgMinutes30 = 1, wifiMb = 500, mobileMb = 0)
-        val system = app("com.sys", system = true, fgMinutes30 = 0, wifiMb = 500)
-        val noNet = app("com.nonet", fgMinutes30 = 0, wifiMb = null, mobileMb = null)
+        val silent = app("com.silent", fgMinutes30 = 0, lastUsed = never(), wifiMb = 15, mobileMb = 6)
+        val small = app("com.small", fgMinutes30 = 0, lastUsed = never(), wifiMb = 20, mobileMb = 0)
+        val opened = app("com.opened", fgMinutes30 = 1, lastUsed = "2026-09-29", wifiMb = 500, mobileMb = 0)
+        val system = app("com.sys", system = true, fgMinutes30 = 0, lastUsed = never(), wifiMb = 500)
+        val noNet = app("com.nonet", fgMinutes30 = 0, lastUsed = never(), wifiMb = null, mobileMb = null)
         val drafts = evaluate(silent + small + opened + system + noNet).of(TimelineRules.USAGE_WITHOUT_LAUNCH)
         assertEquals(listOf("com.silent"), drafts.map { it.subject })
         assertEquals(Severity.NOTICE, drafts.single().severity)
-        assertEquals("Moved 21 MB over the last 30 days (Wi-Fi 15 MB, mobile 6 MB) without being opened once.", drafts.single().evidence)
+        assertEquals(
+            "Moved 21 MB over the last 30 days (Wi-Fi 15 MB, mobile 6 MB) without being opened in that time (never opened).",
+            drafts.single().evidence,
+        )
     }
+
+    @Test
+    fun usageWithoutLaunchTrustsTheLastUsedDateOverRoundedMinutes() {
+        // Opened for 20 seconds ten days ago: fgMinutes30 rounds to 0 but the app was opened in the window.
+        val brief = app("com.brief", fgMinutes30 = 0, lastUsed = "2026-09-20", wifiMb = 100, mobileMb = 0)
+        // Launched this week (counted by the event log) even though the minute figure is 0.
+        val launched = app("com.launched", fgMinutes30 = 0, lastUsed = never(), wifiMb = 100, mobileMb = 0, launches7 = 1)
+        // Exactly 30 days ago is still inside the traffic window.
+        val edge = app("com.edge", fgMinutes30 = 0, lastUsed = "2026-08-31", wifiMb = 100, mobileMb = 0)
+        // Last opened before the window: the traffic really happened without a launch.
+        val old = app("com.old", fgMinutes30 = 0, lastUsed = "2026-08-01", wifiMb = 100, mobileMb = 0)
+        val outside = app("com.outside", fgMinutes30 = 0, lastUsed = "2026-08-30", wifiMb = 100, mobileMb = 0)
+        val neverOpened = app("com.never", fgMinutes30 = 0, lastUsed = never(), wifiMb = 100, mobileMb = 0)
+        val garbage = app("com.garbage", fgMinutes30 = 0, lastUsed = "recently", wifiMb = 100, mobileMb = 0)
+        val drafts = evaluate(brief + launched + edge + old + outside + neverOpened + garbage).of(TimelineRules.USAGE_WITHOUT_LAUNCH)
+        assertEquals(setOf("com.old", "com.outside", "com.never"), drafts.map { it.subject }.toSet())
+        assertEquals(
+            "Moved 100 MB over the last 30 days (Wi-Fi 100 MB, mobile 0 MB) without being opened in that time (last opened 2026-08-01).",
+            drafts.single { it.subject == "com.old" }.evidence,
+        )
+        assertEquals(
+            "Moved 100 MB over the last 30 days (Wi-Fi 100 MB, mobile 0 MB) without being opened in that time (never opened).",
+            drafts.single { it.subject == "com.never" }.evidence,
+        )
+    }
+
+    @Test
+    fun sharedUidIsSpelledOutInDataEvidence() {
+        val shared = app("com.shared", fgMinutes30 = 0, lastUsed = never(), wifiMb = 100, mobileMb = 0, bgMb = 90, fgMb = 10, sharedUidApps = 1)
+        val many = app("com.many", bgMb = 60, sharedUidApps = 3)
+        val alone = app("com.alone", bgMb = 60)
+        val drafts = evaluate(shared + many + alone)
+        assertEquals(
+            "Moved 100 MB over the last 30 days (Wi-Fi 100 MB, mobile 0 MB) without being opened in that time (never opened)." +
+                " Traffic figure is shared with 1 other app using the same user id.",
+            drafts.of(TimelineRules.USAGE_WITHOUT_LAUNCH).single().evidence,
+        )
+        val bg = drafts.of(TimelineRules.HEAVY_BACKGROUND_DATA).associateBy { it.subject }
+        assertEquals(setOf("com.shared", "com.many", "com.alone"), bg.keys)
+        assertEquals(
+            "Moved 60 MB in the background over the last 30 days (while open: 0 MB). Traffic figure is shared with 3 other apps using the same user id.",
+            bg.getValue("com.many").evidence,
+        )
+        assertEquals("Moved 60 MB in the background over the last 30 days (while open: 0 MB).", bg.getValue("com.alone").evidence)
+    }
+
+    private fun never() = TimelineKeys.NEVER
 
     @Test
     fun keysHelpers() {

@@ -4,12 +4,13 @@ import io.github.stronghorse44.tunnels.engine.Rules
 import io.github.stronghorse44.tunnels.model.DiffEntry
 import io.github.stronghorse44.tunnels.model.FindingDraft
 import io.github.stronghorse44.tunnels.model.FindingRule
+import io.github.stronghorse44.tunnels.model.Observation
 import io.github.stronghorse44.tunnels.model.Severity
 import java.time.LocalDate
 
 /**
  * Finding rules of the timeline tunnel. Pure functions over observations; the clock is injected so the
- * unused-app rule can be tested with a fixed day. All rules skip system apps: their traffic (updates,
+ * date-based rules can be tested with a fixed day. All rules skip system apps: their traffic (updates,
  * sync) is not the user's to uninstall, and shared system uids would repeat one event per package.
  */
 object TimelineRules {
@@ -25,6 +26,8 @@ object TimelineRules {
     const val SPIKE_MB = 200L
     /** Megabytes in 30 days that are suspicious for an app the user never opened. */
     const val SILENT_TRAFFIC_MB = 20L
+    /** Length of the traffic window in days; the last-used date must fall outside it for [USAGE_WITHOUT_LAUNCH]. */
+    const val TRAFFIC_WINDOW_DAYS = 30L
 
     /** Kinds whose findings also get the Data usage settings action. */
     val dataKinds: Set<String> = setOf(HEAVY_BACKGROUND_DATA, DATA_SPIKE, USAGE_WITHOUT_LAUNCH)
@@ -48,7 +51,7 @@ object TimelineRules {
             val severity = if (bg > HEAVY_BG_WARN_MB) Severity.WARN else Severity.NOTICE
             FindingDraft(
                 ctx.tunnelId, subject, HEAVY_BACKGROUND_DATA, severity,
-                "Moved $bg MB in the background over the last 30 days (while open: $fg MB).",
+                "Moved $bg MB in the background over the last 30 days (while open: $fg MB)." + sharedUidNote(obs),
             )
         }
     }
@@ -72,19 +75,42 @@ object TimelineRules {
         }
     }
 
-    /** State NOTICE: a user app moved more than [SILENT_TRAFFIC_MB] MB in 30 days without ever being in the foreground. */
-    val usageWithoutLaunch: FindingRule = Rules.perSubject(USAGE_WITHOUT_LAUNCH, Severity.NOTICE) { _, obs ->
+    /**
+     * State NOTICE: a user app moved more than [SILENT_TRAFFIC_MB] MB in 30 days without being in the
+     * foreground in that window. A zero minute figure alone is not enough (it is rounded, so a few
+     * seconds of use round to 0): the last-used date must also be [TimelineKeys.NEVER] or older than the
+     * traffic window, and no launch may have been counted in the last 7 days.
+     */
+    fun usageWithoutLaunch(today: () -> LocalDate): FindingRule = Rules.perSubject(USAGE_WITHOUT_LAUNCH, Severity.NOTICE) { _, obs ->
         if (!TimelineKeys.isApp(obs) || TimelineKeys.isSystem(obs)) return@perSubject null
         val minutes = TimelineKeys.longValue(obs, TimelineKeys.FG_MINUTES_30) ?: return@perSubject null
         if (minutes != 0L) return@perSubject null
+        if ((TimelineKeys.longValue(obs, TimelineKeys.LAUNCHES_7) ?: 0L) != 0L) return@perSubject null
+        val lastUsed = TimelineKeys.value(obs, TimelineKeys.LAST_USED) ?: return@perSubject null
+        val opened = when (lastUsed) {
+            TimelineKeys.NEVER -> "never opened"
+            else -> {
+                val days = TimelineKeys.daysSince(lastUsed, today()) ?: return@perSubject null
+                if (days <= TRAFFIC_WINDOW_DAYS) return@perSubject null
+                "last opened $lastUsed"
+            }
+        }
         val wifi = TimelineKeys.longValue(obs, TimelineKeys.WIFI_MB_30) ?: return@perSubject null
         val mobile = TimelineKeys.longValue(obs, TimelineKeys.MOBILE_MB_30) ?: return@perSubject null
         val total = wifi + mobile
         if (total <= SILENT_TRAFFIC_MB) return@perSubject null
-        "Moved $total MB over the last 30 days (Wi-Fi $wifi MB, mobile $mobile MB) without being opened once."
+        "Moved $total MB over the last 30 days (Wi-Fi $wifi MB, mobile $mobile MB) without being opened in that time ($opened)." +
+            sharedUidNote(obs)
+    }
+
+    /** " (figure shared with N other apps)" when the package shares its uid, so the traffic is not all its own. */
+    private fun sharedUidNote(obs: List<Observation>): String {
+        val others = TimelineKeys.longValue(obs, TimelineKeys.SHARED_UID_APPS) ?: return ""
+        if (others <= 0) return ""
+        return " Traffic figure is shared with $others other ${if (others == 1L) "app" else "apps"} using the same user id."
     }
 
     /** Every rule of the tunnel, in display order. */
     fun all(today: () -> LocalDate = { LocalDate.now() }): List<FindingRule> =
-        listOf(unusedApp(today), heavyBackgroundData, dataSpike, usageWithoutLaunch)
+        listOf(unusedApp(today), heavyBackgroundData, dataSpike, usageWithoutLaunch(today))
 }

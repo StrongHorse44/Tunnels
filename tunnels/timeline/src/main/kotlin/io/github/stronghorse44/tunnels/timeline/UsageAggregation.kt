@@ -151,9 +151,17 @@ object TimelineObservations {
 
     /**
      * One app's observations. [traffic] is null when network totals were unavailable this scan, so no
-     * `net:` keys are emitted and change rules cannot mistake the gap for a drop to zero.
+     * `net:` keys are emitted and change rules cannot mistake the gap for a drop to zero. [sharedUidApps]
+     * is how many other installed apps share this app's uid (and therefore its traffic figure).
      */
-    fun forApp(app: AppFacts, usage: PackageUsage?, launches7: Int, traffic: UidTraffic?, zone: ZoneId): List<Observation> {
+    fun forApp(
+        app: AppFacts,
+        usage: PackageUsage?,
+        launches7: Int,
+        traffic: UidTraffic?,
+        zone: ZoneId,
+        sharedUidApps: Int = 0,
+    ): List<Observation> {
         val pkg = app.packageName
         val obs = ArrayList<Observation>(12)
         fun add(key: String, value: String) = obs.add(Observation(TUNNEL, pkg, key, value))
@@ -173,6 +181,7 @@ object TimelineObservations {
                 add(TimelineKeys.FG_MB_30, megabytes(traffic.fgBytes).toString())
                 add(TimelineKeys.BG_MB_30, megabytes(traffic.bgBytes).toString())
             }
+            if (sharedUidApps > 0) add(TimelineKeys.SHARED_UID_APPS, sharedUidApps.toString())
         }
         return obs
     }

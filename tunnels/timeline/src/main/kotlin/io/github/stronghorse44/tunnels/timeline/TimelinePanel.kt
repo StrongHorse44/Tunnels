@@ -20,6 +20,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.stronghorse44.tunnels.common.GlassColors
@@ -27,6 +28,7 @@ import io.github.stronghorse44.tunnels.common.GlassPanel
 import io.github.stronghorse44.tunnels.common.LineColors
 import io.github.stronghorse44.tunnels.model.MetroLine
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenState
+import java.util.Locale
 
 /** The last 30 days at a glance: the five most used apps, the five heaviest on data, and the unused count. */
 @Composable
@@ -83,7 +85,7 @@ private fun formatMinutes(minutes: Long): String =
     if (minutes >= 60) "${minutes / 60} h ${minutes % 60} min" else "$minutes min"
 
 private fun formatMb(mb: Long): String =
-    if (mb >= 1000) "%.1f GB".format(mb / 1000.0) else "$mb MB"
+    if (mb >= 1000) String.format(Locale.ROOT, "%.1f GB", mb / 1000.0) else "$mb MB"
 
 @Composable
 private fun SectionLabel(text: String) {
@@ -94,7 +96,13 @@ private fun SectionLabel(text: String) {
 private fun BarRow(title: String, amount: String, fraction: Float, color: Color) {
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(title, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1)
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             Text(amount, fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = color)
         }
         Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.08f))) {

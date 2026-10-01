@@ -124,6 +124,12 @@ class UsageAggregationTest {
         assertEquals("0", unsplit[TimelineKeys.WIFI_MB_30])
         assertFalse(TimelineKeys.BG_MB_30 in unsplit)
         assertFalse(TimelineKeys.FG_MB_30 in unsplit)
+        assertFalse("no shared-uid key when the app is alone on its uid", TimelineKeys.SHARED_UID_APPS in unsplit)
+
+        val shared = TimelineObservations.forApp(app, usage, 1, traffic, zone, sharedUidApps = 2).associate { it.key to it.value }
+        assertEquals("2", shared[TimelineKeys.SHARED_UID_APPS])
+        val sharedNoNet = TimelineObservations.forApp(app, usage, 1, null, zone, sharedUidApps = 2).associate { it.key to it.value }
+        assertFalse("the shared-uid note only accompanies traffic figures", TimelineKeys.SHARED_UID_APPS in sharedNoNet)
     }
 
     @Test
