@@ -24,7 +24,8 @@ subprojects {
 tasks.register("verifyPermissions") {
     group = "verification"
     description = "Checks every module's manifest against its permissions.allow and the app's merged manifest against their union."
-    dependsOn(subprojects.map { "${it.path}:verifyPermissions" }.filter { path ->
-        subprojects.any { it.path == path.substringBeforeLast(':') && (it.plugins.hasPlugin("com.android.library") || it.plugins.hasPlugin("com.android.application")) }
+    dependsOn(provider {
+        subprojects.filter { it.plugins.hasPlugin("com.android.library") || it.plugins.hasPlugin("com.android.application") }
+            .map { "${it.path}:verifyPermissions" }
     })
 }

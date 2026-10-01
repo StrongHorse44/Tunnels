@@ -12,9 +12,9 @@ interface TunnelProvider {
     fun create(context: Context): List<TunnelModule>
 }
 
-/** All tunnel modules found on the classpath, by id. Tests may pass [override] instead. */
-class TunnelRegistry(context: Context, override: Map<String, TunnelModule>? = null) {
-    val modules: Map<String, TunnelModule> = override
+/** All tunnel modules found on the classpath, by id. Tests may pass [modulesOverride] instead. */
+class TunnelRegistry(context: Context, modulesOverride: Map<String, TunnelModule>? = null) {
+    val modules: Map<String, TunnelModule> = modulesOverride
         ?: ServiceLoader.load(TunnelProvider::class.java, TunnelProvider::class.java.classLoader)
             .flatMap { it.create(context.applicationContext) }
             .associateBy { it.id }

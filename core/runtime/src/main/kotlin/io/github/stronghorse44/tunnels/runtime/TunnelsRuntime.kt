@@ -11,11 +11,12 @@ class TunnelsRuntime private constructor(val registry: TunnelRegistry, val store
 
     companion object {
         @Volatile private var instance: TunnelsRuntime? = null
+        private val lock = Any()
 
         /** Opens the store (Keystore work): call off the main thread. */
         suspend fun get(context: Context): TunnelsRuntime =
             instance ?: withContext(Dispatchers.IO) {
-                instance ?: synchronized(this) {
+                instance ?: synchronized(lock) {
                     instance ?: TunnelsRuntime(TunnelRegistry(context), TunnelsStore.get(context)).also { instance = it }
                 }
             }

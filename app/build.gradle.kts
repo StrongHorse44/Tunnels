@@ -86,7 +86,12 @@ androidComponents {
         val cap = variant.name.replaceFirstChar { it.uppercase() }
         val task = tasks.register<VerifyAppPermissionsTask>("verifyPermissions$cap") {
             mergedManifest.set(variant.artifacts.get(SingleArtifact.MERGED_MANIFEST))
-            allowFiles.from(rootProject.fileTree(rootDir) { include("tunnels/*/permissions.allow", "core/*/permissions.allow", "app/permissions.allow") })
+            allowFiles.from(
+                rootProject.fileTree(rootDir) {
+                    include("tunnels/*/permissions.allow", "core/*/permissions.allow", "app/permissions.allow")
+                    exclude("**/build/**", ".gradle/**", "**/.git/**")
+                },
+            )
             applicationId.set(variant.applicationId)
             unionFile.set(layout.buildDirectory.file("reports/permissions/allowed-${variant.name}.txt"))
         }

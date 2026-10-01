@@ -49,6 +49,9 @@ import io.github.stronghorse44.tunnels.model.TunnelInfo
 import io.github.stronghorse44.tunnels.store.EventEntity
 import io.github.stronghorse44.tunnels.runtime.TunnelSummary
 import io.github.stronghorse44.tunnels.runtime.TunnelsRuntime
+import io.github.stronghorse44.tunnels.store.TunnelsStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private val Mono = FontFamily.Monospace
 
