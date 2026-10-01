@@ -40,7 +40,7 @@ class DeepModeTunnel(private val context: Context, val shell: ShizukuShell = Shi
             label = "Shizuku",
             reason = SHIZUKU_REASON,
             settingsAction = ShizukuConnectActivity.ACTION,
-            isGranted = { ShizukuStatus.read(context).granted },
+            isGranted = { ShizukuStatus.cached(context).granted },
         ),
     )
 
@@ -128,11 +128,12 @@ class DeepModeTunnel(private val context: Context, val shell: ShizukuShell = Shi
                     for ((key, value) in values.toSortedMap()) add(DeepKeys.SUBJECT_SETTINGS, DeepKeys.settingKey(table, key), value)
                 }
 
-                // 4. Apps the user has disabled.
+                // 4. Apps the user has disabled. The shell lists every disabled package (GrapheneOS ships
+                // several the system disabled); PackageManager tells which of those the user did.
                 progress.report(1, 2, "disabled apps")
                 if (timeLeft() >= MIN_BATCH_MILLIS) {
-                    runCatching { SettingsParser.countPackages(sh.run("cmd package list packages -d --user 0")) }
-                        .getOrNull()?.let { add(DeepKeys.SUBJECT_DEEP, DeepKeys.DISABLED_BY_USER, it.toString()) }
+                    runCatching { SettingsParser.packages(sh.run("cmd package list packages -d --user 0")) }
+                        .getOrNull()?.let { add(DeepKeys.SUBJECT_DEEP, DeepKeys.DISABLED_BY_USER, countDisabledByUser(it).toString()) }
                 }
             }
         } catch (e: Exception) {
@@ -168,13 +169,26 @@ class DeepModeTunnel(private val context: Context, val shell: ShizukuShell = Shi
         return targets.sortedWith(compareBy<Target>({ it.system }, { it.packageName })).take(MAX_APPS)
     }
 
+    /**
+     * How many of [disabled] carry the DISABLED_USER enabled-state (the user turned them off in Settings or
+     * through "Disable app"), as opposed to packages the system or a device policy disabled. One
+     * PackageManager call per disabled package, capped.
+     */
+    private fun countDisabledByUser(disabled: List<String>): Int {
+        val pm = context.packageManager
+        return disabled.asSequence().filter(ShellRunner::isSafeArgument).take(MAX_DISABLED_LOOKUPS).count { pkg ->
+            runCatching { pm.getApplicationEnabledSetting(pkg) == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER }.getOrDefault(false)
+        }
+    }
+
     /** Packages that provide a keyboard; they read the clipboard by design. Public API, no permission. */
     private fun inputMethodPackages(): Set<String> = runCatching {
         context.getSystemService(InputMethodManager::class.java)?.inputMethodList.orEmpty().mapTo(HashSet()) { it.packageName }
     }.getOrDefault(emptySet())
 
     override fun actionsFor(draft: FindingDraft): List<FindingAction> {
-        val granted = ShizukuStatus.read(context).granted
+        // Cached: this runs for every finding on each emission of the findings flow, on the main thread.
+        val granted = ShizukuStatus.cached(context).granted
         return when (draft.kind) {
             DeepRules.DEEP_UNAVAILABLE -> {
                 val intent = ShizukuStatus.launchIntent(context) ?: return emptyList()
@@ -225,26 +239,34 @@ class DeepModeTunnel(private val context: Context, val shell: ShizukuShell = Shi
             if (DeepKeys.READ_CLIPBOARD in ops) add(
                 FindingAction.Perform("Block clipboard reads", destructive = true) { runShell("appops set --user 0 $pkg READ_CLIPBOARD ignore") },
             )
-            add(FindingAction.OpenAppDetails(pkg))
             add(FindingAction.Perform("Revoke network", destructive = true) { runShell("pm revoke --user 0 $pkg android.permission.INTERNET") })
             if (!system) add(FindingAction.Perform("Disable app", destructive = true) { runShell("pm disable-user --user 0 $pkg") })
+            // Last: the card shows the first few actions, and the direct ones are what deep mode adds.
+            add(FindingAction.OpenAppDetails(pkg))
         }
     }
 
+    /**
+     * Revokes each permission with its own `pm revoke`, so one that the app never requested (background
+     * location, say) cannot mask the others; the summary names what failed.
+     */
     private fun revoke(label: String, pkg: String, vararg permissions: String) = FindingAction.Perform(label, destructive = true) {
-        runShell(permissions.joinToString("; ") { "pm revoke --user 0 $pkg $it" })
+        runShellEach(permissions.map { "pm revoke --user 0 $pkg $it" })
     }
 
     /** Runs one action command through a fresh shell and reduces its output to a line for the snackbar. */
-    private suspend fun runShell(command: String): String = withContext(Dispatchers.IO) {
-        if (!ShizukuStatus.read(context).granted) return@withContext "Shizuku is not connected; open Deep mode to reconnect."
-        val output = try {
-            shell.run(command)
-        } catch (e: Exception) {
-            return@withContext e.message ?: "The deep shell did not start."
+    private suspend fun runShell(command: String): String = runShellEach(listOf(command), ShellRunner::oneLine)
+
+    private suspend fun runShellEach(commands: List<String>, summary: (String) -> String = { ShellRunner.summarise(listOf(it)) }): String =
+        withContext(Dispatchers.IO) {
+            if (!ShizukuStatus.read(context).granted) return@withContext "Shizuku is not connected; open Deep mode to reconnect."
+            val outputs = try {
+                shell.withShell { sh -> commands.map { sh.run(it) } }
+            } catch (e: Exception) {
+                return@withContext e.message ?: "The deep shell did not start."
+            }
+            if (outputs.size == 1) summary(outputs.single()) else ShellRunner.summarise(outputs)
         }
-        ShellRunner.oneLine(output)
-    }
 
     private fun isSystem(pkg: String): Boolean = systemApps[pkg] ?: runCatching {
         context.packageManager.getApplicationInfo(pkg, PackageManager.ApplicationInfoFlags.of(0)).flags and ApplicationInfo.FLAG_SYSTEM != 0
@@ -266,6 +288,7 @@ class DeepModeTunnel(private val context: Context, val shell: ShizukuShell = Shi
         private const val MIN_BATCH_MILLIS = 3_000L
         const val BATCH_SIZE = 20
         const val MAX_APPS = 300
+        private const val MAX_DISABLED_LOOKUPS = 200
 
         /** System apps worth checking alongside user apps: they hold the sensors and the data. */
         val SENSITIVE_SYSTEM_APPS: Set<String> = setOf(

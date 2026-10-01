@@ -57,8 +57,16 @@ class ShellRunner(
 
     companion object {
         const val DEFAULT_TIMEOUT_MILLIS = 20_000L
-        const val DEFAULT_MAX_OUTPUT_BYTES = 2 * 1024 * 1024
+
+        /**
+         * The result crosses one binder transaction as a UTF-16 String, and a process shares a 1 MB binder
+         * buffer, so the cap stays well under half of that: 256 KB of output is at most 512 KB on the wire.
+         */
+        const val DEFAULT_MAX_OUTPUT_BYTES = 256 * 1024
         private const val READER_GRACE_MILLIS = 1_000L
+
+        /** Lines that mean a `pm`, `appops` or `settings` command did not do what was asked. */
+        private val errorLine = Regex("""^(Error|Exception|java\.|Security|Unknown|Bad |Failure|\[exit |\[timed out]|\[error])""")
 
         /** Shell-safe check for package names and other arguments interpolated into commands. */
         private val safeArgument = Regex("""^[A-Za-z0-9_.]+$""")
@@ -69,6 +77,23 @@ class ShellRunner(
         fun oneLine(output: String, empty: String = "Done."): String {
             val line = output.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() } ?: return empty
             return if (line.length > 160) line.take(159) + "…" else line
+        }
+
+        /** The first line of [output] that reads as an error, or null when the command seems to have worked. */
+        fun errorLine(output: String): String? =
+            output.lineSequence().map { it.trim() }.firstOrNull { errorLine.containsMatchIn(it) }
+
+        /**
+         * One line for the UI after several related commands ran separately: the number that worked and
+         * the first error of each that did not, so one "not requested" permission cannot hide the others.
+         */
+        fun summarise(outputs: List<String>, done: String = "Done."): String {
+            val errors = outputs.mapNotNull { errorLine(it) }
+            if (errors.isEmpty()) return done
+            val ok = outputs.size - errors.size
+            val detail = errors.distinct().joinToString("; ")
+            val text = if (ok > 0) "$ok of ${outputs.size} done; $detail" else detail
+            return if (text.length > 160) text.take(159) + "…" else text
         }
     }
 }

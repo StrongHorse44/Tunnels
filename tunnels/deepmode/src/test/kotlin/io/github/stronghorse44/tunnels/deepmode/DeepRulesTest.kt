@@ -114,10 +114,46 @@ class DeepRulesTest {
         val changed = evaluate(after, before).single { it.kind == DeepRules.OPS_CHANGED }
         assertTrue(changed.sticky)
         assertEquals("com.app", changed.subject)
-        assertEquals("Camera access changed from allow to ignore", changed.evidence)
+        assertEquals("Access changed: camera from allow to ignore", changed.evidence)
+        assertEquals(setOf(DeepKeys.CAMERA), DeepRules.opsMentioned(changed.evidence))
         // Only the age moved: no finding.
         val aged = listOf(obs("com.app", DeepKeys.modeKey(DeepKeys.CAMERA), "allow"), obs("com.app", DeepKeys.lastKey(DeepKeys.CAMERA), "2 days ago"))
         assertTrue(evaluate(aged, before).none { it.kind == DeepRules.OPS_CHANGED })
+    }
+
+    @Test
+    fun opsChangedReportsEveryChangedOpOfAnAppInOneFinding() {
+        val before = listOf(
+            obs("com.app", DeepKeys.modeKey(DeepKeys.CAMERA), "allow"),
+            obs("com.app", DeepKeys.modeKey(DeepKeys.RECORD_AUDIO), "allow"),
+            obs("com.app", DeepKeys.modeKey(DeepKeys.READ_CLIPBOARD), "allow"),
+            obs("com.other", DeepKeys.modeKey(DeepKeys.FINE_LOCATION), "foreground"),
+            obs(DeepKeys.SUBJECT_SETTINGS, DeepKeys.settingKey(DeepKeys.GLOBAL, "adb_enabled"), "0"),
+        )
+        val after = listOf(
+            obs("com.app", DeepKeys.modeKey(DeepKeys.CAMERA), "ignore"),
+            obs("com.app", DeepKeys.modeKey(DeepKeys.RECORD_AUDIO), "ignore"),
+            obs("com.app", DeepKeys.modeKey(DeepKeys.READ_CLIPBOARD), "allow"),
+            obs("com.other", DeepKeys.modeKey(DeepKeys.FINE_LOCATION), "ignore"),
+            obs(DeepKeys.SUBJECT_SETTINGS, DeepKeys.settingKey(DeepKeys.GLOBAL, "adb_enabled"), "1"),
+        )
+        val changed = evaluate(after, before).filter { it.kind == DeepRules.OPS_CHANGED }.associateBy { it.subject }
+        assertEquals(setOf("com.app", "com.other"), changed.keys)
+        assertEquals("Access changed: camera from allow to ignore and microphone from allow to ignore", changed.getValue("com.app").evidence)
+        assertEquals(setOf(DeepKeys.CAMERA, DeepKeys.RECORD_AUDIO), DeepRules.opsMentioned(changed.getValue("com.app").evidence))
+        assertEquals("Access changed: precise location from foreground to ignore", changed.getValue("com.other").evidence)
+        assertTrue(changed.values.all { it.sticky })
+    }
+
+    @Test
+    fun opsMentionedIgnoresTheAppName() {
+        assertEquals(setOf(DeepKeys.RECORD_AUDIO), DeepRules.opsMentioned("Open Camera used the microphone today"))
+        assertEquals(setOf(DeepKeys.READ_CLIPBOARD), DeepRules.opsMentioned("Camera Location Pro read the clipboard today; it is not a keyboard"))
+        assertEquals(
+            setOf(DeepKeys.CAMERA, DeepKeys.FINE_LOCATION),
+            DeepRules.opsMentioned("Microphone Notes used the camera today and approximate location 2 days ago while in the background"),
+        )
+        assertTrue(DeepRules.opsMentioned("Something without a marker about the camera").isEmpty())
     }
 
     @Test

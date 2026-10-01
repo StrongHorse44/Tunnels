@@ -33,8 +33,54 @@ class AppOpsParserTest {
         assertNull(ops.getValue("FINE_LOCATION").lastAccessAgo)
         assertTrue(ops.getValue("WRITE_CLIPBOARD").running)
         assertEquals("deny", ops.getValue("GET_USAGE_STATS").mode)
-        assertFalse("uid mode lines are not ops", ops.containsKey("Uid mode"))
+        assertFalse("uid mode lines are not ops of their own", ops.containsKey("Uid mode"))
+        assertEquals("foreground", ops.getValue("COARSE_LOCATION").mode)
+        assertEquals("the uid mode agreed with the package line", "foreground", ops.getValue("COARSE_LOCATION").packageMode)
+        assertNull(ops.getValue("CAMERA").packageMode)
         assertEquals(9, ops.size)
+    }
+
+    /**
+     * Shape of `appops get --user 0 <pkg>` on Android 14/15 for an app whose camera permission is denied
+     * and whose location is "while in use": the runtime permission lives on the `Uid mode:` line, the
+     * package line keeps its default/allow mode and the access time.
+     */
+    @Test
+    fun uidModeOverridesThePackageMode() {
+        val text = """
+            Uid mode: CAMERA: ignore
+            Uid mode: RECORD_AUDIO: ignore
+            Uid mode: COARSE_LOCATION: foreground
+            Uid mode: FINE_LOCATION: foreground
+            Uid mode: READ_CONTACTS: allow
+            CAMERA: allow; time=+2h ago
+            RECORD_AUDIO: default; time=+3d ago; rejectTime=+1h ago
+            FINE_LOCATION: allow; time=+30m ago; duration=+2s
+            READ_CLIPBOARD: allow; time=+1d ago
+        """.trimIndent()
+        val ops = AppOpsParser.parseGet(text)
+        val camera = ops.getValue("CAMERA")
+        assertEquals("ignore", camera.mode)
+        assertEquals("allow", camera.packageMode)
+        assertEquals(2 * 3_600_000L, camera.lastAccessAgo)
+        val mic = ops.getValue("RECORD_AUDIO")
+        assertEquals("ignore", mic.mode)
+        assertEquals(3 * 86_400_000L, mic.lastAccessAgo)
+        assertEquals(3_600_000L, mic.lastRejectAgo)
+        assertEquals("foreground", ops.getValue("FINE_LOCATION").mode)
+        assertEquals(30 * 60_000L, ops.getValue("FINE_LOCATION").lastAccessAgo)
+        // Only a uid-mode line: the op is known with its mode but has never been used.
+        val coarse = ops.getValue("COARSE_LOCATION")
+        assertEquals("foreground", coarse.mode)
+        assertNull(coarse.lastAccessAgo)
+        assertNull(coarse.packageMode)
+        assertEquals("allow", ops.getValue("READ_CONTACTS").mode)
+        // No uid line: the package line stands.
+        assertEquals("allow", ops.getValue("READ_CLIPBOARD").mode)
+        assertNull(ops.getValue("READ_CLIPBOARD").packageMode)
+        assertEquals(6, ops.size)
+        // The filter applies to uid-only ops too.
+        assertEquals(setOf("CAMERA", "RECORD_AUDIO"), AppOpsParser.parseGet(text, listOf("CAMERA", "RECORD_AUDIO")).keys)
     }
 
     @Test

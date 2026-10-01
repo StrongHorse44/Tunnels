@@ -1,6 +1,9 @@
 package io.github.stronghorse44.tunnels.deepmode
 
-/** One op line from `appops get`: mode plus how long ago it was last used or rejected. */
+/**
+ * One op from `appops get`: the effective mode (uid-level when printed, else package-level) plus how
+ * long ago it was last used or rejected.
+ */
 data class OpEntry(
     val op: String,
     val mode: String,
@@ -8,6 +11,8 @@ data class OpEntry(
     val lastAccessAgo: Long?,
     val lastRejectAgo: Long? = null,
     val running: Boolean = false,
+    /** The package-level mode when a uid-level mode overrode it; null when [mode] is the package line's own. */
+    val packageMode: String? = null,
 )
 
 /**
@@ -19,6 +24,7 @@ object AppOpsParser {
     const val PACKAGE_MARKER = "## "
 
     private val opLine = Regex("""^([A-Z_0-9]+): (allow|ignore|deny|default|foreground|errored)\b(.*)$""")
+    private val uidModeLine = Regex("""^Uid mode: ([A-Z_0-9]+): (allow|ignore|deny|default|foreground|errored)\b.*$""")
     private val timeField = Regex("""\btime=([+-]?[0-9a-z]+) ago""")
     private val rejectField = Regex("""\brejectTime=([+-]?[0-9a-z]+) ago""")
     private val durationPart = Regex("""(\d+)(ms|d|h|m|s)""")
@@ -31,14 +37,27 @@ object AppOpsParser {
     private val backgroundStates = setOf("bg", "cch")
 
     /**
-     * Parses one package's `appops get --user 0 <pkg>` output. Lines like
-     * `CAMERA: allow; time=+2h13m40s503ms ago; duration=+1s500ms` become entries; `Uid mode:` lines,
-     * `No operations.` and anything unknown are skipped. With [only] set, other ops are dropped.
+     * Parses one package's `appops get --user 0 <pkg>` output into op -> entry.
+     *
+     * Two kinds of line matter. `CAMERA: allow; time=+2h13m40s503ms ago; duration=+1s500ms` is the
+     * package-level op: its mode, last access, last reject and `(running)`. `Uid mode: CAMERA: ignore` is
+     * the uid-level op mode. Since Android 10 the system mirrors runtime permissions (camera, microphone,
+     * location, contacts, SMS...) into app ops at the uid level, so when a uid mode is printed it is the
+     * effective one and overrides the package line's mode, which usually stays at its default. Times
+     * still come from the package line; an op with only a uid-mode line has no access time. `No
+     * operations.` and anything unknown are skipped. With [only] set, other ops are dropped.
      */
     fun parseGet(text: String, only: Collection<String>? = null): Map<String, OpEntry> {
         val out = LinkedHashMap<String, OpEntry>()
+        val uidModes = LinkedHashMap<String, String>()
         for (raw in text.lineSequence()) {
             val line = raw.trim()
+            val uid = uidModeLine.matchEntire(line)
+            if (uid != null) {
+                val op = uid.groupValues[1]
+                if (only == null || op in only) uidModes[op] = uid.groupValues[2]
+                continue
+            }
             val m = opLine.matchEntire(line) ?: continue
             val op = m.groupValues[1]
             if (only != null && op !in only) continue
@@ -50,6 +69,11 @@ object AppOpsParser {
                 lastRejectAgo = rejectField.find(rest)?.let { parseDuration(it.groupValues[1]) },
                 running = rest.contains("(running)"),
             )
+        }
+        for ((op, mode) in uidModes) {
+            val pkgEntry = out[op]
+            out[op] = if (pkgEntry == null) OpEntry(op = op, mode = mode, lastAccessAgo = null)
+            else pkgEntry.copy(mode = mode, packageMode = pkgEntry.mode)
         }
         return out
     }

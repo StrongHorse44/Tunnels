@@ -2,6 +2,7 @@ package io.github.stronghorse44.tunnels.deepmode
 
 import io.github.stronghorse44.tunnels.engine.Rules
 import io.github.stronghorse44.tunnels.model.DiffEntry
+import io.github.stronghorse44.tunnels.model.FindingDraft
 import io.github.stronghorse44.tunnels.model.FindingRule
 import io.github.stronghorse44.tunnels.model.Observation
 import io.github.stronghorse44.tunnels.model.Severity
@@ -107,12 +108,23 @@ object DeepRules {
         else "Accessibility services can read the screen and tap for you. On: ${services.joinToString(", ")}"
     }
 
-    /** Sticky: an app's permission for a tracked op went from one mode to another since the last scan. */
-    val opsChanged: FindingRule = Rules.onChange(OPS_CHANGED, Severity.INFO) { e ->
-        val c = e as? DiffEntry.Changed ?: return@onChange null
-        if (!DeepKeys.isModeKey(c.after.key) || !DeepKeys.isApp(c.after.subject)) return@onChange null
-        val op = DeepKeys.opOf(c.after.key) ?: return@onChange null
-        "${DeepKeys.opLabel(op).replaceFirstChar { it.uppercase() }} access changed from ${c.before.value} to ${c.after.value}"
+    /**
+     * Sticky: an app's permission for one or more tracked ops went from one mode to another since the
+     * last scan. One draft per app listing every changed op, because the engine keeps a single finding
+     * per (subject, kind) and a second change in the same scan would otherwise be lost.
+     */
+    val opsChanged: FindingRule = FindingRule { ctx ->
+        if (ctx.isFirstScan) return@FindingRule emptyList()
+        ctx.diff.asSequence()
+            .filterIsInstance<DiffEntry.Changed>()
+            .filter { DeepKeys.isApp(it.after.subject) && DeepKeys.isModeKey(it.after.key) && DeepKeys.opOf(it.after.key) != null }
+            .groupBy { it.after.subject }
+            .map { (subject, changes) ->
+                val parts = changes
+                    .sortedBy { c -> DeepKeys.TRACKED_OPS.indexOf(DeepKeys.opOf(c.after.key)).let { if (it < 0) Int.MAX_VALUE else it } }
+                    .map { c -> "${DeepKeys.opLabel(DeepKeys.opOf(c.after.key)!!)} from ${c.before.value} to ${c.after.value}" }
+                FindingDraft(ctx.tunnelId, subject, OPS_CHANGED, Severity.INFO, "$CHANGED_PREFIX${DeepKeys.joinLabels(parts)}", sticky = true)
+            }
     }
 
     /** Deep mode is off: Shizuku missing, stopped or not granted. Actions exist only when the app is installed. */
@@ -126,12 +138,28 @@ object DeepRules {
         lockScreenPrivateContent, accessibilityServiceOn, opsChanged, deepUnavailable,
     )
 
-    /** Which tracked ops an app finding's evidence talks about, so actions can target them. */
+    /**
+     * Which tracked ops an app finding's evidence talks about, so actions can target them. Only the part
+     * after the app's name counts: "Open Camera used the microphone today" is about the microphone, not
+     * the camera. App rules write "<name> used the ..." or "<name> read the ..."; OPS_CHANGED evidence
+     * starts with [CHANGED_PREFIX] and has no name.
+     */
     fun opsMentioned(evidence: String): Set<String> = buildSet {
-        val text = evidence.lowercase()
+        val text = bodyOf(evidence).lowercase()
         if ("microphone" in text) add(DeepKeys.RECORD_AUDIO)
         if ("camera" in text) add(DeepKeys.CAMERA)
         if ("location" in text) add(DeepKeys.FINE_LOCATION)
         if ("clipboard" in text) add(DeepKeys.READ_CLIPBOARD)
+    }
+
+    /** Evidence of OPS_CHANGED starts with this; the rest lists "<op> from <mode> to <mode>" parts. */
+    const val CHANGED_PREFIX = "Access changed: "
+
+    private val bodyMarkers = listOf(" used the ", " read the ", CHANGED_PREFIX)
+
+    /** The evidence without the app name that app rules put in front of it; empty when no marker is found. */
+    private fun bodyOf(evidence: String): String {
+        val cut = bodyMarkers.maxOf { marker -> evidence.lastIndexOf(marker).let { if (it < 0) -1 else it + marker.length } }
+        return if (cut < 0) "" else evidence.substring(cut)
     }
 }

@@ -6,8 +6,10 @@ import java.util.concurrent.TimeUnit
  * Observation schema of the deep_mode tunnel. Plain Kotlin.
  *
  * Subjects: `deep` (availability and totals), `settings` (hidden Settings keys) and one per package.
- * Per-package keys: `app:label`, `app:system`, `app:ime`, `ops:<OP>:mode`, `ops:<OP>:last`,
- * `ops:<OP>:bgLast`. Ages are coarse ("today", "3 days ago", "30+ days", "never"), never timestamps.
+ * Per-package keys: `app:label`, `app:system`, `app:ime`, `ops:<OP>:mode` (the effective mode: the uid
+ * level one when the system mirrors a runtime permission there, else the package level one),
+ * `ops:<OP>:last`, `ops:<OP>:bgLast`. Ages are coarse ("today", "3 days ago", "30+ days", "never"),
+ * never timestamps.
  */
 object DeepKeys {
     const val TUNNEL_ID = "deep_mode"
@@ -20,6 +22,7 @@ object DeepKeys {
     const val SHIZUKU_VERSION = "deep:shizukuVersion"
     const val APPS_SCANNED = "deep:appsScanned"
     const val APPS_OMITTED = "deep:appsOmitted"
+    /** Packages in the DISABLED_USER state only; packages the system or a policy disabled are not counted. */
     const val DISABLED_BY_USER = "pkgs:disabledByUser"
 
     const val APP_LABEL = "app:label"

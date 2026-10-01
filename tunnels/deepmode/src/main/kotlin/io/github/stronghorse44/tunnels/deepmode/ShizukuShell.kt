@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.IBinder
+import android.os.SystemClock
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -31,7 +32,28 @@ data class ShizukuStatus(
     companion object {
         const val PACKAGE = "moe.shizuku.privileged.api"
 
-        /** Cheap: a package lookup plus a binder ping. Safe without Shizuku present. */
+        /** How long a [cached] status is reused; findings are mapped in batches on the main thread. */
+        const val CACHE_MILLIS = 2_000L
+
+        @Volatile
+        private var cache: Pair<Long, ShizukuStatus>? = null
+
+        /**
+         * [read] at most once per [CACHE_MILLIS]: the ping and permission check are binder calls to the
+         * Shizuku server, and the findings flow asks for actions of every finding on each emission.
+         */
+        fun cached(context: Context): ShizukuStatus {
+            val now = SystemClock.elapsedRealtime()
+            cache?.let { (at, status) -> if (now - at < CACHE_MILLIS) return status }
+            return read(context).also { cache = now to it }
+        }
+
+        /** Forgets the cached status, e.g. once a permission result or binder event arrives. */
+        fun invalidate() {
+            cache = null
+        }
+
+        /** A package lookup plus a binder ping and a permission check. Safe without Shizuku present. */
         fun read(context: Context): ShizukuStatus {
             val running = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
             val installed = running || runCatching {

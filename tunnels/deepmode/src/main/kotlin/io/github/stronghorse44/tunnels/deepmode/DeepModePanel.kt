@@ -58,6 +58,7 @@ fun ShizukuStatusCard(onGranted: (() -> Unit)? = null) {
     var status by remember { mutableStateOf(ShizukuStatus.read(context)) }
     var note by remember { mutableStateOf<String?>(null) }
     fun refresh() {
+        ShizukuStatus.invalidate()
         status = ShizukuStatus.read(context)
         if (status.granted) onGranted?.invoke()
     }

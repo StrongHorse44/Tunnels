@@ -2,6 +2,7 @@ package io.github.stronghorse44.tunnels.deepmode
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -51,5 +52,25 @@ class ShellRunnerTest {
         assertEquals("Done.", ShellRunner.oneLine("  \n\n"))
         assertEquals("Success", ShellRunner.oneLine("\nSuccess\nmore"))
         assertEquals(160, ShellRunner.oneLine("x".repeat(500)).length)
+    }
+
+    @Test
+    fun summarisesSeveralCommands() {
+        assertEquals("Done.", ShellRunner.summarise(listOf("", "", "")))
+        assertEquals("Done.", ShellRunner.summarise(emptyList()))
+        assertNull(ShellRunner.errorLine("Success\n"))
+        assertEquals("[exit 1]", ShellRunner.errorLine("\n[exit 1]"))
+        val notRequested = "Error: Permission android.permission.ACCESS_BACKGROUND_LOCATION is not requested\n[exit 255]"
+        assertEquals(
+            "2 of 3 done; Error: Permission android.permission.ACCESS_BACKGROUND_LOCATION is not requested",
+            ShellRunner.summarise(listOf("", "", notRequested)),
+        )
+        assertEquals("[timed out]", ShellRunner.summarise(listOf("[timed out]")))
+        assertEquals(
+            "java.lang.SecurityException: shell cannot revoke",
+            ShellRunner.summarise(listOf("java.lang.SecurityException: shell cannot revoke\n\tat x\n[exit 255]")),
+        )
+        assertTrue(ShellRunner.summarise(listOf("Error: " + "x".repeat(500))).length <= 160)
+        assertTrue(ShellRunner.DEFAULT_MAX_OUTPUT_BYTES * 2 <= 512 * 1024)
     }
 }
