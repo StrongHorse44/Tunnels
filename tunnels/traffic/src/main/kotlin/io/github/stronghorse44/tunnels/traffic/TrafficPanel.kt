@@ -128,7 +128,8 @@ private fun SessionCard(session: SessionState, actions: TunnelScreenActions) {
                 }
             }
             (refusal ?: session.message)?.let { msg ->
-                Text(msg, style = MaterialTheme.typography.bodySmall, color = if (refusal != null || msg.contains("Could not") || msg.contains("revoked")) StatusColors.warn else GlassColors.dim)
+                val warn = refusal != null || msg.contains("Could not") || msg.contains("revoked") || msg == DnsVpnService.FORWARDER_FAILED_MESSAGE
+                Text(msg, style = MaterialTheme.typography.bodySmall, color = if (warn) StatusColors.warn else GlassColors.dim)
             }
         }
     }
