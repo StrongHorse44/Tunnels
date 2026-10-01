@@ -114,8 +114,16 @@ class UnzipViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun extractTo(tree: Uri) {
-        val listing = _state.value as? UnzipState.Listing ?: return
-        val file = staged ?: return
+        val listing = _state.value as? UnzipState.Listing
+        val file = staged
+        if (listing == null || file == null || !file.file.isFile) {
+            // Never fail silently: Android may have stopped Tunnels while the folder picker was open.
+            _state.value = UnzipState.Failed(
+                "Nothing was extracted",
+                "Tunnels lost track of the archive while the folder picker was open. Open the archive again and retry.",
+            )
+            return
+        }
         if (password == null && listing.entries.any { it.encrypted && it.index in listing.selected }) {
             pendingTree = tree
             _state.value = UnzipState.NeedsPassword(listing.name, wrong = false)
