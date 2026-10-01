@@ -1,11 +1,11 @@
 package io.github.stronghorse44.tunnels.permissions
 
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.view.accessibility.AccessibilityManager
-import android.view.accessibility.AccessibilityServiceInfo
 import androidx.compose.runtime.Composable
 import io.github.stronghorse44.tunnels.model.FindingAction
 import io.github.stronghorse44.tunnels.model.FindingDraft
@@ -80,7 +80,7 @@ class PermissionsTunnel(private val context: Context) : TunnelModule, TunnelUi {
 
         val requested = info.requestedPermissions.orEmpty()
         val flags = info.requestedPermissionsFlags ?: IntArray(0)
-        fun granted(i: Int) = i < flags.size && flags[i] and PackageManager.REQUESTED_PERMISSION_GRANTED != 0
+        fun granted(i: Int) = i < flags.size && flags[i] and PackageInfo.REQUESTED_PERMISSION_GRANTED != 0
 
         // Known groups first so the cap trims the long tail of vendor and signature permissions, not the sensitive ones.
         val order = requested.indices.sortedWith(compareBy<Int>({ PermissionCatalog.groupOf(requested[it]) == PermissionGroup.OTHER }, { requested[it] }))
