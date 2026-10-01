@@ -79,8 +79,7 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
         val cutoff = now - RETENTION_MS
         val recent = history.filter { it.at >= cutoff }
         val sightings = recent.filter { it.kind == SurroundingsKeys.EVENT_SIGHTING }.mapNotNull { SightingRecord.parse(it.subject, it.summary) } + ble.sightings
-        val muted = recent.filter { it.kind == SurroundingsKeys.EVENT_MUTE && it.at >= now - SurroundingsKeys.MUTE_DAYS * SurroundingsKeys.DAY_MS }
-            .map { it.subject }.toSet()
+        val muted = SurroundingsKeys.activeMutes(recent.map { SurroundingsKeys.MuteRow(it.kind, it.subject, it.at) }, now)
         val aggregate = SightingAggregator.aggregate(sightings)
         val sessions = sightings.map { it.session }.toSet().size
 
@@ -141,6 +140,20 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
     }
 
     fun muteAction(subject: String): FindingAction = FindingAction.Perform("Known tracker: mute 30 days") { mute(subject) }
+
+    /**
+     * Cancels the mute on each of [subjects] (an identity and, if the whole family was muted, the family).
+     * Destructive only in the sense that it rescans, so the warning can come back at once.
+     */
+    fun unmuteAction(vararg subjects: String): FindingAction = FindingAction.Perform("Unmute", destructive = true) {
+        try {
+            val store = TunnelsStore.get(context)
+            subjects.forEach { store.recordEvent(id, SurroundingsKeys.EVENT_UNMUTE, it, "unmuted") }
+            "Unmuted ${SurroundingsFormat.trackerTitle(subjects.first())}. It is judged again from this scan on."
+        } catch (e: Exception) {
+            "Could not save the unmute: ${e.javaClass.simpleName}"
+        }
+    }
 
     /** Records a mute row for the tracker subject; the next scan marks it muted and the finding clears. */
     private suspend fun mute(subject: String): String = try {

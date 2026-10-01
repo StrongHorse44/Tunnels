@@ -11,6 +11,7 @@ object SurroundingsKeys {
     const val EVENT_CELL = "cell.check"
     const val EVENT_WIFI = "wifi.check"
     const val EVENT_MUTE = "tracker.mute"
+    const val EVENT_UNMUTE = "tracker.unmute"
     const val EVENT_MONITOR = "monitor"
     /** One find-it session: `minutes=3;closest=-48;type=findmy`. Nothing else of the session is kept. */
     const val EVENT_FINDIT = "findit.session"
@@ -86,6 +87,22 @@ object SurroundingsKeys {
     private const val TRACKER_PREFIX = "tracker:"
 
     fun typeSubject(type: TrackerType): String = TRACKER_PREFIX + type.slug
+
+    /** One mute or unmute row: [kind] is [EVENT_MUTE] or [EVENT_UNMUTE], [at] epoch millis. */
+    data class MuteRow(val kind: String, val subject: String, val at: Long)
+
+    /**
+     * Subjects muted right now: the latest mute/unmute row per subject is a mute, and it is younger
+     * than [MUTE_DAYS]. An unmute cancels every earlier mute of that subject.
+     */
+    fun activeMutes(rows: List<MuteRow>, now: Long): Set<String> =
+        rows.filter { it.kind == EVENT_MUTE || it.kind == EVENT_UNMUTE }
+            .groupBy { it.subject }
+            .mapNotNull { (subject, list) ->
+                val last = list.maxBy { it.at }
+                subject.takeIf { last.kind == EVENT_MUTE && last.at >= now - MUTE_DAYS * DAY_MS }
+            }
+            .toSet()
 
     fun trackerSubject(type: TrackerType, key: String): String = "$TRACKER_PREFIX${type.slug}:$key"
 

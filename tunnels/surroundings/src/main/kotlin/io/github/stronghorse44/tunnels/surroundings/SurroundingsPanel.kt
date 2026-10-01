@@ -281,6 +281,16 @@ private fun TypeCard(card: SurroundingsFormat.TrackerCard, state: TunnelScreenSt
                     Text("muted", fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = GlassColors.dim)
                 }
             }
+            val module = state.module as? SurroundingsTunnel
+            if (card.muted && module != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Muted: no warnings for this family until the mute ends or you unmute it.",
+                        style = MaterialTheme.typography.labelSmall, color = GlassColors.dim, modifier = Modifier.weight(1f),
+                    )
+                    OutlinedButton(onClick = { actions.perform(module.unmuteAction(card.subject)) }, enabled = !state.scan.running) { Text("Unmute") }
+                }
+            }
             Text(
                 "${ThreatSummary.identities(card.devicesCount)} · ${card.sessions} scan${if (card.sessions == 1) "" else "s"} over ${SurroundingsRules.duration(card.spanMinutes)} · " +
                     SurroundingsFormat.stateLabel(card.state) + (if (card.seenToday) " · seen today" else ""),
@@ -369,6 +379,9 @@ private fun IdentityDetail(
                 openSheet(Sheet(LABEL_REPORT, TrackerGuides.report.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n\n") + "\n\n" + guide.reportNote))
             }) { Text(LABEL_REPORT) }
             if (tunnel != null && !f.muted) OutlinedButton(onClick = { actions.perform(tunnel.muteAction(subject)) }) { Text("Known tracker: mute") }
+            if (tunnel != null && f.muted) {
+                OutlinedButton(onClick = { actions.perform(tunnel.unmuteAction(subject, SurroundingsKeys.typeSubject(f.type))) }) { Text("Unmute") }
+            }
         }
         Text(TrackerGuides.UNKNOWN_TRACKER_ALERTS, style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)
     }
