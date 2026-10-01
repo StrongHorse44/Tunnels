@@ -43,7 +43,7 @@ import org.junit.runner.RunWith
  * adapter and, before anything is granted, no permissions: the scan must still come back with a
  * well-formed summary that says so, and must finish inside the engine's patience. The tracker v2
  * parts that need no tag (Apple frame parser, proximity, verdict, DULT codec, the actions and the
- * find-it screen) are exercised here as well.
+ * find-it screen, which must open without an adapter and leave no session row) are exercised here too.
  */
 @RunWith(AndroidJUnit4::class)
 class SurroundingsSmokeTest {
