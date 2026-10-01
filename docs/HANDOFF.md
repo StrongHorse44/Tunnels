@@ -1,5 +1,13 @@
 # Tunnels - Claude Code Handoff
 
+> **Scope update (2026-10-01):** Phase 0 now ships two working tunnels on top of the foundation:
+> **Installer** (inspect + install APKs and .apks/.xapk/.apkm bundles via PackageInstaller sessions,
+> with real failure reasons) and **Unzip** (zip incl. password-protected, 7z, tar, tar.gz/xz/bz2, gz, xz, bz2).
+> Decisions: application ID `io.github.stronghorse44.tunnels`; minSdk 34 / target 36; strata home kept
+> with the other tunnels as placeholders; foundation (SQLCipher store, snapshot/diff engine) built now.
+> Dependencies added for Unzip: Apache Commons Compress + XZ for Java, zip4j (all Apache-2.0, no network).
+> RAR is not supported (no good open-source RAR5 decoder; unrar's licence is restrictive).
+
 ## Instructions for Claude Code
 This is the full spec for Tunnels, a native Android app for my GrapheneOS Pixel 10.
 

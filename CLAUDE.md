@@ -39,6 +39,20 @@ version catalog. Minimal, offline dependencies; no DI framework unless approved.
 `android:allowBackup="false"` with backup/data-extraction rules excluding
 everything, so uninstall wipes all data and nothing goes to cloud backup.
 
+## Layout
+
+- `core:model` tunnel catalog, Finding/Snapshot/Observation, `TunnelModule` (plain Kotlin)
+- `core:engine` diff engine, findings merge, retention policy (plain Kotlin, unit-tested)
+- `core:archive` archive readers with zip-slip and bomb guards (plain Kotlin, unit-tested)
+- `core:install` pre-install checks, bundle split selection, failure explanations (plain Kotlin)
+- `core:store` Room + SQLCipher, Keystore-wrapped key
+- `core:common` theme, shared composables, private staging area for incoming files
+- `tunnels:installer`, `tunnels:unzip` one module per tunnel group; each declares its own permissions
+- `app` strata home; `verifyNoInternet` Gradle task runs before every assemble
+
+Keep Android-free logic in the plain Kotlin modules so it can be tested without an emulator.
+Google's Maven is not reachable from the cloud dev container: Android modules only compile in CI.
+
 ## Architecture guardrails
 
 - Tunnel modules never talk to the UI. They emit `Observation`s to the store;
