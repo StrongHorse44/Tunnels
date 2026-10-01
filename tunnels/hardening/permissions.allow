@@ -1,1 +1,3 @@
 # Permissions the hardening module may declare, one per line. CI fails on anything else.
+# Enumerate every installed app and the paths of its APK files, whose native libraries are parsed.
+android.permission.QUERY_ALL_PACKAGES
