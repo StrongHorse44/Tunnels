@@ -107,7 +107,7 @@ object MetroLayout {
         MapLine(
             MetroLine.ACTIVITY, listOf(central, Offset(0.8f, 10f)),
             listOf(MapStation("notifications", 3.1f, 10f, Side.ABOVE), MapStation("timeline", 1.1f, 10f, Side.BELOW)),
-            Offset(0.8f, 10f), Side.ABOVE,
+            Offset(0.8f, 9.15f), Side.ABOVE,
         ),
         MapLine(
             MetroLine.EXPLORE, listOf(Offset(1f, 21.2f), Offset(9f, 21.2f)),
