@@ -1,5 +1,6 @@
 package io.github.stronghorse44.tunnels.surroundings
 
+import io.github.stronghorse44.tunnels.ble.FamilySummary
 import io.github.stronghorse44.tunnels.ble.FollowingLevel
 import io.github.stronghorse44.tunnels.ble.SurroundingsKeys
 import io.github.stronghorse44.tunnels.ble.TrackerState
@@ -30,6 +31,10 @@ class SurroundingsFormatTest {
         assertEquals(
             "12 scans · 3 identities since start: 1 near its owner, 2 separated · LTE",
             SurroundingsFormat.monitorLine(12, mapOf(TrackerState.WITH_OWNER to 1, TrackerState.SEPARATED to 2), "LTE"),
+        )
+        assertEquals(
+            "12 scans · 3 identities since start: 1 near its owner, 2 separated · 1 identity close to following · LTE",
+            SurroundingsFormat.monitorLine(12, mapOf(TrackerState.WITH_OWNER to 1, TrackerState.SEPARATED to 2), "LTE", close = 1),
         )
         assertEquals("away from owner", SurroundingsFormat.stateLabel(TrackerState.SEPARATED))
         assertEquals("near (-55 dBm)", SurroundingsFormat.signal(-55))
@@ -74,17 +79,20 @@ class SurroundingsFormatTest {
         assertEquals(4, tile.sessions)
         assertEquals(95L, tile.spanMinutes)
         assertEquals(2, tile.devicesCount)
-        // Most-seen device first.
+        // Closest to following first.
         assertEquals(listOf("bbbbbbbb", "aaaaaaaa"), tile.devices.map { it.key })
-        // The card reads the same thresholds as the rule: 4 scans over 95 minutes is WARN.
-        assertEquals(FollowingLevel.WARN, tile.level)
-        assertTrue(tile.progress.reached)
+        // The family's own counts (4 scans over 95 minutes) are a summary: no identity is past the threshold, so nothing is following.
+        assertEquals(FollowingLevel.NONE, tile.worstLevel)
+        assertEquals("2 identities · 4 scans over 1 h 35 min", FamilySummary.headline(tile.family))
+        assertEquals("Closest to following: bbbbbbbb, 3 of 3 scans · 0 of 30 min", FamilySummary.closest(tile.family))
         val apple = cards.single { it.type == TrackerType.APPLE_FINDMY }
-        assertEquals(TrackerState.WITH_OWNER, apple.state)
-        assertEquals(FollowingLevel.NONE, apple.level)
-        assertFalse(apple.progress.reached)
-        assertEquals("1 of 3 scans · 0 of 30 min", apple.progress.label)
+        assertEquals(FollowingLevel.NONE, apple.worstLevel)
+        assertEquals("1 near its owner", FamilySummary.states(apple.family))
+        assertEquals("Closest to following: none close", FamilySummary.closest(apple.family))
+        assertFalse(apple.muted)
         val identity = apple.identities.single()
+        assertEquals("0 of 3 scans", identity.progress.scansHint)
+        assertEquals("2 of 3 scans", tile.identities.single { it.key == "aaaaaaaa" }.copy(scans = 2).progress.scansHint)
         assertEquals("cccccccc", identity.key)
         assertEquals(TrackerState.WITH_OWNER, identity.state)
         assertEquals(-52, identity.rssiLast)

@@ -170,10 +170,47 @@ class SightingsTest {
         // Separated state on a non-Apple type never upgrades to critical.
         assertEquals(FollowingLevel.WARN, FollowingHeuristic.assess(TrackerType.TILE, 5, 300, 5, 300))
 
-        val agg = SightingAggregator.aggregate(
+        // Judged per identity: three separated identities in three scans are three passers-by, one identity in three scans is critical.
+        val three = SightingAggregator.aggregate(
             (0 until 3).map { i -> rec("s$i", t0 + i * 35 * minute, key = "k$i", type = TrackerType.APPLE_FINDMY, state = TrackerState.SEPARATED) },
         )
-        assertEquals(FollowingLevel.CRITICAL, FollowingHeuristic.assess(agg.types[TrackerType.APPLE_FINDMY]!!))
+        assertTrue(three.devices.values.all { FollowingHeuristic.assess(it) == FollowingLevel.NONE })
+        val one = SightingAggregator.aggregate(
+            (0 until 3).map { i -> rec("s$i", t0 + i * 35 * minute, key = "k", type = TrackerType.APPLE_FINDMY, state = TrackerState.SEPARATED) },
+        ).devices["k"]!!
+        assertEquals(3, one.sessionsSeparated)
+        assertEquals(70L, one.spanSeparatedMinutes)
+        assertEquals(FollowingLevel.CRITICAL, one.level)
+    }
+
+    @Test
+    fun separatedCountsArePerIdentityAndComeFromStoredRows() {
+        // Rows as the events table keeps them (summaries only): the separated span is read back from them.
+        val rows = listOf(
+            rec("s1", t0, key = "k", type = TrackerType.APPLE_FINDMY, state = TrackerState.WITH_OWNER),
+            rec("s2", t0 + 20 * minute, key = "k", type = TrackerType.APPLE_FINDMY, state = TrackerState.SEPARATED),
+            rec("s3", t0 + 50 * minute, key = "k", type = TrackerType.APPLE_FINDMY, state = TrackerState.SEPARATED),
+        ).map { SightingRecord.parse(it.subject, it.encode())!! }
+        val d = SightingAggregator.aggregate(rows).devices["k"]!!
+        assertEquals(3, d.sessions)
+        assertEquals(50L, d.spanMinutes)
+        assertEquals(2, d.sessionsSeparated)
+        assertEquals(30L, d.spanSeparatedMinutes)
+        assertEquals(FollowingLevel.WARN, d.level)
+        assertEquals(t0 + 20 * minute, d.firstSeparated)
+        assertNull(SightingAggregator.aggregate(listOf(rec("s1", t0))).devices.values.single().firstSeparated)
+    }
+
+    @Test
+    fun closenessOrdersByLevelThenProgress() {
+        val c = FollowingHeuristic::closeness
+        assertTrue(c(FollowingLevel.WARN, 3, 30) > c(FollowingLevel.NONE, 3, 29))
+        assertTrue(c(FollowingLevel.CRITICAL, 3, 60) > c(FollowingLevel.WARN, 9, 900))
+        assertTrue(c(FollowingLevel.NONE, 2, 25) > c(FollowingLevel.NONE, 2, 5))
+        // Progress past the threshold does not count twice.
+        assertEquals(c(FollowingLevel.NONE, 3, 30), c(FollowingLevel.NONE, 30, 300), 1e-9)
+        assertTrue(!FollowingHeuristic.isCandidate(1))
+        assertTrue(FollowingHeuristic.isCandidate(2))
     }
 
     @Test
@@ -201,6 +238,14 @@ class SightingsTest {
         assertEquals("high", tileType[SurroundingsKeys.CONFIDENCE])
         assertEquals("true", tileType[SurroundingsKeys.SEEN_LAST_DAY])
         assertNull(tileType[SurroundingsKeys.MUTED])
+        // Family subjects summarise identities by state and name the closest one; they carry no separated counts any more.
+        assertEquals("0", tileType[SurroundingsKeys.DEVICES_WITH_OWNER])
+        assertEquals("0", tileType[SurroundingsKeys.DEVICES_SEPARATED])
+        assertEquals("50", tileType[SurroundingsKeys.DEVICES_UNKNOWN])
+        assertEquals("none", tileType[SurroundingsKeys.CLOSEST_KEY])
+        assertNull(tileType[SurroundingsKeys.CLOSEST_SESSIONS])
+        assertEquals("0", tileType[SurroundingsKeys.FOLLOWING_COUNT])
+        assertNull(tileType[SurroundingsKeys.SEEN_SESSIONS_SEPARATED])
         val appleType = obs.filter { it.subject == "tracker:findmy" }.associate { it.key to it.value }
         assertEquals("true", appleType[SurroundingsKeys.MUTED])
         assertEquals("separated", appleType[SurroundingsKeys.STATE])
@@ -212,6 +257,8 @@ class SightingsTest {
         assertEquals((t0 + 59 * minute).toString(), appleDevice[SurroundingsKeys.SEEN_LAST])
         assertEquals("-60", appleDevice[SurroundingsKeys.RSSI_LAST])
         assertEquals("true", appleDevice[SurroundingsKeys.SEEN_THIS_SCAN])
+        assertEquals("1", appleDevice[SurroundingsKeys.SEEN_SESSIONS_SEPARATED])
+        assertEquals("0", appleDevice[SurroundingsKeys.SEEN_SPAN_SEPARATED])
         assertEquals("false", obs.first { it.subject == "tracker:tile:00000031" && it.key == SurroundingsKeys.SEEN_THIS_SCAN }.value)
         assertNull(appleDevice[SurroundingsKeys.KIND])
         assertEquals("type=findmy;minutes=3;closest=-48", SurroundingsKeys.findItSummary(TrackerType.APPLE_FINDMY, 3, -48))

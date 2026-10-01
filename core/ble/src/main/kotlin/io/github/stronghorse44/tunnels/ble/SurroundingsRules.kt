@@ -20,36 +20,41 @@ object SurroundingsRules {
     private fun List<Observation>.muted() = v(SurroundingsKeys.MUTED) == "true"
 
     /**
-     * State rule on tracker-type subjects: WARN when a family was seen in 3+ sessions over 30+ minutes,
-     * CRITICAL for an Apple tag separated from its owner across 3+ sessions over an hour.
+     * State rule on identity subjects (`tracker:<type>:<key>`): WARN when one identity was seen in 3+
+     * sessions over 30+ minutes, CRITICAL for an Apple identity separated from its owner across 3+ sessions
+     * over an hour. Family subjects are summaries and never carry this finding: strangers' tags of one
+     * family add up in a crowd (see [FollowingHeuristic]). Muted identities, and every identity of a family
+     * muted before v3, are skipped.
      */
     val trackerFollowing: FindingRule = FindingRule { ctx ->
         ctx.bySubject().mapNotNull { (subject, obs) ->
             val (type, key) = SurroundingsKeys.parseTrackerSubject(subject) ?: return@mapNotNull null
-            if (key != null || obs.muted()) return@mapNotNull null
+            if (key == null || obs.muted()) return@mapNotNull null
             val sessions = obs.v(SurroundingsKeys.SEEN_SESSIONS)?.toIntOrNull() ?: return@mapNotNull null
             val span = obs.v(SurroundingsKeys.SEEN_SPAN)?.toLongOrNull() ?: 0L
             val sepSessions = obs.v(SurroundingsKeys.SEEN_SESSIONS_SEPARATED)?.toIntOrNull() ?: 0
             val sepSpan = obs.v(SurroundingsKeys.SEEN_SPAN_SEPARATED)?.toLongOrNull() ?: 0L
-            val devices = obs.v(SurroundingsKeys.DEVICES)?.toIntOrNull() ?: 1
+            val state = TrackerState.bySlug(obs.v(SurroundingsKeys.STATE))
             when (FollowingHeuristic.assess(type, sessions, span, sepSessions, sepSpan)) {
                 FollowingLevel.NONE -> null
                 FollowingLevel.WARN -> FindingDraft(
                     ctx.tunnelId, subject, TRACKER_FOLLOWING, Severity.WARN,
-                    "${type.label} tracker${plural(devices)} seen in $sessions separate scans over ${duration(span)}" +
-                        "${if (devices > 1) " under $devices rotating identities" else ""}. " +
-                        "A tag that stays with you across places and hours may have been planted. If it is yours or a companion's, mute it; " +
-                        "otherwise check bags, pockets and the car.",
+                    "${type.label} identity $key was seen in $sessions separate scans over ${duration(span)} (${TrackerVerdict.stateLabel(state)}). " +
+                        "$SAME_IDENTITY A tag that stays with you across places and hours may have been planted. " +
+                        "If it is yours or a companion's, mute it; otherwise check bags, pockets and the car.",
                 )
                 FollowingLevel.CRITICAL -> FindingDraft(
                     ctx.tunnelId, subject, TRACKER_FOLLOWING, Severity.CRITICAL,
-                    "An Apple Find My tag reporting itself away from its owner was with you in $sepSessions separate scans over ${duration(sepSpan)}. " +
-                        "That is how an AirTag planted on a person behaves. Find it (it chirps when moved after a while), " +
+                    "Apple Find My identity $key, reporting itself away from its owner, was with you in $sepSessions separate scans over ${duration(sepSpan)}. " +
+                        "$SAME_IDENTITY That is how an AirTag planted on a person behaves. Find it (it chirps when moved after a while), " +
                         "remove its battery, and keep it as evidence if you suspect stalking.",
                 )
             }
         }
     }
+
+    /** Said in every following finding, so nobody reads it as "many tags of this kind were around". */
+    const val SAME_IDENTITY = "It is the same identity in every one of those scans, not different tags of the same kind."
 
     /** Sticky NOTICE: a tracker family appeared that no earlier scan had seen. */
     val newTrackerType: FindingRule = FindingRule { ctx ->
@@ -103,8 +108,6 @@ object SurroundingsRules {
     }
 
     val all: List<FindingRule> = listOf(trackerFollowing, newTrackerType, openWifiConnected, evilTwinSuspect, cellDowngrade, cellDowngraded)
-
-    private fun plural(n: Int) = if (n == 1) "" else "s"
 
     /** Minutes as a short phrase: "45 minutes", "1 hour 20 minutes", "3 days". */
     fun duration(minutes: Long): String {

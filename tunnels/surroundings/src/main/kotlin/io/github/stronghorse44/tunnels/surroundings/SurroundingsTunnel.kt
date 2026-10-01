@@ -127,19 +127,22 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
     /**
      * A tracker finding offers find it, Android's own alerts and the mute; the brand guides (identify,
      * disable, report) are sheets in the identity detail, too long for a finding's one-line result.
-     * [subject] is a type or a device subject; one that does not parse gets no find-it entry rather than
-     * a guess at the family.
+     * Following findings are on identity subjects (`tracker:<type>:<key>`): find-it locks to that key and the
+     * mute covers that identity only. A family subject (the new-family notice) gets find it and the alerts but
+     * no mute: a family-wide mute would also silence a planted tag of the same kind. A subject that does not
+     * parse gets neither find it nor mute rather than a guess.
      */
     fun trackerActions(subject: String): List<FindingAction> {
         val parsed = SurroundingsKeys.parseTrackerSubject(subject)
         return listOfNotNull(
             parsed?.let { (type, key) -> TrackerActions.findIt(context, type, key) },
             TrackerActions.unknownTrackerAlerts(context),
-            muteAction(subject),
+            parsed?.second?.let { muteAction(subject) },
         )
     }
 
-    fun muteAction(subject: String): FindingAction = FindingAction.Perform("Known tracker: mute 30 days") { mute(subject) }
+    /** Mutes one identity for [SurroundingsKeys.MUTE_DAYS] days. Only ever offered for identity subjects. */
+    fun muteAction(subject: String): FindingAction = FindingAction.Perform(LABEL_MUTE) { mute(subject) }
 
     /**
      * Cancels the mute on each of [subjects] (an identity and, if the whole family was muted, the family).
@@ -155,8 +158,10 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
         }
     }
 
-    /** Records a mute row for the tracker subject; the next scan marks it muted and the finding clears. */
-    private suspend fun mute(subject: String): String = try {
+    /** Records a mute row for the identity subject; the next scan marks it muted and the finding clears. */
+    private suspend fun mute(subject: String): String = if (SurroundingsKeys.parseTrackerSubject(subject)?.second == null) {
+        "Only a single identity can be muted."
+    } else try {
         TunnelsStore.get(context).recordEvent(id, SurroundingsKeys.EVENT_MUTE, subject, "muted")
         "Muted ${SurroundingsFormat.trackerTitle(subject)} for ${SurroundingsKeys.MUTE_DAYS} days. It stays in the list without a warning."
     } catch (e: Exception) {
@@ -170,6 +175,7 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
 
     companion object {
         private const val TAG = "Surroundings"
+        const val LABEL_MUTE = "Known tracker: mute 30 days"
         private const val STEPS = 6
         const val BLE_WINDOW_MS = 15_000L
         private const val GRACE_MS = 5_000L

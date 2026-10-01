@@ -1,13 +1,13 @@
 package io.github.stronghorse44.tunnels.surroundings
 
-import io.github.stronghorse44.tunnels.ble.FollowingHeuristic
+import io.github.stronghorse44.tunnels.ble.FamilyFacts
 import io.github.stronghorse44.tunnels.ble.FollowingLevel
-import io.github.stronghorse44.tunnels.ble.FollowingProgress
 import io.github.stronghorse44.tunnels.ble.IdentityFacts
 import io.github.stronghorse44.tunnels.ble.SurroundingsKeys
 import io.github.stronghorse44.tunnels.ble.ThreatSummary
 import io.github.stronghorse44.tunnels.ble.TrackerState
 import io.github.stronghorse44.tunnels.ble.TrackerType
+import io.github.stronghorse44.tunnels.ble.TrackerVerdict
 import io.github.stronghorse44.tunnels.model.Observation
 import java.time.Instant
 import java.time.ZoneId
@@ -30,19 +30,15 @@ object SurroundingsFormat {
 
     /**
      * One line for the notification and the monitor card, in the tracker section's vocabulary:
-     * "12 scans · 3 identities since start: 1 near its owner, 2 separated · LTE".
+     * "12 scans · 3 identities since start: 1 near its owner, 2 separated · 1 identity close to following · LTE".
      */
-    fun monitorLine(windows: Int, byState: Map<TrackerState, Int>, cellType: String?): String = buildString {
+    fun monitorLine(windows: Int, byState: Map<TrackerState, Int>, cellType: String?, close: Int = 0, following: Int = 0): String = buildString {
         append(windows).append(if (windows == 1) " scan" else " scans")
-        append(" · ").append(ThreatSummary.monitorLine(byState))
+        append(" · ").append(ThreatSummary.monitorLine(byState, close, following))
         if (cellType != null) append(" · ").append(cellType)
     }
 
-    fun stateLabel(state: TrackerState): String = when (state) {
-        TrackerState.SEPARATED -> "away from owner"
-        TrackerState.WITH_OWNER -> "near its owner"
-        TrackerState.UNKNOWN -> "state unknown"
-    }
+    fun stateLabel(state: TrackerState): String = TrackerVerdict.stateLabel(state)
 
     /** "today 14:32", "yesterday 09:05", "3 Oct 14:32". */
     fun timeOf(epochMs: Long, now: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): String {
@@ -73,7 +69,7 @@ object SurroundingsFormat {
             val typeSubject = SurroundingsKeys.typeSubject(type)
             val devices = bySubject.filterKeys { s -> SurroundingsKeys.parseTrackerSubject(s)?.let { it.first == type && it.second != null } == true }
                 .map { (s, obs) -> DeviceRow(s, SurroundingsKeys.parseTrackerSubject(s)!!.second!!, obs.associate { it.key to it.value }) }
-                .sortedWith(compareByDescending<DeviceRow> { it.facts[SurroundingsKeys.SEEN_SESSIONS]?.toIntOrNull() ?: 0 }.thenBy { it.key })
+                .sortedWith(compareBy(IdentityFacts.order) { it.identity(type) })
             TrackerCard(type, typeSubject, bySubject[typeSubject].orEmpty().associate { it.key to it.value }, devices)
         }
     }
@@ -82,22 +78,20 @@ object SurroundingsFormat {
         fun identity(type: TrackerType): IdentityFacts = IdentityFacts.from(type, key, facts)
     }
 
+    /**
+     * One family card: a summary of its identities (closest to following first). Each identity is judged on its
+     * own; the family itself is never "following". [muted] is a family-level mute from before v3.
+     */
     data class TrackerCard(val type: TrackerType, val subject: String, val facts: Map<String, String>, val devices: List<DeviceRow>) {
         val identities: List<IdentityFacts> get() = devices.map { it.identity(type) }
+        val family: FamilyFacts get() = FamilyFacts.from(type, facts, identities)
         val devicesCount: Int get() = facts[SurroundingsKeys.DEVICES]?.toIntOrNull() ?: devices.size
         val sessions: Int get() = facts[SurroundingsKeys.SEEN_SESSIONS]?.toIntOrNull() ?: 0
         val spanMinutes: Long get() = facts[SurroundingsKeys.SEEN_SPAN]?.toLongOrNull() ?: 0L
-        val state: TrackerState get() = TrackerState.bySlug(facts[SurroundingsKeys.STATE])
         val muted: Boolean get() = facts[SurroundingsKeys.MUTED] == "true"
         val seenToday: Boolean get() = facts[SurroundingsKeys.SEEN_LAST_DAY] == "true"
 
-        /** The family's standing against the following threshold, from the same facts the rule reads. */
-        val progress: FollowingProgress get() = FollowingProgress(sessions, spanMinutes)
-
-        /** Sessions and minutes in which the family reported itself separated: what the CRITICAL rule judges. */
-        val separatedSessions: Int get() = facts[SurroundingsKeys.SEEN_SESSIONS_SEPARATED]?.toIntOrNull() ?: 0
-        val separatedMinutes: Long get() = facts[SurroundingsKeys.SEEN_SPAN_SEPARATED]?.toLongOrNull() ?: 0L
-
-        val level: FollowingLevel get() = if (muted) FollowingLevel.NONE else FollowingHeuristic.assess(type, sessions, spanMinutes, separatedSessions, separatedMinutes)
+        /** The worst level among the family's listed identities: tints the card, never a finding of its own. */
+        val worstLevel: FollowingLevel get() = identities.maxOfOrNull { it.level } ?: FollowingLevel.NONE
     }
 }

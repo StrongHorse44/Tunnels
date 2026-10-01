@@ -70,28 +70,96 @@ class TrackerVerdictTest {
     }
 
     @Test
-    fun verdictLineForTheUsersCase() {
-        // "Apple Find My · 2 identities · 1 scan over 0 minutes" with one tag near its owner.
-        val line = TrackerVerdict.line(facts(state = TrackerState.WITH_OWNER), FollowingProgress(1, 0), FollowingLevel.NONE)
+    fun verdictLineUsesTheIdentitysOwnCounts() {
+        // One tag near its owner, seen once.
         assertEquals(
-            "Seen in 1 scan over 0 min. Flagged as following you only after 3 separate scans spread over at least 30 minutes (now 1 of 3 scans · 0 of 30 min). " +
+            "Seen in 1 scan over 0 min. Flagged as following you only after 3 separate scans spread over at least 30 minutes by this same identity " +
+                "(now 1 of 3 scans · 0 of 30 min). " +
                 "It reports being near its owner, which is usually benign: the owner's phone is close by (someone in the room, on the bus, or in the next car).",
-            line,
+            TrackerVerdict.line(facts(state = TrackerState.WITH_OWNER)),
         )
-        // When the family has more scans than this identity (rotating addresses), the line says so.
-        val family = TrackerVerdict.line(facts(state = TrackerState.SEPARATED, scans = 1), FollowingProgress(2, 25), FollowingLevel.NONE)
-        assertTrue(family, family.contains("(this family together: 2 of 3 scans · 25 of 30 min)"))
-        assertTrue(family, family.contains("It reports being away from its owner."))
+        // Separated, two scans: the progress is this identity's, never a family's.
+        assertEquals(
+            "Seen in 2 scans over 25 min. Flagged as following you only after 3 separate scans spread over at least 30 minutes by this same identity " +
+                "(now 2 of 3 scans · 25 of 30 min). " +
+                "It reports being away from its owner. A lost item looks like this, and so does a planted tag; what matters is whether it keeps turning up as you move.",
+            TrackerVerdict.line(facts(state = TrackerState.SEPARATED, scans = 2, span = 25)),
+        )
         // Over the threshold.
-        val warn = TrackerVerdict.line(facts(type = TrackerType.TILE, scans = 4, span = 95), FollowingProgress(4, 95), FollowingLevel.WARN)
-        assertTrue(warn, warn.startsWith("Seen in 4 scans over 1 h 35 min. Flagged as following you: this family has been with you in 4 scans over 1 h 35 min, past the threshold of 3 separate scans spread over at least 30 minutes."))
-        assertTrue(warn, warn.endsWith("Tile tags do not say whether their owner is near; Tunnels can only count how often one recurs."))
-        // CRITICAL quotes the separated-only counts the rule judged, not the family's overall ones.
-        val critical = TrackerVerdict.line(facts(state = TrackerState.SEPARATED, scans = 3, span = 70), FollowingProgress(5, 200), FollowingLevel.CRITICAL, separatedScans = 3, separatedMinutes = 70)
-        assertTrue(critical, critical.contains("an Apple tag away from its owner was with you across 3 scans over 1 h 10 min."))
-        val muted = TrackerVerdict.line(facts(muted = true), FollowingProgress(1, 0), FollowingLevel.NONE)
-        assertTrue(muted, muted.contains("Muted as a known tracker"))
+        assertEquals(
+            "Seen in 4 scans over 1 h 35 min. Flagged as following you: this identity was with you in 4 scans over 1 h 35 min, " +
+                "past the threshold of 3 separate scans spread over at least 30 minutes. " +
+                "Tile tags do not say whether their owner is near; Tunnels can only count how often one recurs.",
+            TrackerVerdict.line(facts(type = TrackerType.TILE, scans = 4, span = 95)),
+        )
+        // CRITICAL quotes the separated-only counts the rule judged.
+        val critical = facts(state = TrackerState.SEPARATED, scans = 4, span = 90).copy(separatedScans = 3, separatedMinutes = 70)
+        assertEquals(FollowingLevel.CRITICAL, critical.level)
+        assertEquals(
+            "Seen in 4 scans over 1 h 30 min. Flagged as following you: this identity, reporting itself away from its owner, was with you across 3 scans over 1 h 10 min. " +
+                "It reports being away from its owner. A lost item looks like this, and so does a planted tag; what matters is whether it keeps turning up as you move.",
+            TrackerVerdict.line(critical),
+        )
+        val muted = facts(muted = true, scans = 5, span = 100)
+        assertEquals(FollowingLevel.NONE, muted.level)
+        assertTrue(TrackerVerdict.line(muted).contains("Muted as a known tracker: it is listed but never flagged."))
+        assertFalse(TrackerVerdict.line(critical).contains("family"))
         assertEquals("Its advertisement did not say whether its owner is near.", TrackerVerdict.stateExplanation(TrackerType.APPLE_FINDMY, TrackerState.UNKNOWN))
+        assertEquals("away from owner", TrackerVerdict.stateLabel(TrackerState.SEPARATED))
+    }
+
+    @Test
+    fun identityRowsSortByClosenessThenLastSeen() {
+        val rows = listOf(
+            facts(key = "once-old", scans = 1, thisScan = false).copy(lastSeen = t0),
+            facts(key = "once-new", scans = 1).copy(lastSeen = t0 + 99 * 60_000),
+            facts(key = "two", scans = 2, span = 20),
+            facts(key = "warn", scans = 3, span = 40),
+            facts(key = "muted", scans = 9, span = 300, muted = true),
+        )
+        assertEquals(listOf("warn", "two", "once-new", "once-old", "muted"), rows.sortedWith(IdentityFacts.order).map { it.key })
+        assertEquals("2 of 3 scans", rows[2].progress.scansHint)
+        assertEquals("3 of 3 scans", facts(scans = 7).progress.scansHint)
+    }
+
+    @Test
+    fun familyCardSummarisesIdentities() {
+        val minute = 60_000L
+        // The field case: 35 strangers over 17 scans in 2 h 7 min, nobody close.
+        val crowd = (0 until 35).map { i ->
+            SightingRecord("s${i % 17}", t0 + (i % 17) * 127L * minute / 16, TrackerType.APPLE_FINDMY, "c%07x".format(i),
+                if (i < 3) TrackerState.WITH_OWNER else if (i < 5) TrackerState.UNKNOWN else TrackerState.SEPARATED, -70)
+        }
+        fun family(records: List<SightingRecord>, muted: Set<String> = emptySet()): FamilyFacts {
+            val obs = SurroundingsKeys.bleObservations(SightingAggregator.aggregate(records), 100, SurroundingsKeys.AVAILABLE_YES, t0, muted)
+            val listed = obs.groupBy { it.subject }.mapNotNull { (s, o) ->
+                SurroundingsKeys.parseTrackerSubject(s)?.second?.let { IdentityFacts.from(TrackerType.APPLE_FINDMY, it, o.associate { x -> x.key to x.value }) }
+            }
+            return FamilyFacts.from(TrackerType.APPLE_FINDMY, obs.filter { it.subject == "tracker:findmy" }.associate { it.key to it.value }, listed)
+        }
+        val f = family(crowd)
+        assertEquals("35 identities · 17 scans over 2 h 7 min", FamilySummary.headline(f))
+        assertEquals("3 near their owners · 30 separated · 2 state unknown", FamilySummary.states(f))
+        assertEquals("Closest to following: none close", FamilySummary.closest(f))
+
+        // One identity in two scans 25 minutes apart.
+        val two = crowd + listOf(0L, 25L).mapIndexed { i, m -> SightingRecord("s$i", t0 + m * minute, TrackerType.APPLE_FINDMY, "deadbeef", TrackerState.SEPARATED, -60) }
+        assertEquals("Closest to following: deadbeef, 2 of 3 scans · 25 of 30 min", FamilySummary.closest(family(two)))
+        // Muted, it is not the closest any more.
+        assertEquals("Closest to following: none close", FamilySummary.closest(family(two, setOf("tracker:findmy:deadbeef"))))
+
+        // Over the threshold.
+        val three = crowd + listOf(0L, 20L, 40L).mapIndexed { i, m -> SightingRecord("s$i", t0 + m * minute, TrackerType.APPLE_FINDMY, "deadbeef", TrackerState.SEPARATED, -60) }
+        assertEquals("Following you: deadbeef, 3 of 3 scans · 30 of 30 min", FamilySummary.closest(family(three)))
+
+        // A snapshot from before v3 (no summary keys) falls back to the listed identities.
+        val old = FamilyFacts.from(
+            TrackerType.APPLE_FINDMY,
+            mapOf(SurroundingsKeys.DEVICES to "2", SurroundingsKeys.SEEN_SESSIONS to "3", SurroundingsKeys.SEEN_SPAN to "50"),
+            listOf(facts(key = "a", state = TrackerState.WITH_OWNER), facts(key = "b", state = TrackerState.SEPARATED, scans = 2, span = 10)),
+        )
+        assertEquals("1 near its owner · 1 separated", FamilySummary.states(old))
+        assertEquals("Closest to following: b, 2 of 3 scans · 10 of 30 min", FamilySummary.closest(old))
     }
 
     @Test
@@ -105,40 +173,44 @@ class TrackerVerdictTest {
 
     @Test
     fun threatSummaryLines() {
-        val none = emptyMap<TrackerType, FollowingLevel>()
-        assertEquals("No trackers seen in 30 days.", ThreatSummary.line(emptyList(), none))
+        assertEquals("No trackers seen in 30 days.", ThreatSummary.line(emptyList()))
         assertEquals(
             "2 identities nearby: 1 near its owner, 1 separated (seen 1×, not yet following)",
-            ThreatSummary.line(listOf(facts(key = "a", state = TrackerState.WITH_OWNER), facts(key = "b", state = TrackerState.SEPARATED)), none),
+            ThreatSummary.line(listOf(facts(key = "a", state = TrackerState.WITH_OWNER), facts(key = "b", state = TrackerState.SEPARATED))),
         )
         assertEquals(
             "1 identity nearby: 1 state unknown (seen 1×, not yet following)",
-            ThreatSummary.line(listOf(facts(type = TrackerType.TILE)), none),
+            ThreatSummary.line(listOf(facts(type = TrackerType.TILE))),
         )
-        // "seen N×" counts the family's scans: one rotating tag seen in 2 scans under 2 identities is "seen 2×".
+        // "seen N×" is the most-seen identity's own count: many identities seen once each stay "seen 1×".
         assertEquals(
-            "2 identities nearby: 2 separated (seen 2×, not yet following)",
-            ThreatSummary.line(listOf(facts(key = "a", state = TrackerState.SEPARATED), facts(key = "b", state = TrackerState.SEPARATED)), none, mapOf(TrackerType.APPLE_FINDMY to 2)),
+            "30 identities nearby: 30 separated (seen 1×, not yet following)",
+            ThreatSummary.line((0 until 30).map { facts(key = "k$it", state = TrackerState.SEPARATED) }),
         )
         // Unlisted identities count in the head and get their own part.
         assertEquals(
             "43 identities in 30 days, 1 in this scan: 1 state unknown (seen 1×, not yet following), 42 not listed",
-            ThreatSummary.line(listOf(facts(type = TrackerType.TILE)), none, unlisted = 42),
+            ThreatSummary.line(listOf(facts(type = TrackerType.TILE)), unlisted = 42),
         )
+        // "following you" only when an identity of the group is over the threshold on its own.
         assertEquals(
             "3 identities in 30 days, 1 in this scan: 2 near their owners, 1 separated (following you)",
             ThreatSummary.line(
                 listOf(
                     facts(key = "a", state = TrackerState.WITH_OWNER, thisScan = false),
                     facts(key = "b", state = TrackerState.WITH_OWNER, thisScan = false),
-                    facts(key = "c", state = TrackerState.SEPARATED, scans = 4, span = 90),
+                    facts(key = "c", state = TrackerState.SEPARATED, scans = 4, span = 90).copy(separatedScans = 4, separatedMinutes = 90),
                 ),
-                mapOf(TrackerType.APPLE_FINDMY to FollowingLevel.CRITICAL),
             ),
+        )
+        // A near-owner identity over the threshold is called out too.
+        assertEquals(
+            "1 identity nearby: 1 near its owner (following you)",
+            ThreatSummary.line(listOf(facts(state = TrackerState.WITH_OWNER, scans = 3, span = 40))),
         )
         assertEquals(
             "2 identities in 30 days, none in this scan: 1 state unknown (seen 2×, not yet following), 1 muted",
-            ThreatSummary.line(listOf(facts(type = TrackerType.TILE, key = "a", scans = 2, thisScan = false), facts(key = "b", muted = true, thisScan = false)), none),
+            ThreatSummary.line(listOf(facts(type = TrackerType.TILE, key = "a", scans = 2, thisScan = false), facts(key = "b", muted = true, thisScan = false))),
         )
     }
 
@@ -149,6 +221,14 @@ class TrackerVerdictTest {
         assertEquals(
             "3 identities since start: 1 near its owner, 2 separated",
             ThreatSummary.monitorLine(mapOf(TrackerState.SEPARATED to 2, TrackerState.WITH_OWNER to 1, TrackerState.UNKNOWN to 0)),
+        )
+        assertEquals(
+            "3 identities since start: 1 near its owner, 2 separated · 1 identity close to following",
+            ThreatSummary.monitorLine(mapOf(TrackerState.SEPARATED to 2, TrackerState.WITH_OWNER to 1), close = 1),
+        )
+        assertEquals(
+            "4 identities since start: 4 separated · 1 identity following you · 2 identities close to following",
+            ThreatSummary.monitorLine(mapOf(TrackerState.SEPARATED to 4), close = 2, following = 1),
         )
         assertEquals("1 identity", ThreatSummary.identities(1))
         assertEquals("2 identities", ThreatSummary.identities(2))

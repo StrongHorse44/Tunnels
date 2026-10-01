@@ -125,13 +125,21 @@ data class DeviceSighting(
     /** The session the device was last seen in. */
     val lastSession: String = "",
     val kind: String? = null,
+    /** Sessions in which this identity reported itself separated from its owner: what the CRITICAL rule judges. */
+    val sessionsSeparated: Int = 0,
+    val firstSeparated: Long? = null,
+    val lastSeparated: Long? = null,
 ) {
     val spanMinutes: Long get() = (lastSeen - firstSeen) / 60_000
+    val spanSeparatedMinutes: Long get() = if (firstSeparated != null && lastSeparated != null) (lastSeparated - firstSeparated) / 60_000 else 0
+
+    /** This identity's own assessment: the following rule is judged per identity, see [FollowingHeuristic]. */
+    val level: FollowingLevel get() = FollowingHeuristic.assess(type, sessions, spanMinutes, sessionsSeparated, spanSeparatedMinutes)
 }
 
 /**
- * Everything known about one tracker family. Rotating addresses make one physical tag show up under
- * several keys, so the following heuristic works on this level.
+ * Everything known about one tracker family: a summary for the family card only. Strangers' tags of the
+ * same family add up here, so nothing is ever judged as "following" on this level (see [FollowingHeuristic]).
  */
 data class TypeSighting(
     val type: TrackerType,
@@ -178,13 +186,13 @@ object SightingAggregator {
         val devices = records.groupBy { it.key }.mapValues { (key, rs) ->
             val sorted = rs.sortedBy { it.at }
             val latest = sorted.last()
-            val weight = rs.sumOf { it.count }
+            val separated = rs.filter { it.state == TrackerState.SEPARATED }
             DeviceSighting(
                 type = latest.type,
                 key = key,
                 firstSeen = sorted.first().at,
                 lastSeen = latest.at,
-                sightings = weight,
+                sightings = rs.sumOf { it.count },
                 sessions = rs.map { it.session }.toSet().size,
                 rssiAvg = weightedRssi(rs),
                 state = latest.state,
@@ -192,6 +200,9 @@ object SightingAggregator {
                 rssiLast = latest.rssi,
                 lastSession = latest.session,
                 kind = sorted.lastOrNull { it.kind != null }?.kind,
+                sessionsSeparated = separated.map { it.session }.toSet().size,
+                firstSeparated = separated.minOfOrNull { it.at },
+                lastSeparated = separated.maxOfOrNull { it.at },
             )
         }
         val types = records.groupBy { it.type }.mapValues { (type, rs) ->
@@ -224,9 +235,19 @@ object SightingAggregator {
 enum class FollowingLevel { NONE, WARN, CRITICAL }
 
 /**
- * A tracker family that keeps turning up is suspicious once it was seen in three separate scan
- * sessions at least half an hour apart. An Apple tag that says it is away from its owner for over an
- * hour across three sessions is the strongest signal a stalking tag gives.
+ * Whether one tracker identity (one pseudonymous device key) is following the user. A key that keeps
+ * turning up is suspicious once it was seen in three separate scan sessions at least half an hour apart;
+ * an Apple tag that says it is away from its owner for over an hour across three sessions is the
+ * strongest signal a stalking tag gives.
+ *
+ * Judged per identity, never per family: in a busy place strangers' AirPods and AirTags of one family
+ * turn up in every scan, so family-level counts cross any threshold although no single device followed
+ * anyone. Per-key judgement also aims at the right tags. Apple Find My devices rotate their address, and
+ * with it our key, often while near their owner (about every quarter of an hour, by public research)
+ * but rarely once separated from it (about once a day), so a near-owner key seldom lives long enough to
+ * reach the threshold while a separated, possibly planted, tag keeps one key for hours. Rotation periods
+ * of the other families are not verified on-device; a family that rotates faster than the threshold is
+ * only caught while one key is stable. The UI never quotes rotation times.
  */
 object FollowingHeuristic {
     const val MIN_SESSIONS = 3
@@ -236,11 +257,28 @@ object FollowingHeuristic {
     /** The WARN threshold in words, shared by the finding text, the verdict and the guide so they never drift apart. */
     val thresholdText: String get() = "$MIN_SESSIONS separate scans spread over at least $MIN_SPAN_MINUTES minutes"
 
+    /** Assesses one identity from its own counts: all its sessions and minutes, and its separated-only ones. */
     fun assess(type: TrackerType, sessions: Int, spanMinutes: Long, sessionsSeparated: Int, spanSeparatedMinutes: Long): FollowingLevel = when {
         type == TrackerType.APPLE_FINDMY && sessionsSeparated >= MIN_SESSIONS && spanSeparatedMinutes >= CRITICAL_SPAN_MINUTES -> FollowingLevel.CRITICAL
         sessions >= MIN_SESSIONS && spanMinutes >= MIN_SPAN_MINUTES -> FollowingLevel.WARN
         else -> FollowingLevel.NONE
     }
 
-    fun assess(t: TypeSighting): FollowingLevel = assess(t.type, t.sessions, t.spanMinutes, t.sessionsSeparated, t.spanSeparatedMinutes)
+    fun assess(d: DeviceSighting): FollowingLevel = d.level
+
+    /**
+     * How close one identity is to following, for ordering: its level first, then its progress toward the
+     * WARN threshold (scans and minutes, each capped at the threshold). Higher is closer.
+     */
+    fun closeness(level: FollowingLevel, sessions: Int, spanMinutes: Long): Double =
+        level.ordinal * 10.0 +
+            sessions.coerceIn(0, MIN_SESSIONS).toDouble() / MIN_SESSIONS +
+            spanMinutes.coerceIn(0L, MIN_SPAN_MINUTES).toDouble() / MIN_SPAN_MINUTES
+
+    /** An identity seen in a single scan is never "close to following": every passer-by is. */
+    fun isCandidate(sessions: Int): Boolean = sessions > 1
+
+    /** Closest to following first, then the most recently seen. */
+    val deviceOrder: Comparator<DeviceSighting> =
+        compareByDescending<DeviceSighting> { closeness(it.level, it.sessions, it.spanMinutes) }.thenByDescending { it.lastSeen }.thenBy { it.key }
 }

@@ -10,7 +10,6 @@ import io.github.stronghorse44.tunnels.ble.Advertisement
 import io.github.stronghorse44.tunnels.ble.AppleFindMyFrame
 import io.github.stronghorse44.tunnels.ble.DultProtocol
 import io.github.stronghorse44.tunnels.ble.FollowingLevel
-import io.github.stronghorse44.tunnels.ble.FollowingProgress
 import io.github.stronghorse44.tunnels.ble.IdentityFacts
 import io.github.stronghorse44.tunnels.ble.Proximity
 import io.github.stronghorse44.tunnels.ble.RssiMeter
@@ -78,7 +77,7 @@ class SurroundingsSmokeTest {
     fun everyFindingKindHasAnAction() {
         val module = SurroundingsTunnels().create(context).single()
         val drafts = listOf(
-            FindingDraft(module.id, "tracker:findmy", SurroundingsRules.TRACKER_FOLLOWING, Severity.CRITICAL, ""),
+            FindingDraft(module.id, "tracker:findmy:deadbeef", SurroundingsRules.TRACKER_FOLLOWING, Severity.CRITICAL, ""),
             FindingDraft(module.id, "tracker:tile", SurroundingsRules.NEW_TRACKER_TYPE, Severity.NOTICE, "", sticky = true),
             FindingDraft(module.id, "Cafe", SurroundingsRules.OPEN_WIFI_CONNECTED, Severity.NOTICE, ""),
             FindingDraft(module.id, "Office", SurroundingsRules.EVIL_TWIN_SUSPECT, Severity.WARN, ""),
@@ -90,14 +89,17 @@ class SurroundingsSmokeTest {
             assertTrue(d.kind, actions.isNotEmpty())
             assertTrue(d.kind, actions.all { it.label.isNotBlank() })
         }
-        // Tracker findings: find it, Android's alerts and the mute; the brand guides are sheets in the detail, not snackbar text.
+        // Following findings are per identity: find it (locked to that key), Android's alerts and a mute of that identity only.
+        // The brand guides are sheets in the detail, not snackbar text.
         val tracker = module.actionsFor(drafts[0])
-        assertEquals(3, tracker.size)
-        assertEquals(listOf(TrackerActions.LABEL_FIND_IT, TrackerActions.LABEL_ALERTS, "Known tracker: mute 30 days"), tracker.map { it.label })
+        assertEquals(listOf(TrackerActions.LABEL_FIND_IT, TrackerActions.LABEL_ALERTS, SurroundingsTunnel.LABEL_MUTE), tracker.map { it.label })
+        assertEquals("Known tracker: mute 30 days", SurroundingsTunnel.LABEL_MUTE)
         assertTrue(tracker.all { it is FindingAction.Perform })
-        // A subject that is not a tracker subject gets no find-it entry rather than a guess at the family.
+        // A family subject (the new-family notice) is never offered a family-wide mute.
+        assertEquals(listOf(TrackerActions.LABEL_FIND_IT, TrackerActions.LABEL_ALERTS), module.actionsFor(drafts[1]).map { it.label })
+        // A subject that is not a tracker subject gets neither find it nor a mute rather than a guess.
         val odd = module.actionsFor(FindingDraft(module.id, "not a tracker", SurroundingsRules.TRACKER_FOLLOWING, Severity.WARN, ""))
-        assertEquals(listOf(TrackerActions.LABEL_ALERTS, "Known tracker: mute 30 days"), odd.map { it.label })
+        assertEquals(listOf(TrackerActions.LABEL_ALERTS), odd.map { it.label })
     }
 
     @Test
@@ -124,10 +126,14 @@ class SurroundingsSmokeTest {
         assertTrue(RssiMeter.pulseIntervalMs(-50.0) < RssiMeter.pulseIntervalMs(-80.0))
 
         val facts = IdentityFacts(TrackerType.APPLE_FINDMY, "deadbeef", TrackerState.WITH_OWNER, 1, 1, 0, 0L, 0L, -58, -58, "full", "airtag", true, false)
-        val verdict = TrackerVerdict.line(facts, FollowingProgress(1, 0), FollowingLevel.NONE)
+        val verdict = TrackerVerdict.line(facts)
         assertTrue(verdict, verdict.startsWith("Seen in 1 scan over 0 min."))
-        assertTrue(verdict, verdict.contains("3 separate scans spread over at least 30 minutes"))
-        assertEquals("1 identity nearby: 1 near its owner", ThreatSummary.line(listOf(facts), emptyMap()))
+        assertTrue(verdict, verdict.contains("3 separate scans spread over at least 30 minutes by this same identity"))
+        assertEquals(FollowingLevel.NONE, facts.level)
+        assertEquals("1 identity nearby: 1 near its owner", ThreatSummary.line(listOf(facts)))
+        // A crowd of strangers each heard once never adds up to "following".
+        val crowd = (0 until 35).map { facts.copy(key = "c%07x".format(it), state = TrackerState.SEPARATED) }
+        assertEquals("35 identities nearby: 35 separated (seen 1×, not yet following)", ThreatSummary.line(crowd))
         for (type in TrackerType.entries) assertTrue(type.name, TrackerGuides.of(type).identify.isNotBlank())
 
         val response = DultProtocol.parse(DultProtocol.command(DultProtocol.COMMAND_RESPONSE) + byteArrayOf(0x00, 0x03, 0x00, 0x00)) as DultProtocol.Response.CommandResponse
