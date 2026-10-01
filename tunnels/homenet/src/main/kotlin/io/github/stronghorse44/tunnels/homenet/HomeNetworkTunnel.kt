@@ -125,7 +125,7 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
     }
 
     override fun actionsFor(draft: FindingDraft): List<FindingAction> {
-        val ports = portsInParentheses.findAll(draft.evidence).mapNotNull { it.groupValues[1].toIntOrNull() }.toList()
+        val ports = portsInParentheses.findAll(draft.evidence).mapNotNull { it.groupValues[1].toIntOrNull() }.distinct().toList()
         val actions = mutableListOf<FindingAction>(
             FindingAction.Perform(LanGuides.FIX_LABEL) { LanGuides.fix(draft.kind, ports) },
         )
