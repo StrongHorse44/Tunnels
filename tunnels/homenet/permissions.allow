@@ -9,4 +9,3 @@ android.permission.ACCESS_WIFI_STATE
 android.permission.CHANGE_WIFI_MULTICAST_STATE
 # Runtime permission, requested when the tunnel opens, declared neverForLocation. Lets the card show the Wi-Fi name
 # when Android shares it; the gate itself keys on LinkProperties, which needs no location permission.
-android.permission.NEARBY_WIFI_DEVICES

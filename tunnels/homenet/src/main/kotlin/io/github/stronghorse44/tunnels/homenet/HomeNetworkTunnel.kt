@@ -1,6 +1,5 @@
 package io.github.stronghorse44.tunnels.homenet
 
-import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -39,9 +38,9 @@ import io.github.stronghorse44.tunnels.runtime.TunnelUi
 class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
     override val id: String = LanKeys.TUNNEL_ID
 
-    override val requiredPermissions: List<PermissionSpec> = listOf(
-        PermissionSpec(Manifest.permission.NEARBY_WIFI_DEVICES, "To read details of the Wi-Fi you are on, so Tunnels only ever scans your own network"),
-    )
+    // The own-network gate identifies a Wi-Fi by its fingerprint (gateway, DHCP, DNS, prefix), so no
+    // runtime permission is needed (rule #6). The SSID is shown only when Android shares it anyway.
+    override val requiredPermissions: List<PermissionSpec> = emptyList()
 
     override val rules: List<FindingRule> = LanRules.all
 

@@ -36,7 +36,7 @@ class ExplorePhase4SmokeTest {
             satellites.requiredPermissions.map { it.permission }.toSet(),
         )
         val radio = modules.first { it.id == Radio.TUNNEL_ID }
-        assertEquals(listOf(Manifest.permission.READ_PHONE_STATE), radio.requiredPermissions.map { it.permission })
+        assertEquals(emptyList<String>(), radio.requiredPermissions.map { it.permission })
         for (m in listOf(satellites, radio)) {
             assertTrue(m.id, m.rules.isEmpty())
             assertTrue(m.id, m.specialAccess.isEmpty())
@@ -90,7 +90,7 @@ class ExplorePhase4SmokeTest {
         val cellular = obs.filter { it.subject == Radio.CELLULAR }.associate { it.key to it.value }
         if (cellular[Radio.PRESENT] == "true") {
             assertNotNull(cellular[Radio.PHONE_TYPE])
-            // Without READ_PHONE_STATE the data network type says so instead of crashing the scan.
+            // READ_BASIC_PHONE_STATE is a normal permission, so the data network type is readable; either way it is present.
             assertNotNull(cellular[Radio.DATA_NETWORK])
         }
         val wifi = obs.filter { it.subject == Radio.WIFI }.associate { it.key to it.value }

@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- Declare only what permissions.allow lists. -->
     <!-- Local-network sockets only, and only during a scan the user starts on a Wi-Fi they confirmed as theirs. -->
@@ -11,9 +10,4 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- MulticastLock around the 4-second SSDP search. -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
-    <!-- Requested only when the tunnel opens; never used to derive location. -->
-    <uses-permission
-        android:name="android.permission.NEARBY_WIFI_DEVICES"
-        android:usesPermissionFlags="neverForLocation"
-        tools:targetApi="s" />
 </manifest>

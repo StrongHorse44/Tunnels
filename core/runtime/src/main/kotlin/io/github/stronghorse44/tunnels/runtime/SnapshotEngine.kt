@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 
 /** Live progress of a scan, for any screen that wants to show it. */
@@ -59,7 +60,13 @@ class SnapshotEngine(private val registry: TunnelRegistry, private val store: Tu
                     _state.value = ScanState(true, module.id, index, modules.size, "${module.info.title}: $label ($done/$total)")
                 }
                 try {
-                    collected[module.id] = module.scan(progress).filter { it.tunnelId == module.id }
+                    // A radio or system service that hangs must not stall the whole snapshot.
+                    val observations = withTimeoutOrNull(SCAN_TIMEOUT_MS) { module.scan(progress) }
+                    if (observations == null) {
+                        failures[module.id] = "timed out after ${SCAN_TIMEOUT_MS / 1000} s"
+                    } else {
+                        collected[module.id] = observations.filter { it.tunnelId == module.id }
+                    }
                 } catch (e: Exception) {
                     failures[module.id] = e.message ?: e.javaClass.simpleName
                 }
@@ -97,6 +104,9 @@ class SnapshotEngine(private val registry: TunnelRegistry, private val store: Tu
     }
 
     companion object {
+        /** Generous: the home-network scan alone budgets about 70 s. */
+        const val SCAN_TIMEOUT_MS = 150_000L
+
         fun FindingEntity.toModel(module: TunnelModule?): Finding = Finding(
             tunnelId = tunnelId,
             subject = subject,

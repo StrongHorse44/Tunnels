@@ -30,7 +30,7 @@ class HomeNetworkSmokeTest {
     fun refusesToScanWithoutAConfirmedNetwork() = runBlocking {
         val module = HomeNetTunnels().create(context).single()
         assertEquals(LanKeys.TUNNEL_ID, module.id)
-        assertEquals(listOf("android.permission.NEARBY_WIFI_DEVICES"), module.requiredPermissions.map { it.permission })
+        assertEquals(emptyList<String>(), module.requiredPermissions.map { it.permission })
         assertEquals(LanRules.all.size, module.rules.size)
         NetworkGate(context).forgetAll()
 

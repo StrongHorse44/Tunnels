@@ -1,6 +1,5 @@
 package io.github.stronghorse44.tunnels.explore
 
-import android.Manifest
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.pm.PackageManager
@@ -31,15 +30,14 @@ import io.github.stronghorse44.tunnels.runtime.TunnelUi
 
 /**
  * Radio: what the cellular modem, Wi-Fi, Bluetooth, NFC and UWB hardware say about themselves. Almost
- * everything is permission-free; the current data network type is the one fact behind READ_PHONE_STATE.
+ * everything is permission-free; the current data network type needs READ_BASIC_PHONE_STATE, a normal
+ * permission granted at install with no prompt.
  * Nothing identifying (IMEI, SIM serial, SSID, addresses) is read. Explore line: no rules, no actions.
  */
 class RadioTunnel(private val context: Context) : TunnelModule, TunnelUi {
     override val id: String = Radio.TUNNEL_ID
 
-    override val requiredPermissions: List<PermissionSpec> = listOf(
-        PermissionSpec(Manifest.permission.READ_PHONE_STATE, "To show the current data network type"),
-    )
+    override val requiredPermissions: List<PermissionSpec> = emptyList()
     override val rules: List<FindingRule> = emptyList()
 
     override fun actionsFor(draft: FindingDraft): List<FindingAction> = emptyList()

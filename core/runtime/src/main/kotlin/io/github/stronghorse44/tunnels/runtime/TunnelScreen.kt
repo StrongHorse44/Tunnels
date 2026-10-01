@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -138,6 +140,7 @@ private fun SectionTitle(title: String, count: Int) {
     Text("$title · $count", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = GlassColors.dim, modifier = Modifier.padding(start = 6.dp, top = 6.dp))
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FindingCard(f: Finding, onAction: (FindingAction) -> Unit, onDismiss: () -> Unit) {
     val color = severityColor(f.severity)
@@ -154,8 +157,13 @@ fun FindingCard(f: Finding, onAction: (FindingAction) -> Unit, onDismiss: () -> 
             }
             Text(f.subject, style = MaterialTheme.typography.titleSmall)
             Text(f.evidence, style = MaterialTheme.typography.bodyMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
-                f.actions.take(3).forEachIndexed { i, a ->
+            // Every action stays reachable (deep mode offers several per finding); they wrap onto more rows.
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(top = 4.dp),
+            ) {
+                f.actions.forEachIndexed { i, a ->
                     if (i == 0) Button(onClick = { onAction(a) }) { Text(a.label) }
                     else OutlinedButton(onClick = { onAction(a) }) { Text(a.label) }
                 }
