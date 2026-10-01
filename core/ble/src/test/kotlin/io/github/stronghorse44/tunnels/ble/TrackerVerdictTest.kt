@@ -80,14 +80,14 @@ class TrackerVerdictTest {
         )
         // Separated, two scans: the progress is this identity's, never a family's.
         assertEquals(
-            "Seen in 2 scans over 25 min. Flagged as following you only after 3 separate scans spread over at least 30 minutes by this same identity " +
+            "Seen in 2 scans over 25 min. Tunnels could not tell whether you moved between those scans. Flagged as following you only after 3 separate scans spread over at least 30 minutes by this same identity " +
                 "(now 2 of 3 scans · 25 of 30 min). " +
                 "It reports being away from its owner. A lost item looks like this, and so does a planted tag; what matters is whether it keeps turning up as you move.",
             TrackerVerdict.line(facts(state = TrackerState.SEPARATED, scans = 2, span = 25)),
         )
         // Over the threshold.
         assertEquals(
-            "Seen in 4 scans over 1 h 35 min. Flagged as following you: this identity was with you in 4 scans over 1 h 35 min, " +
+            "Seen in 4 scans over 1 h 35 min. Tunnels could not tell whether you moved between those scans. Flagged as following you: this identity was with you in 4 scans over 1 h 35 min, " +
                 "past the threshold of 3 separate scans spread over at least 30 minutes. " +
                 "Tile tags do not say whether their owner is near; Tunnels can only count how often one recurs.",
             TrackerVerdict.line(facts(type = TrackerType.TILE, scans = 4, span = 95)),
@@ -96,7 +96,7 @@ class TrackerVerdictTest {
         val critical = facts(state = TrackerState.SEPARATED, scans = 4, span = 90).copy(separatedScans = 3, separatedMinutes = 70)
         assertEquals(FollowingLevel.CRITICAL, critical.level)
         assertEquals(
-            "Seen in 4 scans over 1 h 30 min. Flagged as following you: this identity, reporting itself away from its owner, was with you across 3 scans over 1 h 10 min. " +
+            "Seen in 4 scans over 1 h 30 min. Tunnels could not tell whether you moved between those scans. Flagged as following you: this identity, reporting itself away from its owner, was with you across 3 scans over 1 h 10 min. " +
                 "It reports being away from its owner. A lost item looks like this, and so does a planted tag; what matters is whether it keeps turning up as you move.",
             TrackerVerdict.line(critical),
         )

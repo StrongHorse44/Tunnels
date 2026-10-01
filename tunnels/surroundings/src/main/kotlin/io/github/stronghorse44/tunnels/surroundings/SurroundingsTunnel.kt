@@ -23,6 +23,9 @@ import io.github.stronghorse44.tunnels.runtime.TunnelScreenState
 import io.github.stronghorse44.tunnels.runtime.TunnelUi
 import io.github.stronghorse44.tunnels.store.EventEntity
 import io.github.stronghorse44.tunnels.store.TunnelsStore
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
@@ -39,7 +42,10 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
     override val requiredPermissions: List<PermissionSpec> = listOf(
         PermissionSpec(Manifest.permission.BLUETOOTH_SCAN, "To spot trackers like AirTags and SmartTags near you"),
         PermissionSpec(Manifest.permission.NEARBY_WIFI_DEVICES, "To check the Wi-Fi networks around you for open or impostor networks"),
-        PermissionSpec(Manifest.permission.ACCESS_FINE_LOCATION, "Android ties cell-tower identity to location; no position is stored"),
+        PermissionSpec(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            "To tell a tracker that travels with you from one that stays put, and for cell checks. Only whether you moved is kept, never a position",
+        ),
         PermissionSpec(Manifest.permission.ACCESS_COARSE_LOCATION, "Android requires this next to precise location; no position is stored"),
     )
 
@@ -55,9 +61,15 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
         WifiProbe.requestScan(context)
 
         progress.report(2, STEPS, "listening for Bluetooth trackers")
-        val ble = withTimeoutOrNull(BLE_WINDOW_MS + GRACE_MS) {
-            BleWindow.scan(context, session, BLE_WINDOW_MS) { s, total -> progress.report(2, STEPS, "listening for Bluetooth trackers ${s}s/${total}s") }
-        } ?: BleWindowResult(SurroundingsKeys.AVAILABLE_FAILED, 0, emptyList())
+        // The place fix runs during the Bluetooth window, so knowing whether the phone moved costs no extra time.
+        val (window, place) = coroutineScope {
+            val fix = async { placeOf(context) }
+            val ble = withTimeoutOrNull(BLE_WINDOW_MS + GRACE_MS) {
+                BleWindow.scan(context, session, BLE_WINDOW_MS) { s, total -> progress.report(2, STEPS, "listening for Bluetooth trackers ${s}s/${total}s") }
+            } ?: BleWindowResult(SurroundingsKeys.AVAILABLE_FAILED, 0, emptyList())
+            ble to fix.await()
+        }
+        val ble = window.copy(sightings = window.sightings.map { it.copy(place = place.place) })
 
         progress.report(3, STEPS, "reading Wi-Fi networks")
         val wifi = try {
@@ -90,7 +102,7 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
         val twinsRecorded = recent.count { it.kind == SurroundingsKeys.EVENT_WIFI }
 
         progress.report(STEPS, STEPS, "done")
-        return SurroundingsKeys.bleObservations(aggregate, ble.devicesTotal, ble.available, now, muted, sessions, currentSession = session) +
+        return SurroundingsKeys.bleObservations(aggregate, ble.devicesTotal, ble.available, now, muted, sessions, currentSession = session, placeAvailable = place.available) +
             SurroundingsKeys.wifiObservations(wifi.summaries, wifi.available, twinsRecorded) +
             SurroundingsKeys.cellObservations(cell.cell, cell.available, changed, downgrades)
     }
@@ -117,7 +129,7 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
 
     /** Routed by the finding's kind, never its subject: a Wi-Fi SSID can be any string, including one that looks like a tracker or cell subject. */
     override fun actionsFor(draft: FindingDraft): List<FindingAction> = when (draft.kind) {
-        SurroundingsRules.TRACKER_FOLLOWING, SurroundingsRules.ROTATING_TRACKER, SurroundingsRules.NEW_TRACKER_TYPE -> trackerActions(draft.subject)
+        in SurroundingsRules.trackerKinds -> trackerActions(draft.subject)
         SurroundingsRules.CELL_DOWNGRADE, SurroundingsRules.CELL_DOWNGRADED -> listOf(
             FindingAction.OpenSettings(Settings.ACTION_NETWORK_OPERATOR_SETTINGS, "Mobile network settings"),
         )
@@ -199,6 +211,16 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
                 now,
             )
         }
+        /** The phone's place for one scan; a failure only means the scan does not know it. */
+        suspend fun placeOf(context: Context, timeoutMs: Long = BLE_WINDOW_MS): PlaceResult = try {
+            PlaceProbe.locate(context, timeoutMs)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "place failed: ${e.javaClass.simpleName}")
+            PlaceResult(SurroundingsKeys.AVAILABLE_FAILED, null)
+        }
+
         private const val STEPS = 6
         const val BLE_WINDOW_MS = 15_000L
         private const val GRACE_MS = 5_000L

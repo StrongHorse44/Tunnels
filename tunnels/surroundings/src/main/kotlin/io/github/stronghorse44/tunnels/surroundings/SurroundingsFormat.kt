@@ -3,6 +3,7 @@ package io.github.stronghorse44.tunnels.surroundings
 import io.github.stronghorse44.tunnels.ble.FamilyFacts
 import io.github.stronghorse44.tunnels.ble.FollowingLevel
 import io.github.stronghorse44.tunnels.ble.IdentityFacts
+import io.github.stronghorse44.tunnels.ble.Movement
 import io.github.stronghorse44.tunnels.ble.SurroundingsKeys
 import io.github.stronghorse44.tunnels.ble.ThreatSummary
 import io.github.stronghorse44.tunnels.ble.TrackerState
@@ -39,6 +40,28 @@ object SurroundingsFormat {
     }
 
     fun stateLabel(state: TrackerState): String = TrackerVerdict.stateLabel(state)
+
+    /** The detail's "moves" fact: "with you across 2 moves", "only where you stay", "not known (no location fix)". */
+    fun movementLabel(f: IdentityFacts): String = when (f.movement) {
+        Movement.MOVED -> if (f.placeRun > 2) "with you across ${f.placeRun - 1} moves" else "with you across a move"
+        Movement.STAYED -> "only where you stay"
+        Movement.UNKNOWN -> "not known (scans without a location fix)"
+    }
+
+    /**
+     * A line under the tracker summary when the last scan did not know whether the phone moved; null when it did.
+     * [available] is the summary's [SurroundingsKeys.PLACE_AVAILABLE]; snapshots from before places existed have none.
+     */
+    fun placeNote(available: String?): String? {
+        val why = when (available) {
+            null, SurroundingsKeys.AVAILABLE_YES -> return null
+            SurroundingsKeys.AVAILABLE_LOCATION_OFF -> "location is off"
+            SurroundingsKeys.AVAILABLE_NO_PERMISSION -> "Tunnels has no location permission"
+            SurroundingsKeys.AVAILABLE_NO_FIX -> "no location fix was accurate enough"
+            else -> "the location check failed"
+        }
+        return "This scan could not tell whether you moved ($why). Tunnels then judges on time alone, so a neighbour's tag can look like one that follows you."
+    }
 
     /** "today 14:32", "yesterday 09:05", "3 Oct 14:32". */
     fun timeOf(epochMs: Long, now: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): String {

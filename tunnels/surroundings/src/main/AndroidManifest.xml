@@ -17,7 +17,9 @@
         android:name="android.permission.NEARBY_WIFI_DEVICES"
         android:usesPermissionFlags="neverForLocation" />
     <!-- Android ties cell-tower identity to location. Only the technology (NR/LTE/UMTS/GSM) and the
-         operator code are kept; no position, no cell id. Android requires coarse next to fine. -->
+         operator code are kept; no position, no cell id. One position fix per scan tells whether the
+         phone moved since the last scan: only a move counter and a keystore-keyed hash of a ~250 m grid
+         cell are kept, never coordinates. Android requires coarse next to fine. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- The background monitor is a separate opt-in switch inside the tunnel. -->

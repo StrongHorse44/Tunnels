@@ -1,6 +1,7 @@
 package io.github.stronghorse44.tunnels.ble
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -42,6 +43,32 @@ class SightingsTest {
         assertNull(SightingRecord.parse("tracker:tile:ab12cd34", "session=x"))
         assertNull(SightingRecord.parse("tracker:nosuch:ab12cd34", "session=x;at=5"))
         assertNull(SightingRecord.parse("wifi:summary", "session=x;at=5"))
+        // The place number rides along and reads back; rows from before places existed have none.
+        val placed = r.copy(place = 29_000_123L)
+        assertEquals("session=s1;at=$t0;state=separated;rssi=-71;count=4;battery=low;kind=airtag;place=29000123", placed.encode())
+        assertEquals(placed, SightingRecord.parse(placed.subject, placed.encode()))
+        assertNull(SightingRecord.parse(r.subject, r.encode())!!.place)
+    }
+
+    @Test
+    fun aggregatorCountsPlacesPerIdentity() {
+        val records = listOf(
+            rec("s1", t0).copy(place = 5), rec("s1", t0 + minute).copy(place = 5), // one session, one place
+            rec("s2", t0 + 20 * minute).copy(place = 6),
+            rec("s3", t0 + 40 * minute), // no fix
+            rec("s4", t0 + 60 * minute).copy(place = 8),
+        )
+        val d = SightingAggregator.aggregate(records).devices.values.single()
+        assertEquals(4, d.sessions)
+        assertEquals(3, d.placedSessions)
+        assertEquals(2, d.placeRun)
+        assertEquals(Movement.MOVED, d.movement)
+        assertEquals(FollowingLevel.WARN, d.level)
+        // The same scans all at one place: past the time threshold, but it stays put.
+        val still = SightingAggregator.aggregate(records.map { it.copy(place = 5) }).devices.values.single()
+        assertEquals(Movement.STAYED, still.movement)
+        assertEquals(FollowingLevel.STAYS, still.level)
+        assertFalse(still.level.isFollowing)
     }
 
     @Test
@@ -169,6 +196,14 @@ class SightingsTest {
         assertEquals(FollowingLevel.CRITICAL, FollowingHeuristic.assess(TrackerType.APPLE_FINDMY, 3, 90, 3, 60))
         // Separated state on a non-Apple type never upgrades to critical.
         assertEquals(FollowingLevel.WARN, FollowingHeuristic.assess(TrackerType.TILE, 5, 300, 5, 300))
+        // Moves: a key that stayed put drops to STAYS at either level; one that moved, or with no places, keeps its level.
+        assertEquals(FollowingLevel.STAYS, FollowingHeuristic.assess(TrackerType.TILE, 3, 30, 0, 0, Movement.STAYED))
+        assertEquals(FollowingLevel.STAYS, FollowingHeuristic.assess(TrackerType.APPLE_FINDMY, 3, 90, 3, 60, Movement.STAYED))
+        assertEquals(FollowingLevel.CRITICAL, FollowingHeuristic.assess(TrackerType.APPLE_FINDMY, 3, 90, 3, 60, Movement.MOVED))
+        assertEquals(FollowingLevel.WARN, FollowingHeuristic.assess(TrackerType.TILE, 3, 30, 0, 0, Movement.UNKNOWN))
+        assertEquals(FollowingLevel.NONE, FollowingHeuristic.assess(TrackerType.TILE, 2, 30, 0, 0, Movement.STAYED))
+        assertTrue(FollowingLevel.WARN.isFollowing && FollowingLevel.CRITICAL.isFollowing)
+        assertFalse(FollowingLevel.STAYS.isFollowing || FollowingLevel.NONE.isFollowing)
 
         // Judged per identity: three separated identities in three scans are three passers-by, one identity in three scans is critical.
         val three = SightingAggregator.aggregate(

@@ -13,6 +13,7 @@ import android.util.Log
 import io.github.stronghorse44.tunnels.ble.CellSummary
 import io.github.stronghorse44.tunnels.ble.FollowingHeuristic
 import io.github.stronghorse44.tunnels.ble.FollowingLevel
+import io.github.stronghorse44.tunnels.ble.Movement
 import io.github.stronghorse44.tunnels.ble.SightingAggregator
 import io.github.stronghorse44.tunnels.ble.SightingRecord
 import io.github.stronghorse44.tunnels.ble.SurroundingsKeys
@@ -26,7 +27,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -121,10 +124,16 @@ class MonitorService : Service() {
                         return@launch
                     }
                     val session = "monitor-$now"
-                    // Probes are binder calls and waits; keep them off the main thread the service lives on.
+                    // Probes are binder calls and waits; keep them off the main thread the service lives on. The place
+                    // fix runs during the window, so a tag seen before and after a move is told from one next door.
                     val ble = withContext(Dispatchers.IO) {
-                        withTimeoutOrNull(BLE_WINDOW_MS + GRACE_MS) {
-                            BleWindow.scan(this@MonitorService, session, BLE_WINDOW_MS, filters = TrackerSignatures.scanFilters)
+                        coroutineScope {
+                            val place = async { SurroundingsTunnel.placeOf(this@MonitorService, BLE_WINDOW_MS) }
+                            val window = withTimeoutOrNull(BLE_WINDOW_MS + GRACE_MS) {
+                                BleWindow.scan(this@MonitorService, session, BLE_WINDOW_MS, filters = TrackerSignatures.scanFilters)
+                            }
+                            val at = place.await().place
+                            window?.copy(sightings = window.sightings.map { it.copy(place = at) })
                         }
                     }
                     var cell: CellSummary? = null
@@ -155,8 +164,10 @@ class MonitorService : Service() {
                             trackerKeys = keys.size,
                             trackerTypes = types.toSet(),
                             keysByState = keys.values.groupingBy { s -> s }.eachCount(),
-                            keysClose = judged.count { d -> d.level == FollowingLevel.NONE && FollowingHeuristic.isClose(d.sessions, d.spanMinutes) },
-                            keysFollowing = judged.count { d -> d.level != FollowingLevel.NONE },
+                            keysClose = judged.count { d ->
+                                d.level == FollowingLevel.NONE && d.movement != Movement.STAYED && FollowingHeuristic.isClose(d.sessions, d.spanMinutes)
+                            },
+                            keysFollowing = judged.count { d -> d.level.isFollowing },
                             bleAvailable = ble?.available ?: SurroundingsKeys.AVAILABLE_FAILED,
                             lastCell = cell?.registered?.slug ?: it.lastCell,
                         )

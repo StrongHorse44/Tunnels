@@ -21,6 +21,10 @@ data class IdentityFacts(
     val separatedMinutes: Long = 0L,
     /** Seen within [FollowingHeuristic.RECENT_DAYS] days; older identities are history and never flagged. */
     val recent: Boolean = true,
+    /** How it relates to the phone's moves; unknown for snapshots from before places existed. */
+    val movement: Movement = Movement.UNKNOWN,
+    /** The longest run of consecutive places it was seen at (2: on both sides of one move). */
+    val placeRun: Int = 0,
 ) {
     val proximityLast: Proximity? get() = rssiLast?.let(Proximity::of)
     val proximityAvg: Proximity? get() = rssiAvg?.let(Proximity::of)
@@ -29,13 +33,13 @@ data class IdentityFacts(
     val progress: FollowingProgress get() = FollowingProgress(scans, spanMinutes)
 
     /** The identity's own counts against the threshold, before mutes and the recency gate. */
-    val assessed: FollowingLevel get() = FollowingHeuristic.assess(type, scans, spanMinutes, separatedScans, separatedMinutes)
+    val assessed: FollowingLevel get() = FollowingHeuristic.assess(type, scans, spanMinutes, separatedScans, separatedMinutes, movement)
 
     /** The same level the rule acts on: never for a muted identity or one not seen recently. */
     val level: FollowingLevel get() = if (muted || !recent) FollowingLevel.NONE else assessed
 
-    /** Close to following in the shared sense ([FollowingHeuristic.isClose]): unmuted, recent, real progress. */
-    val close: Boolean get() = !muted && recent && FollowingHeuristic.isClose(scans, spanMinutes)
+    /** Close to following in the shared sense ([FollowingHeuristic.isClose]): unmuted, recent, real progress, not staying put. */
+    val close: Boolean get() = !muted && recent && movement != Movement.STAYED && FollowingHeuristic.isClose(scans, spanMinutes)
 
     /** For ordering rows: closest to following first (muted ones last), see [order]. */
     val closeness: Double get() = if (muted) -1.0 else FollowingHeuristic.closeness(level, scans, spanMinutes)
@@ -60,6 +64,8 @@ data class IdentityFacts(
             separatedScans = facts[SurroundingsKeys.SEEN_SESSIONS_SEPARATED]?.toIntOrNull() ?: 0,
             separatedMinutes = facts[SurroundingsKeys.SEEN_SPAN_SEPARATED]?.toLongOrNull() ?: 0L,
             recent = facts[SurroundingsKeys.SEEN_RECENT] != "false",
+            movement = Movement.bySlug(facts[SurroundingsKeys.MOVEMENT]),
+            placeRun = facts[SurroundingsKeys.SEEN_PLACE_RUN]?.toIntOrNull() ?: 0,
         )
 
         /** Identity rows: closest to following first, then the most recently seen. */
@@ -95,6 +101,7 @@ object TrackerVerdict {
     fun line(facts: IdentityFacts): String = buildString {
         append(seen(facts.scans, facts.spanMinutes))
         append(' ')
+        places(facts)?.let { append(it).append(' ') }
         when {
             facts.muted -> append("Muted as a known tracker: it is listed but never flagged.")
             !facts.recent && facts.assessed != FollowingLevel.NONE -> append(
@@ -109,10 +116,22 @@ object TrackerVerdict {
                 "Flagged as following you: this identity was with you in ${facts.scans} scans over ${minutes(facts.spanMinutes)}, " +
                     "past the threshold of ${FollowingHeuristic.thresholdText}.",
             )
+            facts.level == FollowingLevel.STAYS -> append(
+                "Not flagged as following: it turns up often, but only where you stay. Tunnels flags it if it turns up after you move.",
+            )
             else -> append("Flagged as following you only after ${FollowingHeuristic.thresholdText} by this same identity (now ${facts.progress.label}).")
         }
         append(' ')
         append(stateExplanation(facts.type, facts.state))
+    }
+
+    /** What the identity's scans say about the phone's moves; null for a single scan, where there is nothing to compare. */
+    fun places(facts: IdentityFacts): String? = when {
+        facts.scans < 2 -> null
+        facts.movement == Movement.MOVED ->
+            if (facts.placeRun > 2) "It was with you across ${facts.placeRun - 1} moves." else "It was there both before and after you moved."
+        facts.movement == Movement.STAYED -> "It was always at the same place while you were there."
+        else -> "Tunnels could not tell whether you moved between those scans."
     }
 
     /** "away from owner", "near its owner", "state unknown": the short state words of rows and findings. */
@@ -195,7 +214,7 @@ data class FamilyFacts(
                 closestKey = closestKey,
                 closestScans = int(SurroundingsKeys.CLOSEST_SESSIONS) ?: closest?.scans ?: 0,
                 closestMinutes = facts[SurroundingsKeys.CLOSEST_SPAN]?.toLongOrNull() ?: closest?.spanMinutes ?: 0L,
-                following = int(SurroundingsKeys.FOLLOWING_COUNT) ?: listed.count { it.level != FollowingLevel.NONE },
+                following = int(SurroundingsKeys.FOLLOWING_COUNT) ?: listed.count { it.level.isFollowing },
                 muted = facts[SurroundingsKeys.MUTED] == "true",
             )
         }
@@ -283,7 +302,8 @@ object ThreatSummary {
      * no qualifier (the owner is right there) and the others say how often their most-seen identity was seen.
      */
     private fun qualifier(state: TrackerState, group: List<IdentityFacts>): String {
-        if (group.any { it.level != FollowingLevel.NONE }) return " (following you)"
+        if (group.any { it.level.isFollowing }) return " (following you)"
+        if (group.any { it.level == FollowingLevel.STAYS }) return " (seen often, only where you stay)"
         if (state == TrackerState.WITH_OWNER) return ""
         return " (seen ${group.maxOf { it.scans }}×, not yet following)"
     }

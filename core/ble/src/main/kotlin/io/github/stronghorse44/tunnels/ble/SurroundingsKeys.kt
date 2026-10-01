@@ -54,6 +54,15 @@ object SurroundingsKeys {
     const val SEEN_RECENT = "seen:recent"
     /** True when the device was in the scan that produced this snapshot, not only in the 30-day history. */
     const val SEEN_THIS_SCAN = "seen:thisScan"
+    /**
+     * Per-identity subjects: the longest run of consecutive place numbers the identity was seen at (2 or more: seen
+     * on both sides of a move), how many of its sessions knew the phone's place, and the [Movement] that makes.
+     */
+    const val SEEN_PLACE_RUN = "seen:placeRun"
+    const val SEEN_PLACED_SESSIONS = "seen:placedSessions"
+    const val MOVEMENT = "movement"
+    /** Summary: whether this scan knew the phone's place ([AVAILABLE_YES], [AVAILABLE_NO_FIX], [AVAILABLE_LOCATION_OFF], ...). */
+    const val PLACE_AVAILABLE = "place:available"
     const val RSSI_AVG = "rssi:avg"
     /** Signal in the device's most recent session. */
     const val RSSI_LAST = "rssi:last"
@@ -108,6 +117,8 @@ object SurroundingsKeys {
     const val AVAILABLE_NO_PERMISSION = "no permission"
     /** The device's location toggle is off: Android then hands out no Wi-Fi scan results and no cell list. */
     const val AVAILABLE_LOCATION_OFF = "location off"
+    /** No position fix accurate to [PlaceGrid.MAX_ACCURACY_METERS] arrived in time (indoors, no network location). */
+    const val AVAILABLE_NO_FIX = "no fix"
     const val AVAILABLE_FAILED = "failed"
 
     /** Devices listed one by one; more than this many are counted under [TRACKERS_UNLISTED]. */
@@ -164,7 +175,8 @@ object SurroundingsKeys {
      * subjects, and family subjects muted before v3 (still honoured until they expire, never offered again);
      * their observations stay but carry `muted=true` so the rules skip them.
      * [currentSession] is the scan window that produced this snapshot: devices last seen in it are marked
-     * [SEEN_THIS_SCAN], the rest come from the 30-day history only.
+     * [SEEN_THIS_SCAN], the rest come from the 30-day history only. [placeAvailable] says whether this scan knew
+     * the phone's place.
      */
     fun bleObservations(
         aggregate: SightingAggregate,
@@ -174,11 +186,13 @@ object SurroundingsKeys {
         muted: Set<String> = emptySet(),
         sessions30d: Int = 0,
         currentSession: String? = null,
+        placeAvailable: String? = null,
     ): List<Observation> {
         val out = ArrayList<Observation>()
         fun add(subject: String, key: String, value: String) = out.add(Observation(TUNNEL_ID, subject, key, value))
 
         add(BLE_SUMMARY, BLE_AVAILABLE, available)
+        placeAvailable?.let { add(BLE_SUMMARY, PLACE_AVAILABLE, it) }
         add(BLE_SUMMARY, DEVICES_TOTAL, devicesTotal.toString())
         add(BLE_SUMMARY, TRACKERS_TOTAL, aggregate.devices.size.toString())
         add(BLE_SUMMARY, SESSIONS_30D, sessions30d.toString())
@@ -206,8 +220,11 @@ object SurroundingsKeys {
             add(subject, STATE, t.state.slug)
             add(subject, CONFIDENCE, TrackerSignatures.of(t.type).confidence.name.lowercase())
             val unmuted = family.filterNot(::isMuted)
-            add(subject, FOLLOWING_COUNT, unmuted.count { level(it) != FollowingLevel.NONE }.toString())
-            val closest = unmuted.firstOrNull { FollowingHeuristic.isRecent(it.lastSeen, now) && FollowingHeuristic.isClose(it.sessions, it.spanMinutes) }
+            add(subject, FOLLOWING_COUNT, unmuted.count { level(it).isFollowing }.toString())
+            // A key that stays put is not on its way to following, however often it turns up.
+            val closest = unmuted.firstOrNull {
+                FollowingHeuristic.isRecent(it.lastSeen, now) && FollowingHeuristic.isClose(it.sessions, it.spanMinutes) && it.movement != Movement.STAYED
+            }
             add(subject, CLOSEST_KEY, closest?.key ?: NONE)
             if (closest != null) {
                 add(subject, CLOSEST_SESSIONS, closest.sessions.toString())
@@ -237,6 +254,9 @@ object SurroundingsKeys {
             add(subject, SEEN_LAST, d.lastSeen.toString())
             add(subject, SEEN_RECENT, FollowingHeuristic.isRecent(d.lastSeen, now).toString())
             add(subject, SEEN_THIS_SCAN, (currentSession != null && d.lastSession == currentSession).toString())
+            add(subject, SEEN_PLACE_RUN, d.placeRun.toString())
+            add(subject, SEEN_PLACED_SESSIONS, d.placedSessions.toString())
+            add(subject, MOVEMENT, d.movement.slug)
             add(subject, RSSI_AVG, d.rssiAvg.toString())
             add(subject, RSSI_LAST, d.rssiLast.toString())
             add(subject, STATE, d.state.slug)

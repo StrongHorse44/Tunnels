@@ -179,8 +179,8 @@ private fun MonitorCard(actions: TunnelScreenActions) {
                 Text(
                     "Separate opt-in. While on, Tunnels scans for Bluetooth trackers every ${MonitorService.BLE_INTERVAL_MS / 60_000} minutes and " +
                         "checks Wi-Fi and the cell every ${MonitorService.WIFI_CELL_INTERVAL_MS / 60_000}, so a tag that travels with you shows up " +
-                        "across places and hours. It needs location \"all the time\" (Android ties Bluetooth and cell scanning to it; no position is " +
-                        "ever stored) and a persistent notification you can stop it from. It never starts by itself and stops after " +
+                        "across places and hours. It needs location \"all the time\": Android ties Bluetooth and cell scanning to it, and each scan " +
+                        "notes whether you moved since the last one (only that, never a position). It shows a persistent notification you can stop it from, never starts by itself and stops after " +
                         "${MonitorService.MAX_DURATION_MS / 3_600_000} hours.",
                     style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
                 )
@@ -222,6 +222,9 @@ private fun TrackerSection(state: TunnelScreenState, actions: TunnelScreenAction
     GlassPanel(Modifier.fillMaxWidth(), tint = summaryColor) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(ThreatSummary.line(identities, unlisted), style = MaterialTheme.typography.titleSmall, color = summaryColor)
+            SurroundingsFormat.placeNote(state.observations.fact(SurroundingsKeys.BLE_SUMMARY, SurroundingsKeys.PLACE_AVAILABLE))?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)
+            }
             MonitorReconcile(state, actions)
         }
     }
@@ -310,6 +313,7 @@ private fun levelTint(level: FollowingLevel, muted: Boolean): Color = when {
     muted -> GlassColors.dim
     level == FollowingLevel.CRITICAL -> StatusColors.blocker
     level == FollowingLevel.WARN -> StatusColors.warn
+    level == FollowingLevel.STAYS -> StatusColors.info
     else -> line
 }
 
@@ -340,7 +344,8 @@ private fun IdentityRow(f: IdentityFacts, open: Boolean, onClick: () -> Unit) {
                 f.proximityLast?.label,
                 when {
                     f.muted -> "muted"
-                    f.level != FollowingLevel.NONE -> "following"
+                    f.level.isFollowing -> "following"
+                    f.level == FollowingLevel.STAYS -> "stays put"
                     else -> f.progress.scansHint
                 },
                 if (f.seenThisScan) "this scan" else f.lastSeen?.let { "last ${SurroundingsFormat.timeOf(it)}" },
@@ -373,6 +378,7 @@ private fun IdentityDetail(
             FactRow("last seen", (f.lastSeen?.let { SurroundingsFormat.timeOf(it) } ?: "—") + if (f.seenThisScan) " (this scan)" else "")
             FactRow("scans", "${f.scans} · ${f.sightings} advertisement${if (f.sightings == 1) "" else "s"}")
             FactRow("spanned", TrackerVerdict.minutes(f.spanMinutes))
+            FactRow("moves", SurroundingsFormat.movementLabel(f))
             f.battery?.let { FactRow("battery", it) }
             AppleFindMyFrame.kindLabel(f.kind)?.let { FactRow("kind", it) }
         }
@@ -419,7 +425,9 @@ private fun GuideCard() {
                 Text(
                     "Each identity is judged on its own, so a crowd of strangers' tags of one kind never adds up to \"following\". " +
                         "A tag of your own, or a companion's, follows you too: mute it from its row and it stays listed without a warning. " +
-                        "Only Apple tags say whether they are near their owner; for the others Tunnels can only count how often they recur. " +
+                        "Only Apple tags say whether they are near their owner; for the others Tunnels counts how often they recur. " +
+                        "With location on, each scan also notes whether you moved since the last one (never where you are): a tag heard " +
+                        "before and after a move travelled with you, one that only turns up where you stay is a neighbour's as a rule. " +
                         "Each identity's row opens a detail with its times, signal and the steps to identify, disable and report the tag.",
                     style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
                 )

@@ -185,6 +185,76 @@ class SurroundingsRulesTest {
         SightingRecord("s${i * 3}", t0 + i * minutes / 2 * minute, TrackerType.APPLE_FINDMY, key, state, -60)
     }
 
+    /** One Tile identity in [places].size scans 20 minutes apart; each scan at the given place number (null: no fix). */
+    private fun tile(key: String, vararg places: Long?) = places.mapIndexed { i, p ->
+        SightingRecord("p$i", t0 + i * 20 * minute, TrackerType.TILE, key, TrackerState.UNKNOWN, -62, place = p)
+    }
+
+    private fun stays(records: List<SightingRecord>) = evaluate(observe(records)).of(SurroundingsRules.TRACKER_STAYS)
+
+    @Test
+    fun aNeighboursTagThatStaysPutIsANoticeNotAWarning() {
+        // Four scans over an hour at home: past the time threshold, but always at one place while the phone was there.
+        val neighbour = tile("aa11bb22", 5, 5, 5, 5)
+        assertTrue(pipeline(neighbour).isEmpty())
+        val notice = stays(neighbour).single()
+        assertEquals(Severity.NOTICE, notice.severity)
+        assertEquals("tracker:tile:aa11bb22", notice.subject)
+        assertTrue(notice.evidence, notice.evidence.contains("always at the same place while you were there"))
+        assertTrue(notice.evidence.contains("Tunnels warns as soon as it turns up after you have moved"))
+        val obs = observe(neighbour).filter { it.subject == "tracker:tile:aa11bb22" }.associate { it.key to it.value }
+        assertEquals("stayed", obs[SurroundingsKeys.MOVEMENT])
+        assertEquals("1", obs[SurroundingsKeys.SEEN_PLACE_RUN])
+        assertEquals("4", obs[SurroundingsKeys.SEEN_PLACED_SESSIONS])
+        // Not "close to following" either: the family card names nobody.
+        val family = observe(neighbour).filter { it.subject == "tracker:tile" }.associate { it.key to it.value }
+        assertEquals("none", family[SurroundingsKeys.CLOSEST_KEY])
+        assertEquals("0", family[SurroundingsKeys.FOLLOWING_COUNT])
+    }
+
+    @Test
+    fun goingOutAndComingHomeIsNotATagThatFollowed() {
+        // Seen at home in the morning (place 5) and again at home in the evening (place 7, after a day at place 6
+        // where it was not around): never on both sides of one move.
+        val records = tile("aa11bb22", 5, 5, null, 7, 7)
+        assertTrue(pipeline(records).isEmpty())
+        assertEquals(1, stays(records).size)
+    }
+
+    @Test
+    fun aTagThatTravelsWithYouIsFollowing() {
+        // Home (5), the commute (6), work (7): there before and after each move.
+        val planted = tile("cc33dd44", 5, 6, 6, 7)
+        val warn = pipeline(planted).single()
+        assertEquals(Severity.WARN, warn.severity)
+        assertTrue(warn.evidence, warn.evidence.contains("It was there both before and after you moved to another place, so it travelled with you."))
+        assertTrue(stays(planted).isEmpty())
+        val obs = observe(planted).filter { it.subject == "tracker:tile:cc33dd44" }.associate { it.key to it.value }
+        assertEquals("moved", obs[SurroundingsKeys.MOVEMENT])
+        assertEquals("3", obs[SurroundingsKeys.SEEN_PLACE_RUN])
+        // One move is enough, even when most scans had no fix.
+        assertEquals(Severity.WARN, pipeline(tile("cc33dd44", null, 8, 9, null)).single().severity)
+        // An AirTag away from its owner that moved with you over an hour is CRITICAL.
+        val airtag = (0 until 4).map { i ->
+            SightingRecord("a$i", t0 + i * 25 * minute, TrackerType.APPLE_FINDMY, "deadbeef", TrackerState.SEPARATED, -60, place = 10L + i / 2)
+        }
+        val critical = pipeline(airtag).single()
+        assertEquals(Severity.CRITICAL, critical.severity)
+        assertTrue(critical.evidence.contains("so it travelled with you."))
+    }
+
+    @Test
+    fun withoutLocationTimeAloneStillWarns() {
+        // Location off: no scan knew the place. Turning location off must never silence a warning.
+        val unknown = tile("ee55ff66", null, null, null, null)
+        val warn = pipeline(unknown).single()
+        assertEquals(Severity.WARN, warn.severity)
+        assertTrue(warn.evidence.contains("Tunnels could not check whether you moved between those scans (no location fix)"))
+        // Two scans with a place are not enough to call it "stays put": still judged on time.
+        assertEquals(Severity.WARN, pipeline(tile("ee55ff66", 5, 5, null, null)).single().severity)
+        assertTrue(stays(tile("ee55ff66", 5, 5, null, null)).isEmpty())
+    }
+
     @Test
     fun crowdOfStrangersIsNeverFollowing() {
         val crowd = crowd()
@@ -211,6 +281,7 @@ class SurroundingsRulesTest {
         assertEquals(
             "Apple Find My identity deadbeef, reporting itself away from its owner, was with you in 3 separate scans over 1 hour 10 minutes, last seen ${SurroundingsRules.lastSeenLabel(t0 + 70 * minute)}. " +
                 "It is the same identity in every one of those scans, not different tags of the same kind. " +
+                "Tunnels could not check whether you moved between those scans (no location fix). " +
                 "That is how an AirTag planted on a person behaves. Find it (it chirps when moved after a while), " +
                 "remove its battery, and keep it as evidence if you suspect stalking.",
             critical.single().evidence,
@@ -222,7 +293,8 @@ class SurroundingsRulesTest {
         assertEquals(
             "Apple Find My identity deadbeef was seen in 3 separate scans over 40 minutes (away from owner), last seen ${SurroundingsRules.lastSeenLabel(t0 + 40 * minute)}. " +
                 "It is the same identity in every one of those scans, not different tags of the same kind. " +
-                "A tag that stays with you across places and hours may have been planted. " +
+                "Tunnels could not check whether you moved between those scans (no location fix), so a tag that stays next door can look like this too; " +
+                "with location on, Tunnels tells the two apart. " +
                 "If it is yours or a companion's, mute it; otherwise check bags, pockets and the car.",
             warn.single().evidence,
         )

@@ -81,6 +81,7 @@ class SurroundingsSmokeTest {
         val module = SurroundingsTunnels().create(context).single()
         val drafts = listOf(
             FindingDraft(module.id, "tracker:findmy:deadbeef", SurroundingsRules.TRACKER_FOLLOWING, Severity.CRITICAL, ""),
+            FindingDraft(module.id, "tracker:tile:aa11bb22", SurroundingsRules.TRACKER_STAYS, Severity.NOTICE, ""),
             FindingDraft(module.id, "tracker:tile", SurroundingsRules.NEW_TRACKER_TYPE, Severity.NOTICE, "", sticky = true),
             FindingDraft(module.id, "tracker:tile", SurroundingsRules.ROTATING_TRACKER, Severity.NOTICE, ""),
             FindingDraft(module.id, "Cafe", SurroundingsRules.OPEN_WIFI_CONNECTED, Severity.NOTICE, ""),
@@ -99,10 +100,12 @@ class SurroundingsSmokeTest {
         assertEquals(listOf(TrackerActions.LABEL_FIND_IT, TrackerActions.LABEL_ALERTS, SurroundingsTunnel.LABEL_MUTE), tracker.map { it.label })
         assertEquals("Known tracker: mute 30 days", SurroundingsTunnel.LABEL_MUTE)
         assertTrue(tracker.all { it is FindingAction.Perform })
+        // A tag that stays put gets the same per-identity actions, mute included.
+        assertEquals(listOf(TrackerActions.LABEL_FIND_IT, TrackerActions.LABEL_ALERTS, SurroundingsTunnel.LABEL_MUTE), module.actionsFor(drafts[1]).map { it.label })
         // A family subject (the new-family notice) is never offered a family-wide mute.
-        assertEquals(listOf(TrackerActions.LABEL_FIND_IT, TrackerActions.LABEL_ALERTS), module.actionsFor(drafts[1]).map { it.label })
-        // The rotating-tag notice is family-level too: find it for the family and Android's alerts.
         assertEquals(listOf(TrackerActions.LABEL_FIND_IT, TrackerActions.LABEL_ALERTS), module.actionsFor(drafts[2]).map { it.label })
+        // The rotating-tag notice is family-level too: find it for the family and Android's alerts.
+        assertEquals(listOf(TrackerActions.LABEL_FIND_IT, TrackerActions.LABEL_ALERTS), module.actionsFor(drafts[3]).map { it.label })
         // A subject that is not a tracker subject gets neither find it nor a mute rather than a guess.
         val odd = module.actionsFor(FindingDraft(module.id, "not a tracker", SurroundingsRules.TRACKER_FOLLOWING, Severity.WARN, ""))
         assertEquals(listOf(TrackerActions.LABEL_ALERTS), odd.map { it.label })
@@ -230,6 +233,10 @@ class SurroundingsSmokeTest {
         assertTrue(ble[SurroundingsKeys.DEVICES_TOTAL]!!.toInt() >= 0)
         assertTrue(ble[SurroundingsKeys.TRACKERS_TOTAL]!!.toInt() >= 0)
         assertNotNull(ble[SurroundingsKeys.TRACKERS_BY_TYPE])
+        // Whether the scan knew the phone's place: a word, never a position.
+        val place = ble[SurroundingsKeys.PLACE_AVAILABLE]
+        assertTrue(place, place in availability + SurroundingsKeys.AVAILABLE_NO_FIX)
+        assertTrue("no coordinates", obs.none { Regex("""-?\d{1,3}\.\d{4,}""").containsMatchIn(it.value) })
 
         val wifi = obs.filter { it.subject == SurroundingsKeys.WIFI_SUMMARY }.associate { it.key to it.value }
         assertTrue(wifi[SurroundingsKeys.WIFI_AVAILABLE], wifi[SurroundingsKeys.WIFI_AVAILABLE] in availability)

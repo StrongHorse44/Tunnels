@@ -11,6 +11,7 @@ android.permission.VIBRATE
 # Nearby Wi-Fi scan results (neverForLocation).
 android.permission.NEARBY_WIFI_DEVICES
 # Android ties cell identity (TelephonyManager.allCellInfo) to location; fine must come with coarse.
+# One fix per scan also tells whether the phone moved since the last scan (a move counter, never a position).
 android.permission.ACCESS_FINE_LOCATION
 android.permission.ACCESS_COARSE_LOCATION
 # Background monitor only, separate opt-in inside the tunnel.

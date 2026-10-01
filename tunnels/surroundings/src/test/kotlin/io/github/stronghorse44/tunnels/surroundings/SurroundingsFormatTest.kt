@@ -2,6 +2,7 @@ package io.github.stronghorse44.tunnels.surroundings
 
 import io.github.stronghorse44.tunnels.ble.FamilySummary
 import io.github.stronghorse44.tunnels.ble.FollowingLevel
+import io.github.stronghorse44.tunnels.ble.Movement
 import io.github.stronghorse44.tunnels.ble.SurroundingsKeys
 import io.github.stronghorse44.tunnels.ble.TrackerState
 import io.github.stronghorse44.tunnels.ble.TrackerType
@@ -105,5 +106,20 @@ class SurroundingsFormatTest {
         assertEquals(-52, identity.rssiLast)
         assertTrue(identity.seenThisScan)
         assertTrue(SurroundingsFormat.trackerCards(emptyList()).isEmpty())
+    }
+
+    @Test
+    fun movesAreWordedPlainly() {
+        val base = io.github.stronghorse44.tunnels.ble.IdentityFacts.from(TrackerType.TILE, "k", emptyMap())
+        assertEquals("not known (scans without a location fix)", SurroundingsFormat.movementLabel(base))
+        assertEquals("only where you stay", SurroundingsFormat.movementLabel(base.copy(movement = Movement.STAYED)))
+        assertEquals("with you across a move", SurroundingsFormat.movementLabel(base.copy(movement = Movement.MOVED, placeRun = 2)))
+        assertEquals("with you across 3 moves", SurroundingsFormat.movementLabel(base.copy(movement = Movement.MOVED, placeRun = 4)))
+        // No note when the scan knew the place, or for a snapshot from before places existed.
+        assertEquals(null, SurroundingsFormat.placeNote(SurroundingsKeys.AVAILABLE_YES))
+        assertEquals(null, SurroundingsFormat.placeNote(null))
+        assertTrue(SurroundingsFormat.placeNote(SurroundingsKeys.AVAILABLE_LOCATION_OFF)!!.contains("(location is off)"))
+        assertTrue(SurroundingsFormat.placeNote(SurroundingsKeys.AVAILABLE_NO_FIX)!!.contains("no location fix was accurate enough"))
+        assertTrue(SurroundingsFormat.placeNote("failed")!!.contains("judges on time alone"))
     }
 }

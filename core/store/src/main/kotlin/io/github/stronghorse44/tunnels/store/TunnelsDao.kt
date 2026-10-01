@@ -110,4 +110,8 @@ abstract class TunnelsDao {
 
     @Query("DELETE FROM events WHERE at <= :cutoff")
     abstract suspend fun deleteEventsAtOrBefore(cutoff: Long)
+
+    /** Drops one stream's rows older than [before]: for a stream that keeps only its latest row and no history. */
+    @Query("DELETE FROM events WHERE tunnel_id = :tunnelId AND at < :before")
+    abstract suspend fun deleteEventsBefore(tunnelId: String, before: Long)
 }

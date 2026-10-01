@@ -14,6 +14,8 @@ import java.util.Locale
 /** Finding rules of the surroundings tunnel. Pure functions over observations, unit-tested here. */
 object SurroundingsRules {
     const val TRACKER_FOLLOWING = "TRACKER_FOLLOWING"
+    /** The same identity keeps turning up, but always at one place while the phone was there. */
+    const val TRACKER_STAYS = "TRACKER_STAYS"
     const val ROTATING_TRACKER = "ROTATING_TRACKER"
     const val NEW_TRACKER_TYPE = "NEW_TRACKER_TYPE"
     const val OPEN_WIFI_CONNECTED = "OPEN_WIFI_CONNECTED"
@@ -27,9 +29,11 @@ object SurroundingsRules {
     /**
      * State rule on identity subjects (`tracker:<type>:<key>`): WARN when one identity was seen in 3+
      * sessions over 30+ minutes, CRITICAL for an Apple identity separated from its owner across 3+ sessions
-     * over an hour. Family subjects are summaries and never carry this finding: strangers' tags of one
-     * family add up in a crowd (see [FollowingHeuristic]). Muted identities, and every identity of a family
-     * muted before v3, are skipped.
+     * over an hour. An identity that passed those thresholds but was always at one place while the phone was
+     * there ([Movement.STAYED]) is a NOTICE ([TRACKER_STAYS]) instead; one seen on both sides of a move says so,
+     * and one whose scans did not know the place is judged on time alone and says that too (see
+     * [FollowingHeuristic]). Family subjects are summaries and never carry these findings: strangers' tags of one
+     * family add up in a crowd. Muted identities, and every identity of a family muted before v3, are skipped.
      */
     val trackerFollowing: FindingRule = FindingRule { ctx ->
         ctx.bySubject().mapNotNull { (subject, obs) ->
@@ -41,23 +45,46 @@ object SurroundingsRules {
             val span = obs.v(SurroundingsKeys.SEEN_SPAN)?.toLongOrNull() ?: 0L
             val sepSessions = obs.v(SurroundingsKeys.SEEN_SESSIONS_SEPARATED)?.toIntOrNull() ?: 0
             val sepSpan = obs.v(SurroundingsKeys.SEEN_SPAN_SEPARATED)?.toLongOrNull() ?: 0L
+            // Snapshots from before places existed carry no movement: judged on time alone, as they were.
+            val movement = Movement.bySlug(obs.v(SurroundingsKeys.MOVEMENT))
             val state = TrackerState.bySlug(obs.v(SurroundingsKeys.STATE))
             val lastSeen = obs.v(SurroundingsKeys.SEEN_LAST)?.toLongOrNull()?.let { ", last seen ${lastSeenLabel(it)}" }.orEmpty()
-            when (FollowingHeuristic.assess(type, sessions, span, sepSessions, sepSpan)) {
+            when (FollowingHeuristic.assess(type, sessions, span, sepSessions, sepSpan, movement)) {
                 FollowingLevel.NONE -> null
+                FollowingLevel.STAYS -> FindingDraft(
+                    ctx.tunnelId, subject, TRACKER_STAYS, Severity.NOTICE,
+                    "${type.label} identity $key was seen in $sessions separate scans over ${duration(span)} (${TrackerVerdict.stateLabel(state)})$lastSeen, " +
+                        "but always at the same place while you were there. A tag that stays put is usually a neighbour's, a housemate's or one " +
+                        "left in a parked car. Tunnels warns as soon as it turns up after you have moved. If it is yours or a companion's, mute it.",
+                )
                 FollowingLevel.WARN -> FindingDraft(
                     ctx.tunnelId, subject, TRACKER_FOLLOWING, Severity.WARN,
                     "${type.label} identity $key was seen in $sessions separate scans over ${duration(span)} (${TrackerVerdict.stateLabel(state)})$lastSeen. " +
-                        "$SAME_IDENTITY A tag that stays with you across places and hours may have been planted. " +
+                        "$SAME_IDENTITY ${movementSentence(movement, FollowingLevel.WARN)} " +
                         "If it is yours or a companion's, mute it; otherwise check bags, pockets and the car.",
                 )
                 FollowingLevel.CRITICAL -> FindingDraft(
                     ctx.tunnelId, subject, TRACKER_FOLLOWING, Severity.CRITICAL,
                     "Apple Find My identity $key, reporting itself away from its owner, was with you in $sepSessions separate scans over ${duration(sepSpan)}$lastSeen. " +
-                        "$SAME_IDENTITY That is how an AirTag planted on a person behaves. Find it (it chirps when moved after a while), " +
+                        "$SAME_IDENTITY ${movementSentence(movement, FollowingLevel.CRITICAL)} That is how an AirTag planted on a person behaves. Find it (it chirps when moved after a while), " +
                         "remove its battery, and keep it as evidence if you suspect stalking.",
                 )
             }
+        }
+    }
+
+    /**
+     * What a following finding says about the phone's moves. Without places a WARN may be a tag next door and says so;
+     * a CRITICAL rests on the tag's own "away from my owner" signal and does not.
+     */
+    fun movementSentence(movement: Movement, level: FollowingLevel): String = when (movement) {
+        Movement.MOVED -> "It was there both before and after you moved to another place, so it travelled with you."
+        Movement.STAYED -> "It was always at the same place while you were there."
+        Movement.UNKNOWN -> if (level == FollowingLevel.CRITICAL) {
+            "Tunnels could not check whether you moved between those scans (no location fix)."
+        } else {
+            "Tunnels could not check whether you moved between those scans (no location fix), so a tag that stays " +
+                "next door can look like this too; with location on, Tunnels tells the two apart."
         }
     }
 
@@ -143,6 +170,9 @@ object SurroundingsRules {
     }
 
     val all: List<FindingRule> = listOf(trackerFollowing, rotatingTracker, newTrackerType, openWifiConnected, evilTwinSuspect, cellDowngrade, cellDowngraded)
+
+    /** Kinds about one tracker identity or family: they get the tracker actions. */
+    val trackerKinds: Set<String> = setOf(TRACKER_FOLLOWING, TRACKER_STAYS, ROTATING_TRACKER, NEW_TRACKER_TYPE)
 
     /** Minutes as a short phrase: "45 minutes", "1 hour 20 minutes", "3 days". */
     fun duration(minutes: Long): String {

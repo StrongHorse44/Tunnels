@@ -29,10 +29,12 @@ data class SightingRecord(
     val battery: String? = null,
     /** Device kind slug from the advertisement (Apple only, see [AppleFindMyFrame]). */
     val kind: String? = null,
+    /** The number of the place the phone was at during the scan ([PlaceTracking]); null when it had no fix. */
+    val place: Long? = null,
 ) {
     val subject: String get() = SurroundingsKeys.trackerSubject(type, key)
 
-    /** The events-table summary: `session=…;at=…;state=…;rssi=…;count=…`. */
+    /** The events-table summary: `session=…;at=…;state=…;rssi=…;count=…[;battery=…][;kind=…][;place=…]`. */
     fun encode(): String = buildString {
         append("session=").append(session)
         append(";at=").append(at)
@@ -41,6 +43,7 @@ data class SightingRecord(
         append(";count=").append(count)
         battery?.let { append(";battery=").append(it) }
         kind?.let { append(";kind=").append(it) }
+        place?.let { append(";place=").append(it) }
     }
 
     companion object {
@@ -64,6 +67,7 @@ data class SightingRecord(
                 count = fields["count"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1,
                 battery = fields["battery"],
                 kind = fields["kind"],
+                place = fields["place"]?.toLongOrNull(),
             )
         }
     }
@@ -95,7 +99,7 @@ class SightingFold(val type: TrackerType) {
     }
 
     @Synchronized
-    fun record(session: String, at: Long, key: String): SightingRecord = SightingRecord(
+    fun record(session: String, at: Long, key: String, place: Long? = null): SightingRecord = SightingRecord(
         session = session,
         at = at,
         type = type,
@@ -105,6 +109,7 @@ class SightingFold(val type: TrackerType) {
         count = count,
         battery = battery,
         kind = kind,
+        place = place,
     )
 }
 
@@ -129,12 +134,18 @@ data class DeviceSighting(
     val sessionsSeparated: Int = 0,
     val firstSeparated: Long? = null,
     val lastSeparated: Long? = null,
+    /** The longest run of consecutive place numbers it was seen at: 2 or more means it was there on both sides of a move. */
+    val placeRun: Int = 0,
+    /** How many of its sessions knew the phone's place. */
+    val placedSessions: Int = 0,
 ) {
     val spanMinutes: Long get() = (lastSeen - firstSeen) / 60_000
     val spanSeparatedMinutes: Long get() = if (firstSeparated != null && lastSeparated != null) (lastSeparated - firstSeparated) / 60_000 else 0
 
+    val movement: Movement get() = Movement.of(placeRun, placedSessions)
+
     /** This identity's own assessment: the following rule is judged per identity, see [FollowingHeuristic]. */
-    val level: FollowingLevel get() = FollowingHeuristic.assess(type, sessions, spanMinutes, sessionsSeparated, spanSeparatedMinutes)
+    val level: FollowingLevel get() = FollowingHeuristic.assess(type, sessions, spanMinutes, sessionsSeparated, spanSeparatedMinutes, movement)
 }
 
 /**
@@ -205,6 +216,8 @@ object SightingAggregator {
                 sessionsSeparated = separated.map { it.session }.toSet().size,
                 firstSeparated = separated.minOfOrNull { it.at },
                 lastSeparated = separated.maxOfOrNull { it.at },
+                placeRun = Movement.longestRun(rs.mapNotNull { it.place }),
+                placedSessions = rs.filter { it.place != null }.map { it.session }.toSet().size,
             )
         }
         val types = records.groupBy { it.type }.mapValues { (type, rs) ->
@@ -235,13 +248,28 @@ object SightingAggregator {
     }
 }
 
-enum class FollowingLevel { NONE, WARN, CRITICAL }
+/**
+ * How an identity stands: [STAYS] passed the time threshold but was always at one place while the phone was
+ * there (a neighbour's or a housemate's tag, as a rule); [WARN] and [CRITICAL] are "following you".
+ */
+enum class FollowingLevel {
+    NONE, STAYS, WARN, CRITICAL;
+
+    val isFollowing: Boolean get() = this >= WARN
+}
 
 /**
  * Whether one tracker identity (one pseudonymous device key) is following the user. A key that keeps
  * turning up is suspicious once it was seen in three separate scan sessions at least half an hour apart;
  * an Apple tag that says it is away from its owner for over an hour across three sessions is the
  * strongest signal a stalking tag gives.
+ *
+ * Time alone cannot tell a tag that travels with the user from one that sits next door, so each scan also
+ * notes whether the phone moved ([PlaceTracking]). A key seen on both sides of a move travelled with the
+ * phone ([Movement.MOVED]) and is judged on time as above. A key seen in enough scans that all knew the
+ * place and never across a move stays put ([Movement.STAYED]): it drops to [FollowingLevel.STAYS], a notice.
+ * When too few scans knew the place (location off, no fix: [Movement.UNKNOWN]) time decides alone, as before
+ * places existed, so turning location off never silences a warning.
  *
  * Judged per identity, never per family: in a busy place strangers' AirPods and AirTags of one family
  * turn up in every scan, so family-level counts cross any threshold although no single device followed
@@ -260,11 +288,24 @@ object FollowingHeuristic {
     /** The WARN threshold in words, shared by the finding text, the verdict and the guide so they never drift apart. */
     val thresholdText: String get() = "$MIN_SESSIONS separate scans spread over at least $MIN_SPAN_MINUTES minutes"
 
-    /** Assesses one identity from its own counts: all its sessions and minutes, and its separated-only ones. */
-    fun assess(type: TrackerType, sessions: Int, spanMinutes: Long, sessionsSeparated: Int, spanSeparatedMinutes: Long): FollowingLevel = when {
-        type == TrackerType.APPLE_FINDMY && sessionsSeparated >= MIN_SESSIONS && spanSeparatedMinutes >= CRITICAL_SPAN_MINUTES -> FollowingLevel.CRITICAL
-        sessions >= MIN_SESSIONS && spanMinutes >= MIN_SPAN_MINUTES -> FollowingLevel.WARN
-        else -> FollowingLevel.NONE
+    /**
+     * Assesses one identity from its own counts: all its sessions and minutes, its separated-only ones, and how it
+     * relates to the phone's moves. Past the time threshold, a key that stayed put is [FollowingLevel.STAYS].
+     */
+    fun assess(
+        type: TrackerType,
+        sessions: Int,
+        spanMinutes: Long,
+        sessionsSeparated: Int,
+        spanSeparatedMinutes: Long,
+        movement: Movement = Movement.UNKNOWN,
+    ): FollowingLevel {
+        val onTime = when {
+            type == TrackerType.APPLE_FINDMY && sessionsSeparated >= MIN_SESSIONS && spanSeparatedMinutes >= CRITICAL_SPAN_MINUTES -> FollowingLevel.CRITICAL
+            sessions >= MIN_SESSIONS && spanMinutes >= MIN_SPAN_MINUTES -> FollowingLevel.WARN
+            else -> FollowingLevel.NONE
+        }
+        return if (onTime != FollowingLevel.NONE && movement == Movement.STAYED) FollowingLevel.STAYS else onTime
     }
 
     fun assess(d: DeviceSighting): FollowingLevel = d.level
