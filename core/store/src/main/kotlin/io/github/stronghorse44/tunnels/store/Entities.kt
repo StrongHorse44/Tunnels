@@ -47,6 +47,16 @@ data class FindingEntity(
     val dismissed: Boolean = false,
 )
 
+data class SnapshotCount(
+    @ColumnInfo(name = "snapshot_id") val snapshotId: Long,
+    val count: Int,
+)
+
+data class SnapshotTunnel(
+    @ColumnInfo(name = "snapshot_id") val snapshotId: Long,
+    @ColumnInfo(name = "tunnel_id") val tunnelId: String,
+)
+
 data class SeverityCount(
     @ColumnInfo(name = "tunnel_id") val tunnelId: String,
     val severity: String,

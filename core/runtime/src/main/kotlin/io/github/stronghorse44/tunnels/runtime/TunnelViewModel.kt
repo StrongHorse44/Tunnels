@@ -91,7 +91,7 @@ class TunnelViewModel(private val app: Application) : AndroidViewModel(app), Tun
         viewModelScope.launch {
             val msg = runCatching { ActionRunner.run(app, action) }.getOrElse { it.message ?: "Failed" }
             if (msg != null) _state.update { it.copy(message = msg) }
-            if (action is FindingAction.Perform) scan()
+            if (action is FindingAction.Perform && action.destructive) scan()
         }
     }
 

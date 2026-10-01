@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- No permissions here. Each tunnel module declares its own. INTERNET is forbidden (checked in CI). -->
+    <!-- Each tunnel module declares its own permissions; app/permissions.allow lists the app's. INTERNET is
+         allowed only in tunnels/traffic and tunnels/homenet (checked in CI). -->
+    <!-- App lock: the framework BiometricPrompt needs this normal permission. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <application
         android:name=".TunnelsApp"

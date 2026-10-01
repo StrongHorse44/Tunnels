@@ -41,6 +41,21 @@ abstract class TunnelsDao {
     @Query("SELECT DISTINCT tunnel_id FROM observations WHERE snapshot_id = :snapshotId")
     abstract suspend fun tunnelsIn(snapshotId: Long): List<String>
 
+    /** Observation count per snapshot, for history lists (avoids loading rows just to count them). */
+    @Query("SELECT snapshot_id, COUNT(*) AS count FROM observations GROUP BY snapshot_id")
+    abstract suspend fun observationCounts(): List<SnapshotCount>
+
+    @Query("SELECT DISTINCT snapshot_id, tunnel_id FROM observations")
+    abstract suspend fun tunnelsPerSnapshot(): List<SnapshotTunnel>
+
+    /** Inserts a snapshot with its observations atomically (imports). */
+    @Transaction
+    open suspend fun importSnapshot(snapshot: SnapshotEntity, observations: (snapshotId: Long) -> List<ObservationEntity>): Long {
+        val id = insertSnapshot(snapshot)
+        insertObservations(observations(id))
+        return id
+    }
+
     @Query("UPDATE snapshots SET pinned = :pinned WHERE id = :id")
     abstract suspend fun setPinned(id: Long, pinned: Boolean)
 
