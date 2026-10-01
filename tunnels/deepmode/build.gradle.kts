@@ -15,7 +15,11 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        // The Shizuku user service speaks AIDL (src/main/aidl).
+        aidl = true
+    }
 }
 
 kotlin {
@@ -26,6 +30,8 @@ dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:runtime"))
     implementation(project(":core:store"))
+    implementation(libs.shizuku.api)
+    implementation(libs.shizuku.provider)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.runner)
