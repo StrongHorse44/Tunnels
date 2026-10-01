@@ -26,10 +26,12 @@ class SightingsTest {
 
     @Test
     fun recordRoundTripsThroughEventsSummary() {
-        val r = SightingRecord("s1", t0, TrackerType.APPLE_FINDMY, "deadbeef", TrackerState.SEPARATED, -71, 4, battery = "low")
+        val r = SightingRecord("s1", t0, TrackerType.APPLE_FINDMY, "deadbeef", TrackerState.SEPARATED, -71, 4, battery = "low", kind = "airtag")
         assertEquals("tracker:findmy:deadbeef", r.subject)
-        assertEquals("session=s1;at=$t0;state=separated;rssi=-71;count=4;battery=low", r.encode())
+        assertEquals("session=s1;at=$t0;state=separated;rssi=-71;count=4;battery=low;kind=airtag", r.encode())
         assertEquals(r, SightingRecord.parse(r.subject, r.encode()))
+        // Rows written before the kind field existed still parse.
+        assertEquals(r.copy(kind = null), SightingRecord.parse(r.subject, "session=s1;at=$t0;state=separated;rssi=-71;count=4;battery=low"))
         // Defaults for missing optional fields, null for garbage.
         val minimal = SightingRecord.parse("tracker:tile:ab12cd34", "session=x;at=5")!!
         assertEquals(TrackerState.UNKNOWN, minimal.state)
@@ -71,6 +73,8 @@ class SightingsTest {
         assertEquals(2, tile.sessions)
         assertEquals(40, tile.spanMinutes)
         assertEquals(Math.round((-60.0 - 70 * 3 - 80) / 5).toInt(), tile.rssiAvg)
+        assertEquals(-80, tile.rssiLast)
+        assertEquals("s2", tile.lastSession)
         assertEquals(TrackerState.UNKNOWN, tile.state)
 
         val tiles = agg.types[TrackerType.TILE]!!
@@ -87,7 +91,46 @@ class SightingsTest {
         assertEquals(1, apple.sessionsSeparated)
         assertEquals(0, apple.spanSeparatedMinutes)
         assertEquals(TrackerState.SEPARATED, apple.state)
+        assertEquals(1, apple.devicesWithOwner)
         assertEquals(SightingAggregate.EMPTY, SightingAggregator.aggregate(emptyList()))
+    }
+
+    @Test
+    fun typeStateFollowsItsDevices() {
+        // Two identities both near their owner in one scan: the family is near its owner, not "unknown".
+        val withOwner = SightingAggregator.aggregate(
+            listOf(
+                rec("s1", t0, key = "a1", type = TrackerType.APPLE_FINDMY, state = TrackerState.WITH_OWNER),
+                rec("s1", t0, key = "a2", type = TrackerType.APPLE_FINDMY, state = TrackerState.WITH_OWNER),
+            ),
+        ).types[TrackerType.APPLE_FINDMY]!!
+        assertEquals(TrackerState.WITH_OWNER, withOwner.state)
+        assertEquals(2, withOwner.devicesWithOwner)
+        // One near its owner and one that said nothing: unknown for the family.
+        val mixed = SightingAggregator.aggregate(
+            listOf(
+                rec("s1", t0, key = "a1", type = TrackerType.APPLE_FINDMY, state = TrackerState.WITH_OWNER),
+                rec("s1", t0, key = "a2", type = TrackerType.APPLE_FINDMY, state = TrackerState.UNKNOWN),
+            ),
+        ).types[TrackerType.APPLE_FINDMY]!!
+        assertEquals(TrackerState.UNKNOWN, mixed.state)
+        // A device that was separated earlier and near its owner later: the device is near its owner now, the family stays separated (it was seen away once).
+        val flipped = SightingAggregator.aggregate(
+            listOf(
+                rec("s1", t0, key = "a1", type = TrackerType.APPLE_FINDMY, state = TrackerState.SEPARATED),
+                rec("s2", t0 + 40 * minute, key = "a1", type = TrackerType.APPLE_FINDMY, state = TrackerState.WITH_OWNER),
+            ),
+        )
+        assertEquals(TrackerState.WITH_OWNER, flipped.devices["a1"]!!.state)
+        assertEquals(TrackerState.SEPARATED, flipped.types[TrackerType.APPLE_FINDMY]!!.state)
+        // Kind survives aggregation from the latest record that carried one.
+        val kind = SightingAggregator.aggregate(
+            listOf(
+                rec("s1", t0, key = "k", type = TrackerType.APPLE_FINDMY).copy(kind = "airtag"),
+                rec("s2", t0 + minute, key = "k", type = TrackerType.APPLE_FINDMY),
+            ),
+        ).devices["k"]!!.kind
+        assertEquals("airtag", kind)
     }
 
     @Test
@@ -115,7 +158,7 @@ class SightingsTest {
         val records = (0 until 50).map { i -> rec("s${i % 5}", t0 + i * minute, key = "%08x".format(i)) } +
             rec("s9", t0 + 59 * minute, key = "aaaaaaaa", type = TrackerType.APPLE_FINDMY, state = TrackerState.SEPARATED)
         val agg = SightingAggregator.aggregate(records)
-        val obs = SurroundingsKeys.bleObservations(agg, devicesTotal = 123, available = SurroundingsKeys.AVAILABLE_YES, now = t0 + 60 * minute, muted = setOf("tracker:findmy"), sessions30d = 6)
+        val obs = SurroundingsKeys.bleObservations(agg, devicesTotal = 123, available = SurroundingsKeys.AVAILABLE_YES, now = t0 + 60 * minute, muted = setOf("tracker:findmy"), sessions30d = 6, currentSession = "s9")
         assertTrue(obs.all { it.tunnelId == SurroundingsKeys.TUNNEL_ID })
         assertEquals(obs.size, obs.map { it.identity }.toSet().size)
         val summary = obs.filter { it.subject == SurroundingsKeys.BLE_SUMMARY }.associate { it.key to it.value }
@@ -140,6 +183,16 @@ class SightingsTest {
         assertEquals("separated", appleType[SurroundingsKeys.STATE])
         // A muted type mutes its devices too.
         assertEquals("true", obs.first { it.subject == "tracker:findmy:aaaaaaaa" && it.key == SurroundingsKeys.MUTED }.value)
+        // Per-device facts the detail shows: first/last seen, last signal, whether it was in this scan.
+        val appleDevice = obs.filter { it.subject == "tracker:findmy:aaaaaaaa" }.associate { it.key to it.value }
+        assertEquals((t0 + 59 * minute).toString(), appleDevice[SurroundingsKeys.SEEN_FIRST])
+        assertEquals((t0 + 59 * minute).toString(), appleDevice[SurroundingsKeys.SEEN_LAST])
+        assertEquals("-60", appleDevice[SurroundingsKeys.RSSI_LAST])
+        assertEquals("true", appleDevice[SurroundingsKeys.SEEN_THIS_SCAN])
+        assertEquals("false", obs.first { it.subject == "tracker:tile:00000031" && it.key == SurroundingsKeys.SEEN_THIS_SCAN }.value)
+        assertNull(appleDevice[SurroundingsKeys.KIND])
+        assertEquals("type=findmy;minutes=3;closest=-48", SurroundingsKeys.findItSummary(TrackerType.APPLE_FINDMY, 3, -48))
+        assertEquals("type=tile;minutes=0", SurroundingsKeys.findItSummary(TrackerType.TILE, 0, null))
         // No address-like values anywhere.
         assertTrue(obs.none { Regex("([0-9a-f]{2}:){5}[0-9a-f]{2}", RegexOption.IGNORE_CASE).containsMatchIn(it.value) })
     }

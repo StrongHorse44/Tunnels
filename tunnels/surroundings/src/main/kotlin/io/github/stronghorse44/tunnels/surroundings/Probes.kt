@@ -176,8 +176,8 @@ object BleWindow {
         return BleWindowResult(available, addresses.size, sightings)
     }
 
-    /** The platform ScanFilter for one spec; same semantics as [ScanFilterSpec.accepts]. */
-    private fun ScanFilterSpec.toPlatform(): ScanFilter = when (this) {
+    /** The platform ScanFilter for one spec; same semantics as [ScanFilterSpec.accepts]. Shared with find-it mode. */
+    internal fun ScanFilterSpec.toPlatform(): ScanFilter = when (this) {
         is ScanFilterSpec.ManufacturerData -> {
             val m = mask
             if (m == null) ScanFilter.Builder().setManufacturerData(companyId, data).build()
@@ -192,7 +192,7 @@ object BleWindow {
         }
     }
 
-    private fun android.bluetooth.le.ScanRecord.toAdvertisement(): Advertisement {
+    internal fun android.bluetooth.le.ScanRecord.toAdvertisement(): Advertisement {
         val mfr = HashMap<Int, ByteArray>()
         manufacturerSpecificData?.let { sparse ->
             for (i in 0 until sparse.size()) sparse.valueAt(i)?.let { mfr[sparse.keyAt(i)] = it }

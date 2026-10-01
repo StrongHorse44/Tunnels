@@ -21,10 +21,33 @@ class TrackerSignaturesTest {
         assertEquals(Confidence.HIGH, separated.confidence)
         assertEquals("full", separated.battery)
 
-        val nearby = TrackerSignatures.match(Advertisement(manufacturerData = mapOf(0x004C to bytes(0x12, 0x02, 0x00, 0x00))))!!
+        val nearby = TrackerSignatures.match(Advertisement(manufacturerData = mapOf(0x004C to bytes(0x12, 0x02, 0x10, 0x00))))!!
         assertEquals(TrackerType.APPLE_FINDMY, nearby.type)
         assertEquals(TrackerState.WITH_OWNER, nearby.state)
-        assertNull(nearby.battery)
+        // The status byte is read in both frame lengths (as AirGuard does): battery full, device kind AirTag.
+        assertEquals("full", nearby.battery)
+        assertEquals(AppleFindMyFrame.KIND_AIRTAG, nearby.kind)
+    }
+
+    @Test
+    fun appleFrameParsesStatusByteAndLength() {
+        val sep = AppleFindMyFrame.parse(findMySeparated(0x90))!!
+        assertEquals(0x19, sep.length)
+        assertEquals(TrackerState.SEPARATED, sep.state)
+        assertEquals("low", sep.battery)
+        assertEquals(AppleFindMyFrame.KIND_AIRTAG, sep.kind)
+        // Kind bits 5..4: 0 Apple device, 1 AirTag, 2 accessory, 3 AirPods.
+        assertEquals(AppleFindMyFrame.KIND_APPLE_DEVICE, AppleFindMyFrame.parse(bytes(0x12, 0x02, 0x00, 0x00))!!.kind)
+        assertEquals(AppleFindMyFrame.KIND_ACCESSORY, AppleFindMyFrame.parse(bytes(0x12, 0x02, 0x20, 0x00))!!.kind)
+        assertEquals(AppleFindMyFrame.KIND_AIRPODS, AppleFindMyFrame.parse(bytes(0x12, 0x02, 0xF0, 0x00))!!.kind)
+        assertEquals("AirPods", AppleFindMyFrame.kindLabel(AppleFindMyFrame.KIND_AIRPODS))
+        assertNull(AppleFindMyFrame.kindLabel("nonsense"))
+        assertNull(AppleFindMyFrame.kindLabel(null))
+        // A separated frame must carry the bytes its length announces; the nearby frame only needs the status byte.
+        assertNull(AppleFindMyFrame.parse(bytes(0x12, 0x19, 0x04, 0x00)))
+        assertNull(AppleFindMyFrame.parse(bytes(0x12, 0x02)))
+        assertNull(AppleFindMyFrame.parse(bytes(0x10, 0x02, 0x00)))
+        assertNull(AppleFindMyFrame.parse(bytes(0x12, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00)))
     }
 
     @Test

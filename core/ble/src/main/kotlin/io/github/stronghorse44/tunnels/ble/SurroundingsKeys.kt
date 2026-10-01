@@ -12,6 +12,10 @@ object SurroundingsKeys {
     const val EVENT_WIFI = "wifi.check"
     const val EVENT_MUTE = "tracker.mute"
     const val EVENT_MONITOR = "monitor"
+    /** One find-it session: `minutes=3;closest=-48;type=findmy`. Nothing else of the session is kept. */
+    const val EVENT_FINDIT = "findit.session"
+    /** One DULT query of a tag: a one-line summary such as "Apple AirTag, battery full, sound played". */
+    const val EVENT_DULT = "dult.query"
 
     const val BLE_SUMMARY = "ble:summary"
     const val CELL_SUMMARY = "cell:summary"
@@ -32,9 +36,18 @@ object SurroundingsKeys {
     const val SEEN_SESSIONS_SEPARATED = "seen:sessions:separated"
     const val SEEN_SPAN_SEPARATED = "seen:spanMinutes:separated"
     const val SEEN_LAST_DAY = "seen:lastDay"
+    /** Epoch millis of the first and last sighting of a device (per-device subjects only). */
+    const val SEEN_FIRST = "seen:first"
+    const val SEEN_LAST = "seen:last"
+    /** True when the device was in the scan that produced this snapshot, not only in the 30-day history. */
+    const val SEEN_THIS_SCAN = "seen:thisScan"
     const val RSSI_AVG = "rssi:avg"
+    /** Signal in the device's most recent session. */
+    const val RSSI_LAST = "rssi:last"
     const val STATE = "state"
     const val BATTERY = "battery"
+    /** Device kind slug (Apple only): airtag, accessory, airpods, apple-device. */
+    const val KIND = "kind"
     const val DEVICES = "devices"
     const val CONFIDENCE = "confidence"
     const val MUTED = "muted"
@@ -92,9 +105,15 @@ object SurroundingsKeys {
 
     fun value(obs: List<Observation>, key: String): String? = obs.firstOrNull { it.key == key }?.value
 
+    /** The find-it session summary row: how long the user searched and the strongest signal, nothing else. */
+    fun findItSummary(type: TrackerType, minutes: Long, closestDbm: Int?): String =
+        "type=${type.slug};minutes=$minutes" + (closestDbm?.let { ";closest=$it" } ?: "")
+
     /**
      * Observations for the BLE side. [muted] holds subjects the user marked as known trackers (type or
      * device subjects); their observations stay but carry `muted=true` so the rules skip them.
+     * [currentSession] is the scan window that produced this snapshot: devices last seen in it are marked
+     * [SEEN_THIS_SCAN], the rest come from the 30-day history only.
      */
     fun bleObservations(
         aggregate: SightingAggregate,
@@ -103,6 +122,7 @@ object SurroundingsKeys {
         now: Long,
         muted: Set<String> = emptySet(),
         sessions30d: Int = 0,
+        currentSession: String? = null,
     ): List<Observation> {
         val out = ArrayList<Observation>()
         fun add(subject: String, key: String, value: String) = out.add(Observation(TUNNEL_ID, subject, key, value))
@@ -135,9 +155,14 @@ object SurroundingsKeys {
             add(subject, SEEN_COUNT, d.sightings.toString())
             add(subject, SEEN_SESSIONS, d.sessions.toString())
             add(subject, SEEN_SPAN, d.spanMinutes.toString())
+            add(subject, SEEN_FIRST, d.firstSeen.toString())
+            add(subject, SEEN_LAST, d.lastSeen.toString())
+            add(subject, SEEN_THIS_SCAN, (currentSession != null && d.lastSession == currentSession).toString())
             add(subject, RSSI_AVG, d.rssiAvg.toString())
+            add(subject, RSSI_LAST, d.rssiLast.toString())
             add(subject, STATE, d.state.slug)
             d.battery?.let { add(subject, BATTERY, it) }
+            d.kind?.let { add(subject, KIND, it) }
             if (subject in muted || typeSubject(d.type) in muted) add(subject, MUTED, "true")
         }
         if (devices.size > MAX_LISTED_DEVICES) add(BLE_SUMMARY, TRACKERS_UNLISTED, (devices.size - MAX_LISTED_DEVICES).toString())

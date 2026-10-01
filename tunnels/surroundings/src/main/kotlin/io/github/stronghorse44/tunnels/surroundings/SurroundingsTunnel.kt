@@ -11,6 +11,7 @@ import io.github.stronghorse44.tunnels.ble.SightingAggregator
 import io.github.stronghorse44.tunnels.ble.SightingRecord
 import io.github.stronghorse44.tunnels.ble.SurroundingsKeys
 import io.github.stronghorse44.tunnels.ble.SurroundingsRules
+import io.github.stronghorse44.tunnels.ble.TrackerType
 import io.github.stronghorse44.tunnels.model.FindingAction
 import io.github.stronghorse44.tunnels.model.FindingDraft
 import io.github.stronghorse44.tunnels.model.FindingRule
@@ -91,7 +92,7 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
         val twinsRecorded = recent.count { it.kind == SurroundingsKeys.EVENT_WIFI }
 
         progress.report(STEPS, STEPS, "done")
-        return SurroundingsKeys.bleObservations(aggregate, ble.devicesTotal, ble.available, now, muted, sessions) +
+        return SurroundingsKeys.bleObservations(aggregate, ble.devicesTotal, ble.available, now, muted, sessions, currentSession = session) +
             SurroundingsKeys.wifiObservations(wifi.summaries, wifi.available, twinsRecorded) +
             SurroundingsKeys.cellObservations(cell.cell, cell.available, changed, downgrades)
     }
@@ -118,16 +119,30 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
 
     /** Routed by the finding's kind, never its subject: a Wi-Fi SSID can be any string, including one that looks like a tracker or cell subject. */
     override fun actionsFor(draft: FindingDraft): List<FindingAction> = when (draft.kind) {
-        SurroundingsRules.TRACKER_FOLLOWING, SurroundingsRules.NEW_TRACKER_TYPE -> listOf(
-            FindingAction.Perform("How to find it") { FIND_GUIDE },
-            FindingAction.OpenSettings(Settings.ACTION_BLUETOOTH_SETTINGS, "Bluetooth settings"),
-            FindingAction.Perform("Known tracker: mute 30 days") { mute(draft.subject) },
-        )
+        SurroundingsRules.TRACKER_FOLLOWING, SurroundingsRules.NEW_TRACKER_TYPE -> trackerActions(draft.subject)
         SurroundingsRules.CELL_DOWNGRADE, SurroundingsRules.CELL_DOWNGRADED -> listOf(
             FindingAction.OpenSettings(Settings.ACTION_NETWORK_OPERATOR_SETTINGS, "Mobile network settings"),
         )
         else -> listOf(FindingAction.OpenSettings(Settings.ACTION_WIFI_SETTINGS, "Wi-Fi settings"))
     }
+
+    /**
+     * Every tracker finding, and every identity in the detail, offers the same set: find it, Android's own
+     * alerts, the brand guides, and the mute. [subject] is a type or a device subject.
+     */
+    fun trackerActions(subject: String): List<FindingAction> {
+        val (type, key) = SurroundingsKeys.parseTrackerSubject(subject) ?: (TrackerType.APPLE_FINDMY to null)
+        return listOf(
+            TrackerActions.findIt(context, type, key),
+            TrackerActions.unknownTrackerAlerts(context),
+            TrackerActions.identify(type),
+            TrackerActions.disable(type),
+            TrackerActions.report(type),
+            muteAction(subject),
+        )
+    }
+
+    fun muteAction(subject: String): FindingAction = FindingAction.Perform("Known tracker: mute 30 days") { mute(subject) }
 
     /** Records a mute row for the tracker subject; the next scan marks it muted and the finding clears. */
     private suspend fun mute(subject: String): String = try {
@@ -152,9 +167,5 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
         private const val RETENTION_MS = 30L * SurroundingsKeys.DAY_MS
         /** One row per tracker per scan window; a day of background monitoring near a few tags is a few thousand. */
         private const val MAX_EVENTS = 20_000
-
-        const val FIND_GUIDE = "Listen: most tags chirp when moved after being away from their owner. Check bags, coat pockets, " +
-            "the car (wheel wells, bumpers, under seats) and anything you were given recently. Apple's and Google's unknown-tracker " +
-            "alerts can also point at it. Found one? Remove its battery and keep it if you may report stalking."
     }
 }
