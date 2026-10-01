@@ -59,6 +59,8 @@ object SurroundingsKeys {
     const val AVAILABLE_NO_ADAPTER = "no adapter"
     const val AVAILABLE_OFF = "off"
     const val AVAILABLE_NO_PERMISSION = "no permission"
+    /** The device's location toggle is off: Android then hands out no Wi-Fi scan results and no cell list. */
+    const val AVAILABLE_LOCATION_OFF = "location off"
     const val AVAILABLE_FAILED = "failed"
 
     /** Devices listed one by one; more than this many are counted under [TRACKERS_UNLISTED]. */

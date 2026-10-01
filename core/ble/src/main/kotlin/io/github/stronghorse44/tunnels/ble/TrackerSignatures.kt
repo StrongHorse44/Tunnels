@@ -72,6 +72,53 @@ data class TrackerMatch(
     val battery: String? = null,
 )
 
+/**
+ * A platform-neutral description of one hardware scan filter, mirroring what Android's ScanFilter can
+ * express: manufacturer data under a mask, a service UUID in the advertised list, service data under a
+ * mask. Filters matter beyond efficiency: since Android 8.1 the Bluetooth stack suspends an UNFILTERED
+ * scan while the screen is off and only resumes it on screen-on, without reporting a failure, so a
+ * background window taken from a pocket sees nothing unless it carries filters. [accepts] reproduces
+ * the platform's matching so tests can prove the catalog's filters let every active signature through.
+ */
+sealed interface ScanFilterSpec {
+    fun accepts(ad: Advertisement): Boolean
+
+    /** Manufacturer data for [companyId] whose first bytes, under [mask] (null: exact), equal [data]. */
+    class ManufacturerData(val companyId: Int, val data: ByteArray, val mask: ByteArray? = null) : ScanFilterSpec {
+        init {
+            require(mask == null || mask.size == data.size) { "mask and data lengths differ" }
+        }
+
+        override fun accepts(ad: Advertisement): Boolean = matchesPrefix(data, mask, ad.manufacturerData[companyId])
+    }
+
+    /** The 16-bit alias [short16] appears in the advertised service UUID list. */
+    class ServiceUuid(val short16: Int) : ScanFilterSpec {
+        override fun accepts(ad: Advertisement): Boolean = ad.serviceUuids.any { BleUuid.short16(it) == short16 }
+    }
+
+    /** Service data under [short16] whose first bytes, under [mask], equal [data]; empty [data] means any payload. */
+    class ServiceData(val short16: Int, val data: ByteArray = ByteArray(0), val mask: ByteArray? = null) : ScanFilterSpec {
+        init {
+            require(mask == null || mask.size == data.size) { "mask and data lengths differ" }
+        }
+
+        override fun accepts(ad: Advertisement): Boolean = matchesPrefix(data, mask, ad.serviceDataOf(short16))
+    }
+
+    companion object {
+        /** Android's ScanFilter.matchesPartialData: the advertised bytes must be at least as long and agree under the mask. */
+        fun matchesPrefix(data: ByteArray, mask: ByteArray?, advertised: ByteArray?): Boolean {
+            if (advertised == null || advertised.size < data.size) return false
+            for (i in data.indices) {
+                val m = mask?.get(i)?.toInt() ?: 0xFF
+                if ((advertised[i].toInt() and m) != (data[i].toInt() and m)) return false
+            }
+            return true
+        }
+    }
+}
+
 /** One entry of the tracker catalog: who it is, how it is spotted, how sure we are. */
 data class TrackerSignature(
     val type: TrackerType,
@@ -80,6 +127,8 @@ data class TrackerSignature(
     val basis: String,
     /** False for an entry kept in the catalog but not matched, pending on-device verification. */
     val active: Boolean = true,
+    /** Hardware filters that let every advertisement [match] could accept through; empty only for an inactive entry. */
+    val filters: List<ScanFilterSpec> = emptyList(),
     val match: (Advertisement) -> TrackerMatch?,
 )
 
@@ -110,6 +159,7 @@ object TrackerSignatures {
         TrackerType.APPLE_FINDMY,
         Confidence.HIGH,
         "Apple company id 0x004C with an Offline Finding payload (type 0x12). Length 0x19 means separated from its owner; length 0x02 means it is near its owner.",
+        filters = listOf(ScanFilterSpec.ManufacturerData(APPLE_COMPANY_ID, byteArrayOf(APPLE_FINDMY_TYPE.toByte()), byteArrayOf(0xFF.toByte()))),
     ) { ad ->
         val payload = ad.manufacturerData[APPLE_COMPANY_ID] ?: return@TrackerSignature null
         if (payload.size < 2 || payload[0].toInt() and 0xFF != APPLE_FINDMY_TYPE) return@TrackerSignature null
@@ -128,13 +178,14 @@ object TrackerSignatures {
         TrackerType.SAMSUNG_SMARTTAG,
         Confidence.MEDIUM,
         "Samsung SmartThings Find service 0xFD5A. Other Samsung devices on that network can advertise it too.",
+        filters = serviceFilters(SAMSUNG_FIND_SERVICE),
     ) { ad -> if (ad.hasService(SAMSUNG_FIND_SERVICE)) TrackerMatch(TrackerType.SAMSUNG_SMARTTAG, TrackerState.UNKNOWN, "svc:fd5a", Confidence.MEDIUM) else null }
 
-    val tile = TrackerSignature(TrackerType.TILE, Confidence.HIGH, "Tile service 0xFEED.") { ad ->
+    val tile = TrackerSignature(TrackerType.TILE, Confidence.HIGH, "Tile service 0xFEED.", filters = serviceFilters(TILE_SERVICE)) { ad ->
         if (ad.hasService(TILE_SERVICE)) TrackerMatch(TrackerType.TILE, TrackerState.UNKNOWN, "svc:feed", Confidence.HIGH) else null
     }
 
-    val chipolo = TrackerSignature(TrackerType.CHIPOLO, Confidence.HIGH, "Chipolo service 0xFE33.") { ad ->
+    val chipolo = TrackerSignature(TrackerType.CHIPOLO, Confidence.HIGH, "Chipolo service 0xFE33.", filters = serviceFilters(CHIPOLO_SERVICE)) { ad ->
         if (ad.hasService(CHIPOLO_SERVICE)) TrackerMatch(TrackerType.CHIPOLO, TrackerState.UNKNOWN, "svc:fe33", Confidence.HIGH) else null
     }
 
@@ -150,6 +201,8 @@ object TrackerSignatures {
         TrackerType.GOOGLE_FMDN,
         Confidence.MEDIUM,
         "Fast Pair service 0xFE2C with a Find My Device network frame (type 0x40 or 0x41 followed by an ephemeral id).",
+        // 0x40 and 0x41 differ only in bit 0, so one masked filter covers both frame types.
+        filters = listOf(ScanFilterSpec.ServiceData(GOOGLE_FAST_PAIR_SERVICE, byteArrayOf(FMDN_FRAME_20_BYTE_EID.toByte()), byteArrayOf(0xFE.toByte()))),
     ) { ad ->
         val data = ad.serviceDataOf(GOOGLE_FAST_PAIR_SERVICE) ?: return@TrackerSignature null
         val frame = data.firstOrNull()?.toInt()?.and(0xFF) ?: return@TrackerSignature null
@@ -160,6 +213,17 @@ object TrackerSignatures {
     val all: List<TrackerSignature> = listOf(apple, samsung, tile, chipolo, pebblebee, google)
 
     fun of(type: TrackerType): TrackerSignature = all.first { it.type == type }
+
+    /**
+     * The hardware filters a scan needs so that every active signature can still be matched, including
+     * while the screen is off. The platform ORs them; ordinary devices do not pass, so a filtered window
+     * counts trackers only, not every device around.
+     */
+    val scanFilters: List<ScanFilterSpec> = all.filter { it.active }.flatMap { it.filters }
+
+    /** A service may sit in the UUID list, in service data, or both; the platform filters each separately. */
+    private fun serviceFilters(short16: Int): List<ScanFilterSpec> =
+        listOf(ScanFilterSpec.ServiceUuid(short16), ScanFilterSpec.ServiceData(short16))
 
     /** The first active signature that recognises [ad], or null for an ordinary device. */
     fun match(ad: Advertisement): TrackerMatch? {

@@ -116,13 +116,14 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
         }
     }
 
-    override fun actionsFor(draft: FindingDraft): List<FindingAction> = when {
-        SurroundingsKeys.parseTrackerSubject(draft.subject) != null -> listOf(
+    /** Routed by the finding's kind, never its subject: a Wi-Fi SSID can be any string, including one that looks like a tracker or cell subject. */
+    override fun actionsFor(draft: FindingDraft): List<FindingAction> = when (draft.kind) {
+        SurroundingsRules.TRACKER_FOLLOWING, SurroundingsRules.NEW_TRACKER_TYPE -> listOf(
             FindingAction.Perform("How to find it") { FIND_GUIDE },
             FindingAction.OpenSettings(Settings.ACTION_BLUETOOTH_SETTINGS, "Bluetooth settings"),
             FindingAction.Perform("Known tracker: mute 30 days") { mute(draft.subject) },
         )
-        draft.subject == SurroundingsKeys.CELL_SUMMARY -> listOf(
+        SurroundingsRules.CELL_DOWNGRADE, SurroundingsRules.CELL_DOWNGRADED -> listOf(
             FindingAction.OpenSettings(Settings.ACTION_NETWORK_OPERATOR_SETTINGS, "Mobile network settings"),
         )
         else -> listOf(FindingAction.OpenSettings(Settings.ACTION_WIFI_SETTINGS, "Wi-Fi settings"))

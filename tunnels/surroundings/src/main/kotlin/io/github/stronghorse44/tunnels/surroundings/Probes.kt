@@ -3,11 +3,14 @@ package io.github.stronghorse44.tunnels.surroundings
 import android.Manifest
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.net.wifi.WifiManager
+import android.os.ParcelUuid
 import android.telephony.CellInfo
 import android.telephony.CellInfoGsm
 import android.telephony.CellInfoLte
@@ -18,10 +21,12 @@ import android.telephony.TelephonyManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import io.github.stronghorse44.tunnels.ble.Advertisement
+import io.github.stronghorse44.tunnels.ble.BleUuid
 import io.github.stronghorse44.tunnels.ble.CellHeuristics
 import io.github.stronghorse44.tunnels.ble.CellSummary
 import io.github.stronghorse44.tunnels.ble.CellTech
 import io.github.stronghorse44.tunnels.ble.DeviceKey
+import io.github.stronghorse44.tunnels.ble.ScanFilterSpec
 import io.github.stronghorse44.tunnels.ble.SightingRecord
 import io.github.stronghorse44.tunnels.ble.SurroundingsKeys
 import io.github.stronghorse44.tunnels.ble.TrackerSignatures
@@ -41,7 +46,15 @@ private const val TAG = "Surroundings"
 private fun Context.granted(permission: String): Boolean =
     ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
-/** What one BLE scan window produced: availability, how many distinct devices advertised, which were trackers. */
+/** Android hands out Wi-Fi scan results and the cell list only while the device's location toggle is on. */
+private fun Context.locationEnabled(): Boolean =
+    runCatching { getSystemService(LocationManager::class.java)?.isLocationEnabled }.getOrNull() ?: true
+
+/**
+ * What one BLE scan window produced: availability, how many distinct devices advertised, which were
+ * trackers. [devicesTotal] counts every advertiser only for an unfiltered window; a filtered one sees
+ * trackers alone.
+ */
 data class BleWindowResult(
     val available: String,
     val devicesTotal: Int,
@@ -51,6 +64,11 @@ data class BleWindowResult(
 /**
  * One BLE scan window. Addresses live only in memory for the length of the window: each tracker leaves
  * as a [SightingRecord] under a pseudonymous key, everything else only adds to the device count.
+ *
+ * Screen-off behaviour: since Android 8.1 the Bluetooth stack suspends an unfiltered scan while the
+ * screen is off and resumes it on screen-on, silently (no onScanFailed). A window that must work from a
+ * pocket, like the background monitor's, therefore passes [TrackerSignatures.scanFilters]; the manual
+ * scan runs with the screen on and may stay unfiltered to count every device around.
  */
 object BleWindow {
     private class Hit(val type: TrackerType, var state: TrackerState, var battery: String?) {
@@ -58,7 +76,18 @@ object BleWindow {
         var count = 0
     }
 
-    suspend fun scan(context: Context, session: String, durationMs: Long, onSecond: (Int, Int) -> Unit = { _, _ -> }): BleWindowResult {
+    /**
+     * Listens for [durationMs]. [filters] null means unfiltered (every advertiser counted; screen must be
+     * on); a list restricts the stack to those advertisements, which is what keeps a scan alive with the
+     * screen off.
+     */
+    suspend fun scan(
+        context: Context,
+        session: String,
+        durationMs: Long,
+        filters: List<ScanFilterSpec>? = null,
+        onSecond: (Int, Int) -> Unit = { _, _ -> },
+    ): BleWindowResult {
         val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
             ?: return BleWindowResult(SurroundingsKeys.AVAILABLE_NO_ADAPTER, 0, emptyList())
         if (!context.granted(Manifest.permission.BLUETOOTH_SCAN)) return BleWindowResult(SurroundingsKeys.AVAILABLE_NO_PERMISSION, 0, emptyList())
@@ -98,8 +127,18 @@ object BleWindow {
             }
         }
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+        val platformFilters = filters?.mapNotNull { spec ->
+            try {
+                spec.toPlatform()
+            } catch (e: Exception) {
+                Log.w(TAG, "filter skipped: ${e.javaClass.simpleName}")
+                null
+            }
+        }
+        // A filter list that came out empty would silently mean "unfiltered"; refuse rather than scan the wrong way.
+        if (filters != null && platformFilters.isNullOrEmpty()) return BleWindowResult(SurroundingsKeys.AVAILABLE_FAILED, 0, emptyList())
         try {
-            scanner.startScan(null, settings, callback)
+            scanner.startScan(platformFilters, settings, callback)
         } catch (_: SecurityException) {
             return BleWindowResult(SurroundingsKeys.AVAILABLE_NO_PERMISSION, 0, emptyList())
         } catch (e: Exception) {
@@ -135,6 +174,22 @@ object BleWindow {
         }
         val available = if (failure != null && addresses.isEmpty()) SurroundingsKeys.AVAILABLE_FAILED else SurroundingsKeys.AVAILABLE_YES
         return BleWindowResult(available, addresses.size, sightings)
+    }
+
+    /** The platform ScanFilter for one spec; same semantics as [ScanFilterSpec.accepts]. */
+    private fun ScanFilterSpec.toPlatform(): ScanFilter = when (this) {
+        is ScanFilterSpec.ManufacturerData -> {
+            val m = mask
+            if (m == null) ScanFilter.Builder().setManufacturerData(companyId, data).build()
+            else ScanFilter.Builder().setManufacturerData(companyId, data, m).build()
+        }
+        is ScanFilterSpec.ServiceUuid -> ScanFilter.Builder().setServiceUuid(ParcelUuid.fromString(BleUuid.full(short16))).build()
+        is ScanFilterSpec.ServiceData -> {
+            val uuid = ParcelUuid.fromString(BleUuid.full(short16))
+            val m = mask
+            if (m == null) ScanFilter.Builder().setServiceData(uuid, data).build()
+            else ScanFilter.Builder().setServiceData(uuid, data, m).build()
+        }
     }
 
     private fun android.bluetooth.le.ScanRecord.toAdvertisement(): Advertisement {
@@ -173,6 +228,8 @@ object WifiProbe {
         val wifi = context.getSystemService(WifiManager::class.java) ?: return WifiProbeResult(SurroundingsKeys.AVAILABLE_NO_ADAPTER, emptyList())
         if (!context.granted(Manifest.permission.NEARBY_WIFI_DEVICES)) return WifiProbeResult(SurroundingsKeys.AVAILABLE_NO_PERMISSION, emptyList())
         if (!wifi.isWifiEnabled) return WifiProbeResult(SurroundingsKeys.AVAILABLE_OFF, emptyList())
+        // scanResults stays location-gated even with NEARBY_WIFI_DEVICES: with the toggle off it is just an empty list.
+        if (!context.locationEnabled()) return WifiProbeResult(SurroundingsKeys.AVAILABLE_LOCATION_OFF, emptyList())
         val results = try {
             wifi.scanResults.orEmpty()
         } catch (_: SecurityException) {
@@ -225,6 +282,8 @@ object CellProbe {
         if (!context.packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY)) return CellProbeResult(SurroundingsKeys.AVAILABLE_NO_ADAPTER, null)
         val tm = context.getSystemService(TelephonyManager::class.java) ?: return CellProbeResult(SurroundingsKeys.AVAILABLE_NO_ADAPTER, null)
         if (!context.granted(Manifest.permission.ACCESS_FINE_LOCATION)) return CellProbeResult(SurroundingsKeys.AVAILABLE_NO_PERMISSION, null)
+        // allCellInfo is empty while the location toggle is off; say so instead of reporting an empty cell.
+        if (!context.locationEnabled()) return CellProbeResult(SurroundingsKeys.AVAILABLE_LOCATION_OFF, null)
         val infos = try {
             fresh(tm) ?: tm.allCellInfo.orEmpty()
         } catch (_: SecurityException) {

@@ -30,7 +30,7 @@ class SurroundingsSmokeTest {
         const val TAG = "SurroundingsSmokeTest"
         val availability = setOf(
             SurroundingsKeys.AVAILABLE_YES, SurroundingsKeys.AVAILABLE_NO_ADAPTER, SurroundingsKeys.AVAILABLE_OFF,
-            SurroundingsKeys.AVAILABLE_NO_PERMISSION, SurroundingsKeys.AVAILABLE_FAILED,
+            SurroundingsKeys.AVAILABLE_NO_PERMISSION, SurroundingsKeys.AVAILABLE_LOCATION_OFF, SurroundingsKeys.AVAILABLE_FAILED,
         )
         val mac = Regex("([0-9a-f]{2}:){5}[0-9a-f]{2}", RegexOption.IGNORE_CASE)
     }

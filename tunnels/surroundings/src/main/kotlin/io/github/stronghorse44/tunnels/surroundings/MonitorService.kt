@@ -12,6 +12,7 @@ import android.os.IBinder
 import android.util.Log
 import io.github.stronghorse44.tunnels.ble.CellSummary
 import io.github.stronghorse44.tunnels.ble.SurroundingsKeys
+import io.github.stronghorse44.tunnels.ble.TrackerSignatures
 import io.github.stronghorse44.tunnels.ble.WifiSummary
 import io.github.stronghorse44.tunnels.runtime.TunnelActivity
 import io.github.stronghorse44.tunnels.store.TunnelsStore
@@ -52,6 +53,10 @@ data class MonitorState(
  * the tunnel. While on, it runs a 10-second BLE window every 2 minutes and a Wi-Fi/cell check every
  * 10 minutes, writing only summaries to the events table. It stops from the switch, the notification,
  * or by itself after 24 hours, and the system never restarts it.
+ *
+ * Its BLE windows carry the tracker catalog's hardware filters: an unfiltered scan is suspended by the
+ * Bluetooth stack while the screen is off, which is exactly when a monitor in a pocket has to listen.
+ * The monitor only needs trackers, so the filters cost nothing it records.
  */
 class MonitorService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -97,14 +102,21 @@ class MonitorService : Service() {
                         return@launch
                     }
                     val session = "monitor-$now"
-                    val ble = withTimeoutOrNull(BLE_WINDOW_MS + GRACE_MS) { BleWindow.scan(this@MonitorService, session, BLE_WINDOW_MS) }
+                    // Probes are binder calls and waits; keep them off the main thread the service lives on.
+                    val ble = withContext(Dispatchers.IO) {
+                        withTimeoutOrNull(BLE_WINDOW_MS + GRACE_MS) {
+                            BleWindow.scan(this@MonitorService, session, BLE_WINDOW_MS, filters = TrackerSignatures.scanFilters)
+                        }
+                    }
                     var cell: CellSummary? = null
                     var twins: List<WifiSummary> = emptyList()
                     if (now - lastWifiCellAt >= WIFI_CELL_INTERVAL_MS) {
                         lastWifiCellAt = now
-                        WifiProbe.requestScan(this@MonitorService)
-                        twins = runCatching { WifiProbe.read(this@MonitorService).summaries.filter { it.twinSuspect != null } }.getOrDefault(emptyList())
-                        cell = runCatching { withTimeoutOrNull(CELL_TIMEOUT_MS) { CellProbe.read(this@MonitorService) }?.cell }.getOrNull()
+                        withContext(Dispatchers.IO) {
+                            WifiProbe.requestScan(this@MonitorService)
+                            twins = runCatching { WifiProbe.read(this@MonitorService).summaries.filter { it.twinSuspect != null } }.getOrDefault(emptyList())
+                            cell = runCatching { withTimeoutOrNull(CELL_TIMEOUT_MS) { CellProbe.read(this@MonitorService) }?.cell }.getOrNull()
+                        }
                     }
                     if (ble != null) {
                         ble.sightings.forEach { keys += it.key; types += it.type.slug }
