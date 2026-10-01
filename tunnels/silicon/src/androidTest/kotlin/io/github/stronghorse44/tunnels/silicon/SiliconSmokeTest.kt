@@ -1,6 +1,7 @@
 package io.github.stronghorse44.tunnels.silicon
 
 import android.os.Build
+import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.stronghorse44.tunnels.attestation.SiliconKeys
@@ -21,6 +22,10 @@ import org.junit.runner.RunWith
 class SiliconSmokeTest {
     private val hex = Regex("[0-9A-F]*")
 
+    private companion object {
+        const val TAG = "SiliconSmokeTest"
+    }
+
     @Test
     fun scansTheDevice() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -32,6 +37,8 @@ class SiliconSmokeTest {
 
         var reports = 0
         val obs = module.scan { _, _, _ -> reports++ }
+        // Visible in the emulator job's logcat so a failing assertion can be read against the real values.
+        obs.sortedBy { it.key }.forEach { Log.i(TAG, "${it.key} = ${it.value}") }
         assertTrue("progress reported", reports >= 2)
         assertTrue(obs.isNotEmpty())
         assertTrue(obs.all { it.tunnelId == SiliconKeys.TUNNEL_ID && it.subject == SiliconKeys.SUBJECT })
