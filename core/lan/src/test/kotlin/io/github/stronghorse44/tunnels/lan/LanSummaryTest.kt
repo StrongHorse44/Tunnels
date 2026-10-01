@@ -30,10 +30,11 @@ class LanSummaryTest {
             Observation(t, LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_IP, "192.168.1.1"),
             Observation(t, LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_UPNP_IGD, "true"),
             Observation(t, LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_DNS_HIJACK, "false"),
+            Observation(t, LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_DNS_LOCAL, "true"),
             Observation(t, LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_OPEN_PORTS, "53,80"),
             Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.HOSTS_TOTAL, "4"),
             Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.HOSTS_RISKY, "1"),
-            Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_SSID, "ab12cd34"),
+            Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_NETWORK, "ab12cd34"),
             Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_DURATION, "37"),
             Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_GATE, "confirmed"),
             Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_PARTIAL, "ports"),
@@ -43,7 +44,7 @@ class LanSummaryTest {
         assertTrue(s.scanned)
         assertEquals(4, s.totalHosts)
         assertEquals(1, s.riskyHosts)
-        assertEquals("ab12cd34", s.ssidPrefix)
+        assertEquals("ab12cd34", s.networkTag)
         assertEquals(37, s.durationSec)
         assertEquals(listOf("ports"), s.partialStages)
         assertEquals(listOf("192.168.1.1", "192.168.1.20", "192.168.1.9", "192.168.1.100"), s.hosts.map { it.ip })
@@ -63,6 +64,8 @@ class LanSummaryTest {
         assertEquals("192.168.1.1", r.ip)
         assertEquals("true", r.upnpIgd)
         assertEquals("false", r.dnsHijack)
+        assertEquals("true", r.dnsLocal)
+        assertEquals(LanKeys.UNKNOWN, r.dnsIsGateway)
         assertEquals(LanKeys.UNKNOWN, r.privateDns)
         assertEquals(listOf(53, 80), r.openPorts)
     }

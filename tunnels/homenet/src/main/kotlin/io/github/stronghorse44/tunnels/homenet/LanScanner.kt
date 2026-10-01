@@ -8,14 +8,17 @@ import android.net.wifi.WifiManager
 import io.github.stronghorse44.tunnels.lan.DnsProbe
 import io.github.stronghorse44.tunnels.lan.DnsVerdict
 import io.github.stronghorse44.tunnels.lan.HttpLite
+import io.github.stronghorse44.tunnels.lan.LanAddresses
 import io.github.stronghorse44.tunnels.lan.LanKeys
 import io.github.stronghorse44.tunnels.lan.MdnsTypes
 import io.github.stronghorse44.tunnels.lan.PortCatalog
+import io.github.stronghorse44.tunnels.lan.ResolverScope
 import io.github.stronghorse44.tunnels.lan.Ssdp
 import io.github.stronghorse44.tunnels.lan.SsdpResponse
 import io.github.stronghorse44.tunnels.lan.Upnp
 import io.github.stronghorse44.tunnels.lan.UpnpDescription
 import io.github.stronghorse44.tunnels.model.ScanProgress
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.channels.Channel
@@ -43,6 +46,7 @@ import java.net.SocketTimeoutException
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.resume
 import kotlin.random.Random
 
@@ -63,15 +67,18 @@ data class RouterFacts(
     val gateway: String?,
     val upnpIgd: String,
     val description: UpnpDescription?,
+    /** Null when no resolver was probed (none configured, or the configured one is outside the LAN). */
     val dnsVerdict: DnsVerdict?,
     val dnsIsGateway: Boolean?,
+    /** Where the first configured resolver lives; null when none is configured. */
+    val dnsScope: ResolverScope?,
     val privateDns: Boolean?,
 )
 
 data class LanScanOutput(
     val hosts: Map<String, LanHostRecord>,
     val router: RouterFacts,
-    /** Stages that hit their time budget and returned partial results. */
+    /** Stages that hit their time budget, or lost requests to a system limit, and returned partial results. */
     val partial: List<String>,
 )
 
@@ -90,9 +97,10 @@ class LanScanner(private val context: Context) {
         fun record(ip: String): LanHostRecord? = if (ip in own || hosts.size >= MAX_HOSTS && !hosts.containsKey(ip)) null else hosts.getOrPut(ip) { LanHostRecord(ip) }
 
         progress.report(0, STAGES, STAGE_DISCOVERY)
-        val mdnsDone = withTimeoutOrNull(DISCOVERY_BUDGET_MS) { discoverMdns(state.network, ::record); true }
-        if (mdnsDone == null) partial += "mdns"
+        val mdnsFailures = withTimeoutOrNull(DISCOVERY_BUDGET_MS) { discoverMdns(state.network, ::record) }
+        if (mdnsFailures == null || mdnsFailures > 0) partial += "mdns"
         val ssdp = withTimeoutOrNull(SSDP_BUDGET_MS) { ssdpSearch(state.network) } ?: run { partial += "ssdp"; emptyList() }
+        val ssdpResponded = ssdp.isNotEmpty() && "ssdp" !in partial
         for ((ip, response) in ssdp) {
             val rec = record(ip) ?: continue
             response.st?.let { rec.ssdpTypes += it }
@@ -107,22 +115,34 @@ class LanScanner(private val context: Context) {
         if (portsDone == null) partial += "ports"
 
         progress.report(2, STAGES, STAGE_ROUTER)
-        val router = withTimeoutOrNull(ROUTER_BUDGET_MS) { routerChecks(state, gateway, gateway?.let { hosts[it] }) }
-            ?: run { partial += "router"; RouterFacts(gateway, LanKeys.UNKNOWN, null, null, null, state.linkProperties?.isPrivateDnsActive) }
+        val router = withTimeoutOrNull(ROUTER_BUDGET_MS) { routerChecks(state, gateway, gateway?.let { hosts[it] }, ssdpResponded) }
+            ?: run {
+                partial += "router"
+                RouterFacts(gateway, LanKeys.UNKNOWN, null, null, null, resolverScope(state), state.linkProperties?.isPrivateDnsActive)
+            }
         progress.report(STAGES, STAGES, "done")
         LanScanOutput(hosts, router, partial)
     }
 
     // ---- mDNS -------------------------------------------------------------------------------------
 
-    private suspend fun discoverMdns(network: Network?, record: (String) -> LanHostRecord?) {
-        val nsd = context.getSystemService(NsdManager::class.java) ?: return
+    /**
+     * Browses the curated types in batches of [BROWSE_BATCH] and resolves what they find with at most
+     * [RESOLVE_CONCURRENCY] callbacks registered at once. NsdService caps one client at 10 outstanding requests
+     * (FAILURE_MAX_LIMIT beyond that), so browses plus resolves stay at 8. Returns how many browse starts or
+     * resolve registrations the system refused even after a retry; the caller marks the stage partial then.
+     */
+    private suspend fun discoverMdns(network: Network?, record: (String) -> LanHostRecord?): Int {
+        val nsd = context.getSystemService(NsdManager::class.java) ?: return 0
         val found = Channel<NsdServiceInfo>(Channel.UNLIMITED)
         val seen = ConcurrentHashMap.newKeySet<String>()
+        val failures = AtomicInteger()
         coroutineScope {
             val browsers = launch {
-                coroutineScope {
-                    for (type in MdnsTypes.types) launch { browse(nsd, network, type, found, seen) }
+                for (batch in MdnsTypes.types.chunked(BROWSE_BATCH)) {
+                    coroutineScope {
+                        for (type in batch) launch { browse(nsd, network, type, found, seen, failures) }
+                    }
                 }
                 found.close()
             }
@@ -130,7 +150,13 @@ class LanScanner(private val context: Context) {
             for (info in found) {
                 launch {
                     resolveLimit.withPermit {
-                        val resolved = runCatching { resolve(nsd, info) }.getOrNull() ?: return@withPermit
+                        var outcome = runCatching { resolve(nsd, info) }.getOrDefault(ResolveOutcome.FAILED)
+                        if (outcome.registrationRefused) {
+                            delay(RETRY_DELAY_MS)
+                            outcome = runCatching { resolve(nsd, info) }.getOrDefault(ResolveOutcome.FAILED)
+                            if (outcome.registrationRefused) failures.incrementAndGet()
+                        }
+                        val resolved = outcome.info ?: return@withPermit
                         val address = pickAddress(resolved.hostAddresses) ?: return@withPermit
                         val rec = record(address) ?: return@withPermit
                         resolved.serviceName?.trim()?.takeIf { it.isNotEmpty() }?.let { if (rec.names.size < 4) rec.names += it.take(MAX_NAME) }
@@ -145,56 +171,85 @@ class LanScanner(private val context: Context) {
             }
             browsers.join()
         }
+        return failures.get()
     }
 
-    /** Browses one service type for [MDNS_WINDOW_MS], sending each newly found service to [found]. */
-    private suspend fun browse(nsd: NsdManager, network: Network?, type: String, found: Channel<NsdServiceInfo>, seen: MutableSet<String>) {
-        val listener = object : NsdManager.DiscoveryListener {
-            override fun onStartDiscoveryFailed(serviceType: String?, errorCode: Int) {}
-            override fun onStopDiscoveryFailed(serviceType: String?, errorCode: Int) {}
-            override fun onDiscoveryStarted(serviceType: String?) {}
-            override fun onDiscoveryStopped(serviceType: String?) {}
-            override fun onServiceLost(serviceInfo: NsdServiceInfo?) {}
-            override fun onServiceFound(serviceInfo: NsdServiceInfo?) {
-                val info = serviceInfo ?: return
-                val key = "${info.serviceName}|${MdnsTypes.normalize(info.serviceType.orEmpty())}"
-                if (seen.size < MAX_SERVICES && seen.add(key)) found.trySend(info)
+    /**
+     * Browses one service type for [MDNS_WINDOW_MS], sending each newly found service to [found]. A refused
+     * start (typically FAILURE_MAX_LIMIT) is retried once after a short pause; a second refusal counts as a failure.
+     */
+    private suspend fun browse(
+        nsd: NsdManager,
+        network: Network?,
+        type: String,
+        found: Channel<NsdServiceInfo>,
+        seen: MutableSet<String>,
+        failures: AtomicInteger,
+    ) {
+        repeat(2) { attempt ->
+            val startFailed = CompletableDeferred<Int>()
+            val listener = object : NsdManager.DiscoveryListener {
+                override fun onStartDiscoveryFailed(serviceType: String?, errorCode: Int) {
+                    startFailed.complete(errorCode)
+                }
+                override fun onStopDiscoveryFailed(serviceType: String?, errorCode: Int) {}
+                override fun onDiscoveryStarted(serviceType: String?) {}
+                override fun onDiscoveryStopped(serviceType: String?) {}
+                override fun onServiceLost(serviceInfo: NsdServiceInfo?) {}
+                override fun onServiceFound(serviceInfo: NsdServiceInfo?) {
+                    val info = serviceInfo ?: return
+                    val key = "${info.serviceName}|${MdnsTypes.normalize(info.serviceType.orEmpty())}"
+                    if (seen.size < MAX_SERVICES && seen.add(key)) found.trySend(info)
+                }
             }
-        }
-        val started = runCatching {
-            if (network != null) nsd.discoverServices(type, NsdManager.PROTOCOL_DNS_SD, network, executor, listener)
-            else nsd.discoverServices(type, NsdManager.PROTOCOL_DNS_SD, listener)
-        }.isSuccess
-        if (!started) return
-        try {
-            delay(MDNS_WINDOW_MS)
-        } finally {
-            runCatching { nsd.stopServiceDiscovery(listener) }
+            val started = runCatching {
+                if (network != null) nsd.discoverServices(type, NsdManager.PROTOCOL_DNS_SD, network, executor, listener)
+                else nsd.discoverServices(type, NsdManager.PROTOCOL_DNS_SD, listener)
+            }.isSuccess
+            if (!started) {
+                if (attempt == 1) failures.incrementAndGet() else delay(RETRY_DELAY_MS)
+                return@repeat
+            }
+            val refused = try {
+                withTimeoutOrNull(MDNS_WINDOW_MS) { startFailed.await() } != null
+            } finally {
+                runCatching { nsd.stopServiceDiscovery(listener) }
+            }
+            if (!refused) return
+            if (attempt == 1) failures.incrementAndGet() else delay(RETRY_DELAY_MS)
         }
     }
 
-    /** Resolves one service to its addresses with the API 34 callback; null on failure or timeout. */
-    private suspend fun resolve(nsd: NsdManager, info: NsdServiceInfo): NsdServiceInfo? {
+    /** What one resolve attempt produced. */
+    private class ResolveOutcome(val info: NsdServiceInfo?, val registrationRefused: Boolean) {
+        companion object {
+            val FAILED = ResolveOutcome(null, false)
+            val REFUSED = ResolveOutcome(null, true)
+        }
+    }
+
+    /** Resolves one service to its addresses with the API 34 callback; times out at [RESOLVE_TIMEOUT_MS]. */
+    private suspend fun resolve(nsd: NsdManager, info: NsdServiceInfo): ResolveOutcome {
         var registered: NsdManager.ServiceInfoCallback? = null
         try {
             return withTimeoutOrNull(RESOLVE_TIMEOUT_MS) {
-                suspendCancellableCoroutine { cont ->
+                suspendCancellableCoroutine<ResolveOutcome> { cont ->
                     val done = AtomicBoolean(false)
-                    fun finish(result: NsdServiceInfo?) {
+                    fun finish(result: ResolveOutcome) {
                         if (done.compareAndSet(false, true) && cont.isActive) cont.resume(result)
                     }
                     val callback = object : NsdManager.ServiceInfoCallback {
-                        override fun onServiceInfoCallbackRegistrationFailed(errorCode: Int) = finish(null)
+                        override fun onServiceInfoCallbackRegistrationFailed(errorCode: Int) = finish(ResolveOutcome.REFUSED)
                         override fun onServiceUpdated(serviceInfo: NsdServiceInfo) {
-                            if (serviceInfo.hostAddresses.isNotEmpty()) finish(serviceInfo)
+                            if (serviceInfo.hostAddresses.isNotEmpty()) finish(ResolveOutcome(serviceInfo, false))
                         }
-                        override fun onServiceLost() = finish(null)
+                        override fun onServiceLost() = finish(ResolveOutcome.FAILED)
                         override fun onServiceInfoCallbackUnregistered() {}
                     }
                     registered = callback
-                    runCatching { nsd.registerServiceInfoCallback(info, executor, callback) }.onFailure { finish(null) }
+                    runCatching { nsd.registerServiceInfoCallback(info, executor, callback) }.onFailure { finish(ResolveOutcome.FAILED) }
                 }
-            }
+            } ?: ResolveOutcome.FAILED
         } finally {
             registered?.let { runCatching { nsd.unregisterServiceInfoCallback(it) } }
         }
@@ -243,7 +298,8 @@ class LanScanner(private val context: Context) {
                 }
             }
         } catch (_: Exception) {
-            // No multicast on this network, or the socket was refused: SSDP simply finds nothing.
+            // No multicast on this network, or the socket was refused: SSDP simply finds nothing, and the
+            // router verdict stays "unknown" because nothing answered.
         } finally {
             lock?.let { runCatching { it.release() } }
         }
@@ -279,7 +335,18 @@ class LanScanner(private val context: Context) {
 
     // ---- Router -------------------------------------------------------------------------------------
 
-    private suspend fun routerChecks(state: WifiState, gateway: String?, gatewayRecord: LanHostRecord?): RouterFacts {
+    /** The first configured resolver (IPv4 preferred) and where it lives; null when none is configured. */
+    private fun resolverScope(state: WifiState): ResolverScope? {
+        val resolver = pickResolver(state) ?: return null
+        return LanAddresses.resolverScope(resolver, state.gateway ?: state.gateway6, state.prefixes)
+    }
+
+    private fun pickResolver(state: WifiState): InetAddress? {
+        val dns = state.dnsServers
+        return dns.firstOrNull { it is Inet4Address } ?: dns.firstOrNull()
+    }
+
+    private suspend fun routerChecks(state: WifiState, gateway: String?, gatewayRecord: LanHostRecord?, ssdpResponded: Boolean): RouterFacts {
         val lp = state.linkProperties
         val privateDns = lp?.isPrivateDnsActive
         val dns = state.dnsServers
@@ -300,17 +367,19 @@ class LanScanner(private val context: Context) {
                 }
             }
             val advertisesIgd = gatewayRecord?.ssdpTypes?.any(Ssdp::isIgdType) == true
-            upnpIgd = when {
-                description != null -> if (description.hasIgd) LanKeys.TRUE else if (advertisesIgd) LanKeys.TRUE else LanKeys.FALSE
-                advertisesIgd -> LanKeys.TRUE
-                locations.isNotEmpty() -> LanKeys.UNKNOWN
-                else -> LanKeys.FALSE
-            }
+            upnpIgd = Upnp.igdVerdict(description, advertisesIgd, locations.size, ssdpResponded)
         }
 
-        val resolver = dns.firstOrNull { it is Inet4Address } ?: dns.firstOrNull()
-        val verdict = resolver?.let { withTimeoutOrNull(DNS_TIMEOUT_MS * 2 + 500) { dnsProbe(state.network, it) } }
-        return RouterFacts(gateway, upnpIgd, description, verdict, dnsIsGateway, privateDns)
+        // The hijack probe goes only to a resolver on the local network: a public resolver handed out by DHCP
+        // would make the phone send DNS to the internet, which this tunnel promises never to do.
+        val resolver = pickResolver(state)
+        val scope = resolverScope(state)
+        val verdict = if (resolver != null && scope != ResolverScope.OFF_LAN) {
+            withTimeoutOrNull(DNS_TIMEOUT_MS * 2 + 500) { dnsProbe(state.network, resolver) }
+        } else {
+            null
+        }
+        return RouterFacts(gateway, upnpIgd, description, verdict, dnsIsGateway, scope, privateDns)
     }
 
     /** Fetches a UPnP description over a raw socket (plain http to the gateway only), capped at 64 KB. */
@@ -377,10 +446,14 @@ class LanScanner(private val context: Context) {
         const val MAX_SERVICES = 120
         const val MAX_SSDP_RESPONSES = 150
         const val MAX_NAME = 40
-        const val MDNS_WINDOW_MS = 10_000L
+        /** Service types browsed at once; with [RESOLVE_CONCURRENCY] this stays under NsdService's 10-request cap. */
+        const val BROWSE_BATCH = 4
+        /** Per batch; 16 types in 4 batches make a 20 s browse. mDNS responders answer within the first seconds. */
+        const val MDNS_WINDOW_MS = 5_000L
         const val RESOLVE_TIMEOUT_MS = 2_500L
-        const val RESOLVE_CONCURRENCY = 8
-        const val DISCOVERY_BUDGET_MS = 20_000L
+        const val RESOLVE_CONCURRENCY = 4
+        const val RETRY_DELAY_MS = 500L
+        const val DISCOVERY_BUDGET_MS = 28_000L
         const val SSDP_WINDOW_MS = 4_000L
         const val SSDP_BUDGET_MS = 6_000L
         const val PORT_CONCURRENCY = 16

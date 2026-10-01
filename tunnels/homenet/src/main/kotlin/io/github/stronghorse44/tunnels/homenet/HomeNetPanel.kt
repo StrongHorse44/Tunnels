@@ -40,6 +40,7 @@ import io.github.stronghorse44.tunnels.common.StatusColors
 import io.github.stronghorse44.tunnels.lan.LanHost
 import io.github.stronghorse44.tunnels.lan.LanKeys
 import io.github.stronghorse44.tunnels.lan.LanSummary
+import io.github.stronghorse44.tunnels.lan.NetworkFingerprint
 import io.github.stronghorse44.tunnels.lan.PortCatalog
 import io.github.stronghorse44.tunnels.lan.RouterInfo
 import io.github.stronghorse44.tunnels.model.MetroLine
@@ -54,17 +55,19 @@ fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: N
     var generation by remember { mutableIntStateOf(0) }
     LifecycleResumeEffect(Unit) { generation++; onPauseOrDispose { } }
     val wifi = remember(generation, state.scan.running) { runCatching { gate.current() }.getOrDefault(WifiState.OFFLINE) }
-    var confirmed by remember(generation, wifi.ssid) { mutableStateOf(wifi.ssid?.let(gate::isConfirmed) ?: false) }
+    val fingerprint = remember(wifi) { runCatching { wifi.fingerprint }.getOrNull() }
+    var confirmed by remember(generation, fingerprint?.hash) { mutableStateOf(fingerprint?.let(gate::isConfirmed) ?: false) }
     val summary = remember(state.observations) { LanSummary.from(state.observations) }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         NetworkCard(
             wifi = wifi,
+            fingerprint = fingerprint,
             confirmed = confirmed,
             scanning = state.scan.running,
             scanLabel = state.scan.label,
-            onConfirm = { wifi.ssid?.let { gate.confirm(it); confirmed = true } },
-            onForget = { wifi.ssid?.let { gate.forget(it); confirmed = false } },
+            onConfirm = { fingerprint?.let { gate.confirm(it); confirmed = true } },
+            onForget = { fingerprint?.let { gate.forget(it); confirmed = false } },
             onScan = actions::scan,
         )
         if (summary.gate == LanKeys.GATE_UNCONFIRMED) {
@@ -85,6 +88,7 @@ fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: N
 @Composable
 private fun NetworkCard(
     wifi: WifiState,
+    fingerprint: NetworkFingerprint?,
     confirmed: Boolean,
     scanning: Boolean,
     scanLabel: String,
@@ -95,17 +99,16 @@ private fun NetworkCard(
     GlassPanel(Modifier.fillMaxWidth(), tint = line) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Your network", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            val ssid = wifi.ssid
             when {
                 !wifi.onWifi -> {
                     Text("Not connected to Wi-Fi.", style = MaterialTheme.typography.bodyLarge)
                     Text("Tunnels scans only the Wi-Fi network you confirm as yours, never mobile data.", style = MaterialTheme.typography.bodySmall, color = GlassColors.dim)
                 }
-                ssid == null -> {
-                    Text("Connected to Wi-Fi, but Android did not share its name.", style = MaterialTheme.typography.bodyLarge)
+                fingerprint == null -> {
+                    Text("Connected to Wi-Fi, but Android shared no router or address for it.", style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        "Without the network name Tunnels cannot tell your network from someone else's, so scanning stays off. " +
-                            "Check the Nearby devices permission for Tunnels and reconnect to the Wi-Fi.",
+                        "Tunnels tells networks apart by their router, DHCP and DNS addresses. Without any of them it cannot tell your " +
+                            "network from someone else's, so scanning stays off. Wait for the connection to finish, or reconnect to the Wi-Fi.",
                         style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
                     )
                 }
@@ -113,9 +116,10 @@ private fun NetworkCard(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(10.dp).clip(CircleShape).background(if (confirmed) StatusColors.ok else StatusColors.warn))
                         Spacer(Modifier.width(8.dp))
-                        Text(ssid, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                        wifi.gateway?.hostAddress?.let { Text("gw $it", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = GlassColors.dim) }
+                        Text(fingerprint.ssid ?: "Wi-Fi network", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                        Text(fingerprint.prefixTag, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = GlassColors.dim)
                     }
+                    Text(fingerprint.label, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = GlassColors.dim)
                     if (confirmed) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Confirmed as your network.", style = MaterialTheme.typography.bodySmall, color = StatusColors.ok, modifier = Modifier.weight(1f))
@@ -124,11 +128,17 @@ private fun NetworkCard(
                     } else {
                         Text(
                             "Only scan a network you own or administer. Scanning someone else's network can be illegal. " +
-                                "Tunnels asks once per network and remembers only a hash of its name.",
+                                "Tunnels asks once per network and remembers only a hash of the setup shown above.",
                             style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
                         )
                         OutlinedButton(onClick = onConfirm) { Text("This is my network") }
                     }
+                    Text(
+                        (if (fingerprint.ssid == null) "Android hides the Wi-Fi name from apps without location access, so " else "") +
+                            "Tunnels recognises a network by its router, DHCP and DNS addresses. Two networks with the same setup look " +
+                            "the same to it: check which Wi-Fi you are on before scanning.",
+                        style = MaterialTheme.typography.labelSmall, color = GlassColors.dim,
+                    )
                     Spacer(Modifier.height(2.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Button(onClick = onScan, enabled = confirmed && !scanning) { Text(if (scanning) "Scanning…" else "Scan my network") }
@@ -186,9 +196,11 @@ private fun RouterCard(router: RouterInfo) {
             )
             FactRow(
                 "DNS rewriting",
-                when (router.dnsHijack) {
-                    LanKeys.TRUE -> "detected: invents answers"
-                    LanKeys.FALSE -> "not detected"
+                when {
+                    router.dnsHijack == LanKeys.TRUE -> "detected: invents answers"
+                    router.dnsHijack == LanKeys.FALSE -> "not detected"
+                    router.dnsLocal == LanKeys.FALSE -> "not checked: resolver is outside your network"
+                    router.dnsLocal == LanKeys.UNKNOWN -> "not checked: no resolver configured"
                     else -> "resolver did not answer"
                 },
                 when (router.dnsHijack) {
@@ -199,9 +211,10 @@ private fun RouterCard(router: RouterInfo) {
             )
             FactRow(
                 "DNS server",
-                when (router.dnsIsGateway) {
-                    LanKeys.TRUE -> "the router itself"
-                    LanKeys.FALSE -> "another server"
+                when {
+                    router.dnsIsGateway == LanKeys.TRUE -> "the router itself"
+                    router.dnsLocal == LanKeys.TRUE -> "another device on your network"
+                    router.dnsLocal == LanKeys.FALSE -> "a server outside your network; Tunnels never sends DNS off the LAN"
                     else -> "unknown"
                 },
                 GlassColors.text,
@@ -280,7 +293,7 @@ private fun HostRow(host: LanHost) {
 
 private fun gateReasonText(reason: String?): String = when (reason) {
     LanKeys.REASON_NO_WIFI -> "the phone was not on Wi-Fi."
-    LanKeys.REASON_SSID_UNKNOWN -> "the Wi-Fi name was not readable."
+    LanKeys.REASON_NETWORK_UNKNOWN -> "the network's router and address were not readable."
     LanKeys.REASON_NOT_CONFIRMED -> "this network had not been confirmed as yours."
     LanKeys.REASON_NO_PERMISSION -> "the Nearby devices permission was missing."
     else -> "the network could not be verified as yours."

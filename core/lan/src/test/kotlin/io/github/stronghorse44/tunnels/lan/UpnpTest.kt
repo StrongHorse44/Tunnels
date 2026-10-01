@@ -78,4 +78,16 @@ class UpnpTest {
         assertNull("over-long names are dropped by the regex bound", Upnp.scan(longName).friendlyName)
         assertEquals("Only maker", Upnp.scan("<manufacturer>Only maker</manufacturer>").label)
     }
+
+    @Test
+    fun igdVerdictNeverReportsAFailedCheckAsPassed() {
+        val withIgd = Upnp.scan(igd)
+        val plain = Upnp.scan("<root><device><friendlyName>Box</friendlyName></device></root>")
+        assertEquals(LanKeys.TRUE, Upnp.igdVerdict(withIgd, advertisesIgd = false, locationsTried = 1, ssdpResponded = true))
+        assertEquals(LanKeys.TRUE, Upnp.igdVerdict(null, advertisesIgd = true, locationsTried = 0, ssdpResponded = true))
+        assertEquals(LanKeys.FALSE, Upnp.igdVerdict(plain, advertisesIgd = false, locationsTried = 1, ssdpResponded = true))
+        assertEquals("gateway advertised but its description could not be read", LanKeys.UNKNOWN, Upnp.igdVerdict(null, false, locationsTried = 2, ssdpResponded = true))
+        assertEquals("others answered, the gateway did not", LanKeys.FALSE, Upnp.igdVerdict(null, false, locationsTried = 0, ssdpResponded = true))
+        assertEquals("nobody answered SSDP: not a pass", LanKeys.UNKNOWN, Upnp.igdVerdict(null, false, locationsTried = 0, ssdpResponded = false))
+    }
 }

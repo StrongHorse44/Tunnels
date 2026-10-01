@@ -23,6 +23,8 @@ data class RouterInfo(
     val upnpIgd: String,
     val dnsHijack: String,
     val dnsIsGateway: String,
+    /** "true" when the resolver is on the LAN, "false" when it is outside (hijack probe skipped), else "unknown". */
+    val dnsLocal: String,
     val privateDns: String,
     val openPorts: List<Int>,
 )
@@ -33,7 +35,8 @@ data class LanSummary(
     val router: RouterInfo?,
     val totalHosts: Int,
     val riskyHosts: Int,
-    val ssidPrefix: String?,
+    /** First hex chars of the network fingerprint hash (see [NetworkFingerprint]), never an SSID. */
+    val networkTag: String?,
     val durationSec: Int?,
     val gate: String?,
     val gateReason: String?,
@@ -71,6 +74,7 @@ data class LanSummary(
                     upnpIgd = LanKeys.value(r, LanKeys.ROUTER_UPNP_IGD) ?: LanKeys.UNKNOWN,
                     dnsHijack = LanKeys.value(r, LanKeys.ROUTER_DNS_HIJACK) ?: LanKeys.UNKNOWN,
                     dnsIsGateway = LanKeys.value(r, LanKeys.ROUTER_DNS_IS_GATEWAY) ?: LanKeys.UNKNOWN,
+                    dnsLocal = LanKeys.value(r, LanKeys.ROUTER_DNS_LOCAL) ?: LanKeys.UNKNOWN,
                     privateDns = LanKeys.value(r, LanKeys.ROUTER_PRIVATE_DNS) ?: LanKeys.UNKNOWN,
                     openPorts = LanKeys.ports(LanKeys.value(r, LanKeys.ROUTER_OPEN_PORTS)),
                 )
@@ -81,7 +85,7 @@ data class LanSummary(
                 router = router,
                 totalHosts = LanKeys.value(summary, LanKeys.HOSTS_TOTAL)?.toIntOrNull() ?: hosts.size,
                 riskyHosts = LanKeys.value(summary, LanKeys.HOSTS_RISKY)?.toIntOrNull() ?: hosts.count { it.riskyPorts.isNotEmpty() },
-                ssidPrefix = LanKeys.value(summary, LanKeys.SCAN_SSID),
+                networkTag = LanKeys.value(summary, LanKeys.SCAN_NETWORK),
                 durationSec = LanKeys.value(summary, LanKeys.SCAN_DURATION)?.toIntOrNull(),
                 gate = LanKeys.value(summary, LanKeys.SCAN_GATE),
                 gateReason = LanKeys.value(summary, LanKeys.SCAN_GATE_REASON),

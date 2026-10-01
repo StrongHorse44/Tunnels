@@ -33,6 +33,12 @@ object LanKeys {
     /** "true", "false" or "unknown": the gateway resolver answered an A record for a name that cannot exist. */
     const val ROUTER_DNS_HIJACK = "router:dnsHijack"
     const val ROUTER_DNS_IS_GATEWAY = "router:dnsIsGateway"
+    /**
+     * "true" when the resolver the phone was handed is on the local network (the gateway or another LAN
+     * address), "false" when it is a server outside the network (the hijack probe is then skipped so the
+     * phone never sends DNS beyond the LAN), "unknown" when no resolver was configured.
+     */
+    const val ROUTER_DNS_LOCAL = "router:dnsLocal"
     const val ROUTER_PRIVATE_DNS = "router:privateDns"
     const val ROUTER_OPEN_PORTS = "router:openPorts"
     /** Friendly name / manufacturer / model from the UPnP description, when fetched. */
@@ -40,12 +46,15 @@ object LanKeys {
 
     const val HOSTS_TOTAL = "hosts:total"
     const val HOSTS_RISKY = "hosts:risky"
-    /** First 8 hex chars of the SHA-256 of the SSID, never the SSID itself. */
-    const val SCAN_SSID = "scan:ssid"
+    /**
+     * First 8 hex chars of the SHA-256 of the network fingerprint (gateway, DHCP server, DNS servers,
+     * IPv4 prefix: see [NetworkFingerprint]), never the SSID or any address itself.
+     */
+    const val SCAN_NETWORK = "scan:network"
     const val SCAN_DURATION = "scan:durationSec"
     /** [GATE_CONFIRMED] when the own-network gate let the scan run, else [GATE_UNCONFIRMED]. */
     const val SCAN_GATE = "scan:gate"
-    /** Why the gate refused: "no-wifi", "ssid-unknown", "not-confirmed", "no-permission". */
+    /** Why the gate refused: "no-wifi", "network-unknown", "not-confirmed", "no-permission". */
     const val SCAN_GATE_REASON = "scan:gateReason"
     /** Comma list of stages that hit their time budget and returned partial results. */
     const val SCAN_PARTIAL = "scan:partial"
@@ -53,7 +62,8 @@ object LanKeys {
     const val GATE_CONFIRMED = "confirmed"
     const val GATE_UNCONFIRMED = "unconfirmed"
     const val REASON_NO_WIFI = "no-wifi"
-    const val REASON_SSID_UNKNOWN = "ssid-unknown"
+    /** On Wi-Fi, but neither a gateway nor an address prefix was readable, so the network cannot be told apart. */
+    const val REASON_NETWORK_UNKNOWN = "network-unknown"
     const val REASON_NOT_CONFIRMED = "not-confirmed"
     const val REASON_NO_PERMISSION = "no-permission"
 

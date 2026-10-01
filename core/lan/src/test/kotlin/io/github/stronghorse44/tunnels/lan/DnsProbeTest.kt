@@ -34,6 +34,15 @@ class DnsProbeTest {
     }
 
     @Test
+    fun probeDomainCannotBeRegisteredByAnyone() {
+        // RFC 2606 / RFC 6761: IANA-reserved, no wildcard, resolved normally by resolvers. A registrable name would
+        // let its owner answer every probe with an A record and flag every user's router as hijacking.
+        assertEquals("example.com", DnsProbe.PROBE_DOMAIN)
+        val q = DnsProbe.buildQuery(DnsProbe.probeName(Random(9)), 1)
+        assertEquals(12 + 1 + 12 + 1 + 7 + 1 + 3 + 1 + 4, q.size)
+    }
+
+    @Test
     fun probeNamesAreRandomAndUnderTheProbeDomain() {
         val a = DnsProbe.probeName(Random(1))
         val b = DnsProbe.probeName(Random(2))

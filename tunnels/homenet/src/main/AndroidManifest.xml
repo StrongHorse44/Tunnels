@@ -7,7 +7,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Active network, gateway and DNS servers (LinkProperties). -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- Current Wi-Fi connection: the SSID the own-network gate hashes. -->
+    <!-- Current Wi-Fi connection: DhcpInfo for the network fingerprint, MulticastLock for SSDP. -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- MulticastLock around the 4-second SSDP search. -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />

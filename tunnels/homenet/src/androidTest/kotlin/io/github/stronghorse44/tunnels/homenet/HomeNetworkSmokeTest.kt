@@ -6,6 +6,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import io.github.stronghorse44.tunnels.lan.LanGuides
 import io.github.stronghorse44.tunnels.lan.LanKeys
 import io.github.stronghorse44.tunnels.lan.LanRules
+import io.github.stronghorse44.tunnels.lan.NetworkFingerprint
 import io.github.stronghorse44.tunnels.model.FindingAction
 import io.github.stronghorse44.tunnels.model.FindingDraft
 import io.github.stronghorse44.tunnels.model.ScanProgress
@@ -47,9 +48,9 @@ class HomeNetworkSmokeTest {
         val reason = LanKeys.value(obs, LanKeys.SCAN_GATE_REASON)
         assertTrue(
             "reason $reason",
-            reason in setOf(LanKeys.REASON_NO_PERMISSION, LanKeys.REASON_NO_WIFI, LanKeys.REASON_SSID_UNKNOWN, LanKeys.REASON_NOT_CONFIRMED),
+            reason in setOf(LanKeys.REASON_NO_PERMISSION, LanKeys.REASON_NO_WIFI, LanKeys.REASON_NETWORK_UNKNOWN, LanKeys.REASON_NOT_CONFIRMED),
         )
-        assertTrue(obs.none { it.key == LanKeys.SCAN_SSID || it.key == LanKeys.HOSTS_TOTAL })
+        assertTrue(obs.none { it.key == LanKeys.SCAN_NETWORK || it.key == LanKeys.HOSTS_TOTAL })
         assertEquals(obs.size, obs.map { it.key }.toSet().size)
 
         // Second scan is just as quiet and describes the same state.
@@ -84,16 +85,29 @@ class HomeNetworkSmokeTest {
         val gate = NetworkGate(context)
         gate.forgetAll()
         assertEquals(0, gate.confirmedCount())
-        assertFalse(gate.isConfirmed("Test Net"))
-        gate.confirm("Test Net")
-        assertTrue(gate.isConfirmed("Test Net"))
-        assertFalse(gate.isConfirmed("test net"))
+        val home = NetworkFingerprint.of("192.168.1.1", "192.168.1.1", listOf("192.168.1.1"), "192.168.1.0/24", ssid = "Test Net")!!
+        val other = NetworkFingerprint.of("192.168.0.1", "192.168.0.1", listOf("192.168.0.1"), "192.168.0.0/24")!!
+        assertFalse(gate.isConfirmed(home))
+        gate.confirm(home)
+        assertTrue(gate.isConfirmed(home))
+        assertFalse(gate.isConfirmed(other))
         assertEquals(1, gate.confirmedCount())
         val stored = context.getSharedPreferences(NetworkGate.PREFS, Context.MODE_PRIVATE).getStringSet(NetworkGate.KEY_CONFIRMED, emptySet())!!
-        assertEquals(setOf(GateHashing.ssidHash("Test Net")), stored)
-        assertTrue(stored.none { it.contains("Test") })
-        gate.forget("Test Net")
-        assertFalse(gate.isConfirmed("Test Net"))
+        assertEquals(setOf(home.hash), stored)
+        assertTrue(stored.none { it.contains("192.168") || it.contains("Test") })
+        gate.forget(home)
+        assertFalse(gate.isConfirmed(home))
         gate.forgetAll()
+    }
+
+    /** The emulator's virtual Wi-Fi has a gateway and a prefix, so the fingerprint path itself gets exercised. */
+    @Test
+    fun currentWifiStateIsReadableWithoutLocation() {
+        val state = NetworkGate(context).current()
+        if (!state.onWifi) return
+        val fingerprint = state.fingerprint ?: return
+        assertTrue(fingerprint.label, fingerprint.gateway != null || fingerprint.prefix != null)
+        assertEquals(NetworkFingerprint.PREFIX_LENGTH, fingerprint.prefixTag.length)
+        assertFalse("the hash reveals no address", fingerprint.gateway?.let { fingerprint.hash.contains(it) } ?: false)
     }
 }

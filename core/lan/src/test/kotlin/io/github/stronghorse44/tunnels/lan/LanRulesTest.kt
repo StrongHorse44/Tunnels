@@ -37,10 +37,10 @@ class LanRulesTest {
         Observation(t, LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_OPEN_PORTS, "53,80,443"),
     )
 
-    private fun summary(gate: String = LanKeys.GATE_CONFIRMED, ssid: String = "ab12cd34", hosts: Int = 1): List<Observation> = buildList {
+    private fun summary(gate: String = LanKeys.GATE_CONFIRMED, network: String = "ab12cd34", hosts: Int = 1): List<Observation> = buildList {
         add(Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_GATE, gate))
         if (gate == LanKeys.GATE_CONFIRMED) {
-            add(Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_SSID, ssid))
+            add(Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_NETWORK, network))
             add(Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.HOSTS_TOTAL, hosts.toString()))
             add(Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.HOSTS_RISKY, "0"))
             add(Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_DURATION, "42"))
@@ -119,8 +119,8 @@ class LanRulesTest {
 
         // Previous scan was refused by the gate: everything would be "new", so nothing is.
         assertTrue(evaluate(withNew, summary(gate = LanKeys.GATE_UNCONFIRMED)).of(LanRules.NEW_HOST).isEmpty())
-        // Different network (SSID hash changed): also a fresh baseline.
-        val otherNet = host("10.0.0.5", kind = HostKind.UNKNOWN) + summary(ssid = "ffffeeee", hosts = 1)
+        // Different network (fingerprint hash changed): also a fresh baseline.
+        val otherNet = host("10.0.0.5", kind = HostKind.UNKNOWN) + summary(network = "ffffeeee", hosts = 1)
         assertTrue(evaluate(withNew, otherNet).of(LanRules.NEW_HOST).isEmpty())
         // An unnamed unknown host still reads sensibly.
         val anon = withNew + host("192.168.1.88")

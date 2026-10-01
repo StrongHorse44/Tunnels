@@ -15,6 +15,7 @@ import io.github.stronghorse44.tunnels.lan.LanRules
 import io.github.stronghorse44.tunnels.lan.LanSummary
 import io.github.stronghorse44.tunnels.lan.MdnsTypes
 import io.github.stronghorse44.tunnels.lan.PortCatalog
+import io.github.stronghorse44.tunnels.lan.ResolverScope
 import io.github.stronghorse44.tunnels.lan.Ssdp
 import io.github.stronghorse44.tunnels.lan.VendorHints
 import io.github.stronghorse44.tunnels.model.FindingAction
@@ -31,13 +32,15 @@ import io.github.stronghorse44.tunnels.runtime.TunnelUi
 /**
  * Home network: which devices are on the Wi-Fi the user confirmed as theirs, which doors they leave
  * open, and whether the router accepts UPnP port mappings or rewrites DNS failures. Talks to the local
- * network only, and only during a scan the user starts after the own-network gate.
+ * network only, and only during a scan the user starts after the own-network gate. The gate tells
+ * networks apart by their fingerprint (gateway, DHCP, DNS, prefix), because Android hides the SSID from
+ * apps without a location permission; see NetworkFingerprint.
  */
 class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
     override val id: String = LanKeys.TUNNEL_ID
 
     override val requiredPermissions: List<PermissionSpec> = listOf(
-        PermissionSpec(Manifest.permission.NEARBY_WIFI_DEVICES, "To know which Wi-Fi network you are on, so Tunnels only ever scans your own"),
+        PermissionSpec(Manifest.permission.NEARBY_WIFI_DEVICES, "To read details of the Wi-Fi you are on, so Tunnels only ever scans your own network"),
     )
 
     override val rules: List<FindingRule> = LanRules.all
@@ -105,12 +108,13 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
             add(LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_UPNP_IGD, router.upnpIgd)
             add(LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_DNS_HIJACK, router.dnsVerdict?.hijackValue ?: LanKeys.UNKNOWN)
             add(LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_DNS_IS_GATEWAY, triState(router.dnsIsGateway))
+            add(LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_DNS_LOCAL, triState(router.dnsScope?.let { it != ResolverScope.OFF_LAN }))
             add(LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_PRIVATE_DNS, triState(router.privateDns))
             add(LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_OPEN_PORTS, LanKeys.portList(result.hosts[gateway]?.openPorts.orEmpty()))
         }
 
         add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_GATE, LanKeys.GATE_CONFIRMED)
-        add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_SSID, GateHashing.prefix(allowed.hash))
+        add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_NETWORK, allowed.fingerprint.prefixTag)
         add(LanKeys.SUBJECT_SUMMARY, LanKeys.HOSTS_TOTAL, result.hosts.size.toString())
         add(LanKeys.SUBJECT_SUMMARY, LanKeys.HOSTS_RISKY, risky.toString())
         add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_DURATION, ((System.nanoTime() - started) / 1_000_000_000L).toString())

@@ -27,16 +27,23 @@ enum class DnsVerdict {
 }
 
 /**
- * The DNS-hijack probe: a query for a random name under a domain that does not exist, and a classifier for
+ * The DNS-hijack probe: a query for a random name under a domain nobody can register, and a classifier for
  * the reply. Independent of core/dns on purpose so the two modules stay separate.
  */
 object DnsProbe {
-    const val PROBE_DOMAIN = "invalid-tunnels-probe.net"
+    /**
+     * example.com is reserved by IANA (RFC 2606, RFC 6761 section 6.5): it cannot be registered, carries no
+     * wildcard, and resolvers are told to resolve it normally rather than synthesise an answer locally. So an
+     * honest path returns NXDOMAIN for any random name under it, and no third party can turn the probe into a
+     * false DNS_HIJACK by buying the domain. A registrable name (the first draft used one) would let whoever
+     * registers it with a wildcard A record flag every user's router.
+     */
+    const val PROBE_DOMAIN = "example.com"
     const val TYPE_A = 1
     private const val CLASS_IN = 1
     private const val LABEL_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789"
 
-    /** "k3x9q2mzp0wa.invalid-tunnels-probe.net": a fresh random label every call so caches cannot answer. */
+    /** "k3x9q2mzp0wa.example.com": a fresh random label every call so caches cannot answer. */
     fun probeName(random: Random = Random.Default, labelLength: Int = 12): String =
         buildString(labelLength) { repeat(labelLength) { append(LABEL_CHARS[random.nextInt(LABEL_CHARS.length)]) } } + "." + PROBE_DOMAIN
 

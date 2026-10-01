@@ -57,8 +57,8 @@ object LanRules {
         val summaryChanged = ctx.diff.filter { it.key.subject == LanKeys.SUBJECT_SUMMARY }
         val freshBaseline = summaryChanged.any {
             (it is DiffEntry.Added && it.key.key == LanKeys.HOSTS_TOTAL) ||
-                (it is DiffEntry.Changed && (it.key.key == LanKeys.SCAN_SSID || it.key.key == LanKeys.SCAN_GATE)) ||
-                (it is DiffEntry.Added && it.key.key == LanKeys.SCAN_SSID)
+                (it is DiffEntry.Changed && (it.key.key == LanKeys.SCAN_NETWORK || it.key.key == LanKeys.SCAN_GATE)) ||
+                (it is DiffEntry.Added && it.key.key == LanKeys.SCAN_NETWORK)
         }
         if (freshBaseline) return@FindingRule emptyList()
         val bySubject = ctx.bySubject()
