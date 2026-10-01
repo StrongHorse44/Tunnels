@@ -44,7 +44,8 @@ import org.junit.runner.RunWith
  * parts that need no tag (Apple frame parser, proximity, verdict, DULT codec, the actions and the
  * find-it screen, which must open without an adapter and leave no session row) are exercised here too.
  * Since v3 following is judged per identity: tracker findings carry identity subjects and only identities
- * can be muted, which the action checks below pin.
+ * can be muted, which the action checks below pin; the family-level rotating-tag notice gets find it and
+ * Android's alerts only.
  */
 @RunWith(AndroidJUnit4::class)
 class SurroundingsSmokeTest {
