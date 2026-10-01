@@ -196,7 +196,7 @@ class DeepModeTunnel(private val context: Context, val shell: ShizukuShell = Shi
                 if (granted) add(FindingAction.Perform("Hide private content", destructive = true) {
                     runShell("settings put secure lock_screen_allow_private_notifications 0")
                 })
-                add(FindingAction.OpenSettings(Settings.ACTION_NOTIFICATION_SETTINGS, "Notification settings"))
+                add(FindingAction.OpenSettings(ACTION_NOTIFICATION_SETTINGS, "Notification settings"))
             }
             DeepRules.ACCESSIBILITY_SERVICE_ON -> listOf(FindingAction.OpenSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS, "Accessibility"))
             in DeepRules.appKinds -> appActions(draft, granted)
@@ -257,6 +257,9 @@ class DeepModeTunnel(private val context: Context, val shell: ShizukuShell = Shi
 
     companion object {
         const val SHIZUKU_REASON = "Deep mode reads app-ops history and hidden settings through Shizuku (shell access you grant). Nothing is sent anywhere."
+
+        /** The Settings app's notification screen; the constant is not in the public SDK, the action is handled. */
+        const val ACTION_NOTIFICATION_SETTINGS = "android.settings.NOTIFICATION_SETTINGS"
 
         /** Whole-scan budget; the shell itself caps each command at 20 s. */
         const val SCAN_BUDGET_MILLIS = 50_000L
