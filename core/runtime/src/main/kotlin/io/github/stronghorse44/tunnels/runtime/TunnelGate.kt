@@ -2,6 +2,7 @@ package io.github.stronghorse44.tunnels.runtime
 
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -72,12 +73,16 @@ fun TunnelGate(module: TunnelModule, content: @Composable () -> Unit) {
                         Text(access.reason, style = MaterialTheme.typography.bodySmall, color = GlassColors.dim)
                     }
                     OutlinedButton(onClick = {
-                        runCatching {
-                            val intent = Intent(access.settingsAction)
-                            if (access.settingsAction.contains("APPLICATION_DETAILS") || access.settingsAction.contains("UNKNOWN_APP")) {
-                                intent.data = android.net.Uri.parse("package:${context.packageName}")
-                            }
-                            context.startActivity(intent)
+                        val intent = Intent(access.settingsAction)
+                        if (access.settingsAction.contains("APPLICATION_DETAILS") || access.settingsAction.contains("UNKNOWN_APP")) {
+                            intent.data = android.net.Uri.parse("package:${context.packageName}")
+                        }
+                        // In-app flows (e.g. the Shizuku connect screen) are not exported, and since Android 12 an
+                        // implicit intent only reaches them when the package is set; system settings stay implicit.
+                        val inApp = Intent(intent).setPackage(context.packageName)
+                        val target = if (context.packageManager.resolveActivity(inApp, 0) != null) inApp else intent
+                        runCatching { context.startActivity(target) }.onFailure {
+                            Toast.makeText(context, "No screen found for ${access.label}", Toast.LENGTH_SHORT).show()
                         }
                     }) { Text("Open setting") }
                 }
