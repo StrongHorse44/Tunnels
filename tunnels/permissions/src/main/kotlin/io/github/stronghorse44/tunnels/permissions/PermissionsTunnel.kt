@@ -83,7 +83,7 @@ class PermissionsTunnel(private val context: Context) : TunnelModule, TunnelUi {
         fun granted(i: Int) = i < flags.size && flags[i] and PackageManager.REQUESTED_PERMISSION_GRANTED != 0
 
         // Known groups first so the cap trims the long tail of vendor and signature permissions, not the sensitive ones.
-        val order = requested.indices.sortedWith(compareBy({ PermissionCatalog.groupOf(requested[it]) == PermissionGroup.OTHER }, { requested[it] }))
+        val order = requested.indices.sortedWith(compareBy<Int>({ PermissionCatalog.groupOf(requested[it]) == PermissionGroup.OTHER }, { requested[it] }))
         for (i in order.take(MAX_PERMISSIONS)) {
             obs(PermissionKeys.permKey(requested[i]), if (granted(i)) PermissionKeys.GRANTED else PermissionKeys.DENIED)
         }

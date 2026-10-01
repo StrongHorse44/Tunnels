@@ -137,7 +137,7 @@ class DoorsTunnel(private val context: Context) : TunnelModule {
         val details = FindingAction.OpenAppDetails(pkg)
         val openByDefault = FindingAction.Perform("Open-by-default settings") { openByDefault(pkg) }
         val linkKinds = draft.kind == DoorsRules.LINKS_CHANGED || draft.kind == DoorsRules.NEW_LINK_HANDLER
-        val actions = if (linkKinds) mutableListOf(openByDefault, details) else mutableListOf(details, openByDefault)
+        val actions = if (linkKinds) mutableListOf<FindingAction>(openByDefault, details) else mutableListOf<FindingAction>(details, openByDefault)
         if (!isSystem(pkg)) actions += FindingAction.RequestUninstall(pkg)
         return actions
     }
