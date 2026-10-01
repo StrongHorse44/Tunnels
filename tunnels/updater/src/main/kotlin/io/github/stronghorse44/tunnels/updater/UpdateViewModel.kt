@@ -122,8 +122,8 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
             _state.value = try {
                 val json = withContext(Dispatchers.IO) { GitHubClient(sent).releasesJson() }
                 val releases = withContext(Dispatchers.Default) { Updates.parseReleases(json) }
-                // A token that worked starts its 30 days again.
-                sent?.let { runCatching { UpdateToken.save(app, it) } }
+                // A token that worked starts its 30 days again, unless another was saved or forgotten meanwhile.
+                if (sent != null && sent == token) runCatching { UpdateToken.save(app, sent) }
                 Updates.newest(releases, installed.channel, installed.versionCode)?.let { UpdateState.Available(it) }
                     ?: UpdateState.UpToDate(Updates.latest(releases, installed.channel)?.label)
             } catch (e: GitHubClient.HttpException) {

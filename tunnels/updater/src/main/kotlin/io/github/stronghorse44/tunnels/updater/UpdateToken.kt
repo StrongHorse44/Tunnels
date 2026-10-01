@@ -21,12 +21,14 @@ object UpdateToken {
         TunnelsStore.get(context).dao.events(STREAM, 1).first().firstOrNull()?.summary?.takeIf { it.isNotBlank() }
     }
 
-    /** Saves [token] as the only row of the stream (also refreshes its 30-day clock). */
+    /**
+     * Saves [token] as the only row of the stream (also refreshes its 30-day clock). The old row goes first: two
+     * saves within one millisecond would otherwise leave two rows with the same time and either could be read.
+     */
     suspend fun save(context: Context, token: String) = withContext(Dispatchers.IO) {
         val store = TunnelsStore.get(context)
-        val now = System.currentTimeMillis()
-        store.recordEvent(STREAM, KIND, SUBJECT, token, Instant.ofEpochMilli(now))
-        store.dao.deleteEventsBefore(STREAM, now)
+        store.dao.deleteEventsBefore(STREAM, Long.MAX_VALUE)
+        store.recordEvent(STREAM, KIND, SUBJECT, token, Instant.now())
     }
 
     suspend fun clear(context: Context) = withContext(Dispatchers.IO) {
