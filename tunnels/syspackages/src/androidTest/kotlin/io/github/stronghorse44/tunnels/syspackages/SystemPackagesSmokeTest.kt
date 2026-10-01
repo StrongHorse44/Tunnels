@@ -9,6 +9,7 @@ import io.github.stronghorse44.tunnels.model.Severity
 import io.github.stronghorse44.tunnels.syspkg.SysPkgKeys
 import io.github.stronghorse44.tunnels.syspkg.SysPkgRules
 import io.github.stronghorse44.tunnels.syspkg.SysPkgStats
+import io.github.stronghorse44.tunnels.syspkg.SystemPackageKb
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -73,7 +74,9 @@ class SystemPackagesSmokeTest {
             assertTrue(pkg, SysPkgKeys.value(list, SysPkgKeys.PRIVILEGED) in setOf("true", "false"))
             assertTrue(pkg, SysPkgKeys.value(list, SysPkgKeys.HAS_LAUNCHER) in setOf("true", "false"))
             assertTrue(pkg, Regex(".+ \\(-?\\d+\\)").matches(SysPkgKeys.value(list, SysPkgKeys.VERSION)!!))
-            if (pkg.startsWith("com.android.")) assertEquals(pkg, "aosp", SysPkgKeys.value(list, SysPkgKeys.NAMESPACE))
+            // The Play Store keeps its historical com.android.vending name but is Google's, so go through the heuristic.
+            assertEquals(pkg, SystemPackageKb.namespaceOf(pkg).label, SysPkgKeys.value(list, SysPkgKeys.NAMESPACE))
+            assertEquals(pkg, SystemPackageKb.isKnown(pkg), known)
         }
         assertEquals(disabled.toString(), SysPkgKeys.value(summary, SysPkgKeys.DISABLED))
         assertEquals(unknown.toString(), SysPkgKeys.value(summary, SysPkgKeys.UNKNOWN))
