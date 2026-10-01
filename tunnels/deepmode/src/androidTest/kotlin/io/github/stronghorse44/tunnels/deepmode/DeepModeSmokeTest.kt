@@ -42,6 +42,8 @@ class DeepModeSmokeTest {
         assertEquals(2, obs.size)
         assertEquals("no UserService binding without Shizuku", 0, module.shell.bindAttempts)
 
+        // Rules must cope with an empty scan and with the unavailable one.
+        assertTrue(module.rules.flatMap { it.evaluate(RuleContext(module.id, emptyList(), emptyList(), isFirstScan = true)) }.isEmpty())
         val drafts = module.rules.flatMap { it.evaluate(RuleContext(module.id, obs, emptyList(), isFirstScan = true)) }
         val unavailable = drafts.single()
         assertEquals(DeepRules.DEEP_UNAVAILABLE, unavailable.kind)
