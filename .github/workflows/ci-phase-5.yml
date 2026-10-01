@@ -1,8 +1,12 @@
 name: Phase 5
 
-# Tests only the modules that belong to phase 5. Runs when they change, on any branch.
+# Tests only the modules that belong to phase 5. Runs on this phase's branches, integration and main when they change.
 on:
   push:
+    branches:
+      - 'phase/5-**'
+      - 'ccr-dff99af5-ij1rle'
+      - 'main'
     paths:
       - 'tunnels/homenet/**'
       - 'core/lan/**'

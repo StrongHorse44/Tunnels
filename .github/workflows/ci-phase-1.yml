@@ -1,8 +1,12 @@
 name: Phase 1
 
-# Tests only the modules that belong to phase 1. Runs when they change, on any branch.
+# Tests only the modules that belong to phase 1. Runs on this phase's branches, integration and main when they change.
 on:
   push:
+    branches:
+      - 'phase/1-**'
+      - 'ccr-dff99af5-ij1rle'
+      - 'main'
     paths:
       - 'tunnels/permissions/**'
       - 'tunnels/apk/**'

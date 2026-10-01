@@ -1,8 +1,12 @@
 name: Phase 6
 
-# Tests only the modules that belong to phase 6. Runs when they change, on any branch.
+# Tests only the modules that belong to phase 6. Runs on this phase's branches, integration and main when they change.
 on:
   push:
+    branches:
+      - 'phase/6-**'
+      - 'ccr-dff99af5-ij1rle'
+      - 'main'
     paths:
       - 'tunnels/deepmode/**'
       - '.github/workflows/ci-phase-6.yml'

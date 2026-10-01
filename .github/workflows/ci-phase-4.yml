@@ -1,8 +1,12 @@
 name: Phase 4
 
-# Tests only the modules that belong to phase 4. Runs when they change, on any branch.
+# Tests only the modules that belong to phase 4. Runs on this phase's branches, integration and main when they change.
 on:
   push:
+    branches:
+      - 'phase/4-**'
+      - 'ccr-dff99af5-ij1rle'
+      - 'main'
     paths:
       - 'tunnels/surroundings/**'
       - 'tunnels/explore/**'
