@@ -376,8 +376,11 @@ private fun SettingsPanel(state: SnapshotsState, tint: Color, onLock: (Boolean) 
                 Column(Modifier.weight(1f)) {
                     Text("App lock", style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        if (state.canLock) "Ask for your screen lock or fingerprint when Tunnels comes back after 30 seconds in the background."
-                        else "Unavailable: set a screen lock (PIN, pattern or password) in Android Settings → Security first.",
+                        when {
+                            state.canLock -> "Ask for your screen lock or fingerprint when Tunnels comes back after 30 seconds in the background."
+                            state.lockUnavailable != null -> "Unavailable: ${state.lockUnavailable}"
+                            else -> "Unavailable: set a screen lock (PIN, pattern or password) in Android Settings → Security first."
+                        },
                         style = MaterialTheme.typography.bodySmall, color = if (state.canLock) GlassColors.dim else StatusColors.warn,
                     )
                 }

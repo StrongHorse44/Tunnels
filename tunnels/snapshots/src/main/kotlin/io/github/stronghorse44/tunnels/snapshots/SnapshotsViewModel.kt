@@ -71,6 +71,8 @@ data class SnapshotsState(
     val importError: String? = null,
     val appLockEnabled: Boolean = false,
     val canLock: Boolean = false,
+    /** Why the lock cannot even be checked (a build problem), as opposed to the device simply having no screen lock. */
+    val lockUnavailable: String? = null,
     val keyLevel: String = "",
 )
 
@@ -84,9 +86,7 @@ class SnapshotsViewModel(private val app: Application, private val saved: SavedS
             selected = saved.get<LongArray>(KEY_SELECTED)?.toList().orEmpty(),
             exportNeedsPassword = saved.get<String>(KEY_EXPORT_URI) != null,
             importPending = saved.get<String>(KEY_IMPORT_URI) != null,
-            appLockEnabled = AppLock.isEnabled(app),
-            canLock = AppLock.canLock(app),
-        ),
+        ).withLockStatus(),
     )
     val state: StateFlow<SnapshotsState> = _state.asStateFlow()
 
@@ -411,8 +411,9 @@ class SnapshotsViewModel(private val app: Application, private val saved: SavedS
     // Settings
 
     fun setAppLock(enabled: Boolean) {
-        if (enabled && !AppLock.canLock(app)) {
-            refreshLock()
+        val current = _state.value.withLockStatus()
+        if (enabled && !current.canLock) {
+            _state.value = current
             return
         }
         AppLock.setEnabled(app, enabled)
@@ -420,7 +421,24 @@ class SnapshotsViewModel(private val app: Application, private val saved: SavedS
     }
 
     fun refreshLock() {
-        _state.update { it.copy(appLockEnabled = AppLock.isEnabled(app), canLock = AppLock.canLock(app)) }
+        _state.update { it.withLockStatus() }
+    }
+
+    /**
+     * Reads the lock setting and whether the device can lock. BiometricManager.canAuthenticate needs the normal
+     * USE_BIOMETRIC permission; a build without it throws SecurityException, which must not take the screen down.
+     */
+    private fun SnapshotsState.withLockStatus(): SnapshotsState {
+        val enabled = AppLock.isEnabled(app)
+        return try {
+            copy(appLockEnabled = enabled, canLock = AppLock.canLock(app), lockUnavailable = null)
+        } catch (e: SecurityException) {
+            copy(
+                appLockEnabled = enabled,
+                canLock = false,
+                lockUnavailable = "This build can't check for a screen lock: it lacks the USE_BIOMETRIC permission.",
+            )
+        }
     }
 
     fun clearMessage() = _state.update { it.copy(message = null, error = null) }
