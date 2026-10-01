@@ -16,7 +16,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             TunnelsTheme {
-                StrataHome(onOpenTunnel = { id ->
+                MetroHome(onOpenTunnel = { id ->
                     when (id) {
                         TunnelCatalog.INSTALLER -> startActivity(Intent(this, InstallActivity::class.java))
                         TunnelCatalog.UNZIP -> startActivity(Intent(this, UnzipActivity::class.java))

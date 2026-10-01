@@ -4,46 +4,48 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
-import io.github.stronghorse44.tunnels.model.Stratum
+import io.github.stronghorse44.tunnels.model.MetroLine
 
-object StrataColors {
-    val surface = Color(0xFF5E7F45)
-    val topsoil = Color(0xFF6E4A2E)
-    val bedrock = Color(0xFF474B54)
-    val core = Color(0xFFB4441D)
-    val coreGlow = Color(0xFFE8892B)
-    val explore = Color(0xFF2C5A74)
-
-    fun of(stratum: Stratum): Color = when (stratum) {
-        Stratum.SURFACE -> surface
-        Stratum.TOPSOIL -> topsoil
-        Stratum.BEDROCK -> bedrock
-        Stratum.CORE -> core
-        Stratum.EXPLORE -> explore
+/** The liquid color inside each metro line's glass tube. */
+object LineColors {
+    fun of(line: MetroLine): Color = when (line) {
+        MetroLine.FILES -> Color(0xFF4DD8E6)
+        MetroLine.INSPECT -> Color(0xFFA78BFA)
+        MetroLine.SYSTEM -> Color(0xFFF5B341)
+        MetroLine.ACTIVITY -> Color(0xFF5EE39A)
+        MetroLine.NETWORK -> Color(0xFFFF6B9A)
+        MetroLine.EXPLORE -> Color(0xFF6FA8FF)
     }
 }
 
 object StatusColors {
-    val ok = Color(0xFF7FB069)
-    val info = Color(0xFF7FA7C9)
-    val warn = Color(0xFFE0A84A)
-    val blocker = Color(0xFFE5654B)
+    val ok = Color(0xFF6EE7A8)
+    val info = Color(0xFF7FB8FF)
+    val warn = Color(0xFFF5C451)
+    val blocker = Color(0xFFFF6B6B)
+}
+
+object GlassColors {
+    val void = Color(0xFF060910)
+    val text = Color(0xFFE6EEF7)
+    val dim = Color(0xFF8C9AAD)
 }
 
 private val scheme = darkColorScheme(
-    primary = Color(0xFFE8892B),
-    onPrimary = Color(0xFF1E1206),
-    secondary = Color(0xFFB9A48A),
-    background = Color(0xFF15110E),
-    onBackground = Color(0xFFEDE3D6),
-    surface = Color(0xFF1F1915),
-    onSurface = Color(0xFFEDE3D6),
-    surfaceVariant = Color(0xFF2B231D),
-    onSurfaceVariant = Color(0xFFC9B9A6),
+    primary = Color(0xFF4DD8E6),
+    onPrimary = Color(0xFF02181B),
+    secondary = Color(0xFFA78BFA),
+    background = GlassColors.void,
+    onBackground = GlassColors.text,
+    surface = Color(0xFF0D121A),
+    onSurface = GlassColors.text,
+    surfaceVariant = Color(0xFF151C27),
+    onSurfaceVariant = GlassColors.dim,
+    outline = Color(0x33FFFFFF),
     error = StatusColors.blocker,
 )
 
-/** Always dark: the cross-section reads as underground. */
+/** Always dark: glass reads best over a deep background. */
 @Composable
 fun TunnelsTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = scheme, content = content)

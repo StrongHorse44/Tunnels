@@ -21,6 +21,8 @@ import io.github.stronghorse44.tunnels.common.StagedFile
 import io.github.stronghorse44.tunnels.common.Staging
 import io.github.stronghorse44.tunnels.install.Bundles
 import io.github.stronghorse44.tunnels.install.PackageShape
+import io.github.stronghorse44.tunnels.model.TunnelCatalog
+import io.github.stronghorse44.tunnels.store.TunnelsStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -202,7 +204,18 @@ class UnzipViewModel(private val app: Application, private val saved: SavedState
                     }
                 }
                 pendingTree = null
-                _state.value = UnzipState.Done(listing.name, describeLocation(tree, root.name ?: folderName), root.uri, result)
+                val location = describeLocation(tree, root.name ?: folderName)
+                _state.value = UnzipState.Done(listing.name, location, root.uri, result)
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        TunnelsStore.get(app).recordEvent(
+                            tunnelId = TunnelCatalog.UNZIP,
+                            kind = "EXTRACTED",
+                            subject = listing.name,
+                            summary = "${result.files} files → $location",
+                        )
+                    }
+                }
             } catch (e: CancellationException) {
                 _state.value = UnzipState.Failed("Cancelled", "Files extracted so far were kept.")
                 throw e

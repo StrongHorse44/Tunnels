@@ -1,8 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A shaft drilled down through the layers. -->
+<!-- Two metro lines in glass tubes: cyan trunk, violet branch, glowing station beads. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <path android:fillColor="#FFEDE3D6" android:pathData="M48,26h12v44h-12z" />
-    <path android:fillColor="#FFEDE3D6" android:pathData="M40,70h28l-14,14z" />
+    <group android:translateX="-3">
+    <!-- glass tube bodies -->
+    <path android:pathData="M42,28 L42,80" android:strokeColor="#33FFFFFF" android:strokeWidth="13" android:strokeLineCap="round" />
+    <path android:pathData="M42,54 C42,44 52,40 62,40 L68,40 C72,40 72,36 72,32 L72,28" android:strokeColor="#33FFFFFF" android:strokeWidth="13" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <!-- liquid -->
+    <path android:pathData="M42,28 L42,80" android:strokeColor="#FF4DD8E6" android:strokeWidth="5" android:strokeLineCap="round" />
+    <path android:pathData="M42,54 C42,44 52,40 62,40 L68,40 C72,40 72,36 72,32 L72,28" android:strokeColor="#FFA78BFA" android:strokeWidth="5" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <!-- glass sheen -->
+    <path android:pathData="M38.5,30 L38.5,78" android:strokeColor="#66FFFFFF" android:strokeWidth="1.2" android:strokeLineCap="round" />
+    <!-- stations -->
+    <path android:pathData="M42,32 m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0" android:fillColor="#FFE6FBFD" android:strokeColor="#FF4DD8E6" android:strokeWidth="2" />
+    <path android:pathData="M42,54 m-5.5,0 a5.5,5.5 0 1,0 11,0 a5.5,5.5 0 1,0 -11,0" android:fillColor="#FFFFFFFF" android:strokeColor="#FFA78BFA" android:strokeWidth="2.4" />
+    <path android:pathData="M42,76 m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0" android:fillColor="#FFE6FBFD" android:strokeColor="#FF4DD8E6" android:strokeWidth="2" />
+    <path android:pathData="M72,30 m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0" android:fillColor="#FFF1ECFF" android:strokeColor="#FFA78BFA" android:strokeWidth="2" />
+    </group>
 </vector>

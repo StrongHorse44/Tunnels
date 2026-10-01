@@ -1,10 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Strata, surface to core. -->
+<!-- Deep glass field with pools of colored light. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <path android:fillColor="#5E7F45" android:pathData="M0,0h108v30h-108z" />
-    <path android:fillColor="#6E4A2E" android:pathData="M0,30h108v28h-108z" />
-    <path android:fillColor="#474B54" android:pathData="M0,58h108v26h-108z" />
-    <path android:fillColor="#B4441D" android:pathData="M0,84h108v24h-108z" />
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="0" android:startY="0" android:endX="108" android:endY="108">
+                <item android:offset="0" android:color="#FF0B1422" />
+                <item android:offset="1" android:color="#FF05070D" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="radial" android:centerX="22" android:centerY="20" android:gradientRadius="60">
+                <item android:offset="0" android:color="#552BC4D6" />
+                <item android:offset="1" android:color="#002BC4D6" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="radial" android:centerX="92" android:centerY="80" android:gradientRadius="60">
+                <item android:offset="0" android:color="#448B5CF6" />
+                <item android:offset="1" android:color="#008B5CF6" />
+            </gradient>
+        </aapt:attr>
+    </path>
 </vector>

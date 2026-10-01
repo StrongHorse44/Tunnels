@@ -5,5 +5,5 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
-    <color name="tunnels_background">#FF15110E</color>
+    <color name="tunnels_background">#FF060910</color>
 </resources>

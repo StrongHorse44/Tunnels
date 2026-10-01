@@ -6,6 +6,10 @@
 > Decisions: application ID `io.github.stronghorse44.tunnels`; minSdk 34 / target 36; strata home kept
 > with the other tunnels as placeholders; foundation (SQLCipher store, snapshot/diff engine) built now.
 > Dependencies added for Unzip: Apache Commons Compress + XZ for Java, zip4j (all Apache-2.0, no network).
+> **Design update (2026-10-01):** the strata home is replaced by a **glass metro map** under a
+> **console readout**. Tunnels are stations grouped into metro lines (Files, Inspect, System, Activity,
+> Network, Explore), each line drawn as a colored liquid in its own glass tube; live stations glow,
+> unbuilt ones are hollow on a dashed segment. Explore stays a separate curiosity-only line.
 > RAR is not supported (no good open-source RAR5 decoder; unrar's licence is restrictive).
 
 ## Instructions for Claude Code

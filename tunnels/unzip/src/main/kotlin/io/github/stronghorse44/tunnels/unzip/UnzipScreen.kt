@@ -22,8 +22,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -48,12 +46,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.stronghorse44.tunnels.archive.ArchiveEntry
+import io.github.stronghorse44.tunnels.common.GlassPanel
+import io.github.stronghorse44.tunnels.common.LineColors
 import io.github.stronghorse44.tunnels.common.StatusColors
 import io.github.stronghorse44.tunnels.common.TunnelScaffold
 import io.github.stronghorse44.tunnels.common.formatBytes
 import io.github.stronghorse44.tunnels.install.PackageShape
 import io.github.stronghorse44.tunnels.installer.InstallActivity
-import io.github.stronghorse44.tunnels.model.Stratum
+import io.github.stronghorse44.tunnels.model.MetroLine
 
 @Composable
 fun UnzipScreen(vm: UnzipViewModel, onBack: () -> Unit) {
@@ -71,12 +71,12 @@ fun UnzipScreen(vm: UnzipViewModel, onBack: () -> Unit) {
         if (nav != null) vm.navHandled()
     }
 
-    TunnelScaffold("Unzip", Stratum.TOPSOIL, onBack) { padding ->
+    TunnelScaffold("Unzip", MetroLine.FILES, onBack) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)) {
             when (val s = state) {
                 UnzipState.Idle -> {
                     Spacer(Modifier.height(16.dp))
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                    GlassPanel(Modifier.fillMaxWidth(), tint = LineColors.of(MetroLine.FILES)) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("Open an archive", style = MaterialTheme.typography.titleMedium)
                             Text("zip (including password-protected), 7z, tar, tar.gz, tar.xz, tar.bz2, gz, xz and bz2.", style = MaterialTheme.typography.bodyMedium)
@@ -169,7 +169,7 @@ private fun ListingContent(
     )
     if (s.shape != PackageShape.NOT_AN_APP) {
         Spacer(Modifier.height(8.dp))
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        GlassPanel(Modifier.fillMaxWidth(), tint = LineColors.of(MetroLine.FILES)) {
             Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 val apks = files.filter { it.name.endsWith(".apk", ignoreCase = true) }
                 Text(

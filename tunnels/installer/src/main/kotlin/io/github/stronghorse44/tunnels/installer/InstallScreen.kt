@@ -23,8 +23,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
@@ -47,13 +45,15 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.stronghorse44.tunnels.common.GlassPanel
+import io.github.stronghorse44.tunnels.common.LineColors
 import io.github.stronghorse44.tunnels.common.StatusColors
 import io.github.stronghorse44.tunnels.common.TunnelScaffold
 import io.github.stronghorse44.tunnels.common.formatBytes
 import io.github.stronghorse44.tunnels.install.Check
 import io.github.stronghorse44.tunnels.install.CheckLevel
 import io.github.stronghorse44.tunnels.install.InstallKind
-import io.github.stronghorse44.tunnels.model.Stratum
+import io.github.stronghorse44.tunnels.model.MetroLine
 import io.github.stronghorse44.tunnels.store.EventEntity
 import java.text.DateFormat
 import java.util.Date
@@ -80,7 +80,7 @@ fun InstallScreen(vm: InstallViewModel, onBack: () -> Unit) {
         context.startActivity(Intent(Intent.ACTION_DELETE, Uri.fromParts("package", pkg, null)))
     }
 
-    TunnelScaffold("Installer", Stratum.TOPSOIL, onBack) { padding ->
+    TunnelScaffold("Installer", MetroLine.FILES, onBack) { padding ->
         Column(
             Modifier
                 .fillMaxSize()
@@ -128,7 +128,7 @@ fun InstallScreen(vm: InstallViewModel, onBack: () -> Unit) {
 
 @Composable
 private fun IdleContent(history: List<EventEntity>, onPick: () -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+    GlassPanel(Modifier.fillMaxWidth(), tint = LineColors.of(MetroLine.FILES)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Install an app", style = MaterialTheme.typography.titleMedium)
             Text(
@@ -207,7 +207,7 @@ private fun ReadyContent(
     )
 
     if (!canInstall) {
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        GlassPanel(Modifier.fillMaxWidth(), tint = LineColors.of(MetroLine.FILES)) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Allow Tunnels to install apps", style = MaterialTheme.typography.titleSmall)
                 Text("Android needs your OK once before Tunnels can hand APKs to the system installer.", style = MaterialTheme.typography.bodySmall)

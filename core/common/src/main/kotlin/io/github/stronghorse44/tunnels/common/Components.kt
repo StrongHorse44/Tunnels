@@ -1,60 +1,79 @@
 package io.github.stronghorse44.tunnels.common
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import io.github.stronghorse44.tunnels.model.Stratum
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import io.github.stronghorse44.tunnels.model.MetroLine
 
-/** Screen frame for a tunnel: stratum-colored top bar with the descent path. */
-@OptIn(ExperimentalMaterial3Api::class)
+/** Screen frame for a tunnel: a glass top bar tinted with the tunnel's metro line, over the glass background. */
 @Composable
 fun TunnelScaffold(
     title: String,
-    stratum: Stratum,
+    line: MetroLine,
     onBack: () -> Unit,
     content: @Composable (PaddingValues) -> Unit,
 ) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(title)
-                        Text(
-                            stratum.name.lowercase().replaceFirstChar { it.uppercase() },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.7f),
-                        )
+    val color = LineColors.of(line)
+    GlassBackground {
+        Scaffold(
+            topBar = {
+                GlassPanel(
+                    tint = color,
+                    shape = RoundedCornerShape(bottomStart = 26.dp, bottomEnd = 26.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        Modifier.statusBarsPadding().padding(horizontal = 4.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = GlassColors.text)
+                        }
+                        Column {
+                            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = GlassColors.text)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Spacer(Modifier.size(8.dp).clip(CircleShape).background(color))
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    "${line.label.lowercase()} line",
+                                    fontFamily = FontFamily.Monospace,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = color,
+                                )
+                            }
+                        }
                     }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = StrataColors.of(stratum),
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White,
-                ),
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background,
-        modifier = Modifier.fillMaxSize(),
-    ) { padding -> content(padding) }
+                }
+            },
+            containerColor = Color.Transparent,
+            modifier = Modifier.fillMaxSize(),
+        ) { padding -> content(padding) }
+    }
 }
 
 fun formatBytes(bytes: Long): String = when {
@@ -64,4 +83,3 @@ fun formatBytes(bytes: Long): String = when {
     bytes < 1024L * 1024 * 1024 -> "%.1f MB".format(bytes / (1024.0 * 1024))
     else -> "%.2f GB".format(bytes / (1024.0 * 1024 * 1024))
 }
-

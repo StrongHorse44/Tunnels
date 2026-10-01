@@ -48,7 +48,7 @@ everything, so uninstall wipes all data and nothing goes to cloud backup.
 - `core:store` Room + SQLCipher, Keystore-wrapped key
 - `core:common` theme, shared composables, private staging area for incoming files
 - `tunnels:installer`, `tunnels:unzip` one module per tunnel group; each declares its own permissions
-- `app` strata home; `verifyNoInternet` Gradle task runs before every assemble
+- `app` metro home (console readout + glass metro lines); `verifyNoInternet` Gradle task runs before every assemble
 
 Keep Android-free logic in the plain Kotlin modules so it can be tested without an emulator.
 Google's Maven is not reachable from the cloud dev container: Android modules only compile in CI.
