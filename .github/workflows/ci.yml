@@ -26,7 +26,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Unit tests, no-INTERNET check, debug build
-        run: ./gradlew --no-daemon test verifyNoInternet assembleDebug
+        run: >
+          ./gradlew --no-daemon test verifyNoInternet assembleDebug
+          -Ptunnels.versionCode=${{ github.run_number }}
+          -Ptunnels.versionName=0.1.0-dev.${{ github.run_number }}
 
       - name: Check built APK permissions
         run: scripts/check-apk-permissions.sh app/build/outputs/apk/debug/app-debug.apk
@@ -37,16 +40,26 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14
 
-      # Plain .apk you can tap on the phone (Actions artifacts always arrive zipped).
-      - name: Publish rolling debug build
+      # One prerelease per build, newest first, with a plain .apk you can tap on the phone
+      # (Actions artifacts always arrive zipped). Keeps the newest 10.
+      - name: Publish debug build
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
+          N: ${{ github.run_number }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk tunnels-debug.apk
-          gh release delete debug-latest --yes --cleanup-tag || true
-          gh release create debug-latest tunnels-debug.apk \
-            --prerelease \
-            --target "$GITHUB_SHA" \
-            --title "Debug build (latest)" \
-            --notes "Debug build of ${GITHUB_SHA::7} from ${GITHUB_REF_NAME}. Installs as \"Tunnels (debug)\" next to release builds. Signed with the public debug key in the repo, so it updates over earlier debug builds."
+          short="${GITHUB_SHA::7}"
+          apk="tunnels-debug-$N.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$apk"
+          {
+            git log -1 --format=%B
+            echo
+            echo "---"
+            echo "Debug build #$N of \`$short\` from \`$GITHUB_REF_NAME\`. Installs as \"Tunnels (debug)\" and updates over earlier debug builds."
+          } > notes.md
+          gh release create "debug-$N" "$apk" --prerelease --target "$GITHUB_SHA" \
+            --title "Debug build #$N ($short)" --notes-file notes.md
+          gh release delete debug-latest --yes --cleanup-tag 2>/dev/null || true
+          gh release list --limit 100 --json tagName --jq '.[].tagName' \
+            | grep -E '^debug-[0-9]+$' | sort -t- -k2 -n -r | tail -n +11 \
+            | xargs -r -I{} gh release delete {} --yes --cleanup-tag
