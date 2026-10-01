@@ -15,6 +15,8 @@
 > the single PR targets it; Traffic refuses to start while another VPN is active; Deep mode built fully
 > against Shizuku; Surroundings gets an optional background monitor (foreground service, separate
 > background-location opt-in). INTERNET approved for `tunnels/traffic` and `tunnels/homenet` only.
+> **Status (2026-10-01):** phases 0-6 are built and merged; see README for the tunnel list and
+> docs/BUILD_PLAN.md for follow-ups and device checks.
 > RAR is not supported (no good open-source RAR5 decoder; unrar's licence is restrictive).
 
 ## Instructions for Claude Code

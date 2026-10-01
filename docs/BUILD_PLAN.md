@@ -75,3 +75,27 @@ tests; Maven Central rate-limits (HTTP 429) are transient, retry.
   does not trigger a run).
 - `ci.yml`: integration, `main`, PRs. Full build, all unit tests, permission checks, app emulator
   smoke test, numbered debug release on integration pushes.
+
+## Status (2026-10-01)
+
+All phases are implemented and merged on the integration branch; every module has unit tests and an
+instrumented smoke test that ran on an API 36 emulator. Nothing has been verified on the Pixel 10 yet:
+each module's report lists the device checks that matter, collected in the pull request description.
+
+## Follow-ups (deferred, not blockers)
+
+- Surroundings: FollowingHeuristic aggregates by tracker type; require the same pseudonymous key across
+  3+ sessions for CRITICAL and keep type-level aggregation for WARN. CELL_DOWNGRADED only fires on a
+  snapshot-to-snapshot change; add a change rule on cell:downgradesRecorded for the background monitor.
+- Notifications: a model-level OpenSettings variant carrying a package extra would let the engine own
+  the per-app notification-settings intent (currently a Perform action).
+- Deep mode: ShellRunner timeout kills only the shell, not grandchildren; a single dumpsys appops parse
+  instead of one appops get per package.
+- Silicon: KnownBootKeys and Google roots come from the Auditor source as of this build; refresh them
+  with new Pixels and roots. The expired 2016 RSA root is still accepted (matches Auditor).
+- Trust store: DistrustedRoots matches by subject only; add verified fingerprints.
+- System packages: Pixel vendor/SoC packages (com.shannon.*, com.samsung.slsi.*, …) are unknown to the
+  knowledge base and surface as UNKNOWN_SYSTEM_PACKAGE until added.
+- Timeline: scans without usage access clear non-sticky data findings; consider holding them.
+- Runtime: a shared "is system app" helper for the PackageManager tunnels; a hard cap on the generic
+  observations list for tunnels with hundreds of subjects.
