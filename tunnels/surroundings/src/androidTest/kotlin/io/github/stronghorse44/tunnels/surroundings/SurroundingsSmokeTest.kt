@@ -39,7 +39,9 @@ import org.junit.runner.RunWith
 /**
  * Runs the surroundings scan on the emulator as the engine would. A stock emulator has no Bluetooth
  * adapter and, before anything is granted, no permissions: the scan must still come back with a
- * well-formed summary that says so, and must finish inside the engine's patience.
+ * well-formed summary that says so, and must finish inside the engine's patience. The tracker v2
+ * parts that need no tag (Apple frame parser, proximity, verdict, DULT codec, the actions and the
+ * find-it screen) are exercised here as well.
  */
 @RunWith(AndroidJUnit4::class)
 class SurroundingsSmokeTest {
