@@ -80,9 +80,13 @@ class SnapshotsSmokeTest {
     fun screenOpens() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         ActivityScenario.launch<SnapshotsActivity>(SnapshotsActivity.intent(context)).use { scenario ->
-            // The ViewModel opens the store and reads the history in the background; give it a moment to crash if it will.
-            Thread.sleep(2500)
+            // The ViewModel opens the store and reads the history in the background: a slow emulator may need a
+            // few seconds to resume, and a crash in that work would tear the activity down again.
+            val deadline = System.currentTimeMillis() + 10_000
+            while (scenario.state != Lifecycle.State.RESUMED && System.currentTimeMillis() < deadline) Thread.sleep(250)
             assertEquals(Lifecycle.State.RESUMED, scenario.state)
+            Thread.sleep(2000)
+            assertEquals("still resumed after the store opened", Lifecycle.State.RESUMED, scenario.state)
         }
     }
 }
