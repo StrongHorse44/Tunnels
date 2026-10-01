@@ -1,2 +1,6 @@
 # Permissions the explore module may declare, one per line. CI fails on anything else.
 # Sensors and cameras need none: SensorManager.getSensorList and CameraCharacteristics are permission-free.
+# Satellites: GnssStatus is a location API. No position is stored.
+android.permission.ACCESS_FINE_LOCATION
+# Radio: only for TelephonyManager.getDataNetworkType; everything else it reads is permission-free.
+android.permission.READ_PHONE_STATE

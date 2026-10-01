@@ -22,7 +22,9 @@ object SurroundingsKeys {
     const val TRACKERS_TOTAL = "trackers:total"
     const val TRACKERS_BY_TYPE = "trackers:byType"
     const val TRACKERS_UNLISTED = "trackers:unlisted"
-    const val SESSIONS_30D = "sessions:30d"
+    /** Scan sessions of the last 30 days in which at least one tracker was seen. */
+    const val SESSIONS_30D = "sessions:withTrackers:30d"
+    const val WIFI_TWINS_RECORDED = "wifi:twinsRecorded:30d"
 
     const val SEEN_COUNT = "seen:count"
     const val SEEN_SESSIONS = "seen:sessions"
@@ -140,11 +142,12 @@ object SurroundingsKeys {
         return out
     }
 
-    fun wifiObservations(summaries: List<WifiSummary>, available: String): List<Observation> {
+    fun wifiObservations(summaries: List<WifiSummary>, available: String, twinsRecorded: Int = 0): List<Observation> {
         val out = ArrayList<Observation>()
         fun add(subject: String, key: String, value: String) = out.add(Observation(TUNNEL_ID, subject, key, value))
         add(WIFI_SUMMARY, WIFI_AVAILABLE, available)
         add(WIFI_SUMMARY, WIFI_NETWORKS, summaries.size.toString())
+        add(WIFI_SUMMARY, WIFI_TWINS_RECORDED, twinsRecorded.toString())
         // The connected network and suspects always make the list; the rest by name.
         val ordered = summaries.sortedWith(compareByDescending<WifiSummary> { it.current }.thenByDescending { it.twinSuspect != null }.thenBy { it.subject })
         for (s in ordered.take(MAX_LISTED_NETWORKS)) {
