@@ -70,7 +70,9 @@ object BleWindow {
         var failure: Int? = null
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) = handle(result)
-            override fun onBatchScanResults(results: MutableList<ScanResult>) = results.forEach(::handle)
+            override fun onBatchScanResults(results: MutableList<ScanResult>) {
+                results.forEach { handle(it) }
+            }
             override fun onScanFailed(errorCode: Int) {
                 failure = errorCode
             }
