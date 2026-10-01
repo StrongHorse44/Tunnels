@@ -101,10 +101,11 @@ class DnsForwarder(
         when (val packet = IpPackets.parse(buffer, length)) {
             is IpPacket.Udp -> if (packet.dstPort == DnsMessage.PORT) query(packet) else dropped.incrementAndGet()
             is IpPacket.Other -> {
-                if (packet.protocol == IpPackets.PROTO_TCP && packet.dstPort == DnsMessage.PORT_TLS) {
+                val dstPort = packet.dstPort
+                if (packet.protocol == IpPackets.PROTO_TCP && dstPort == DnsMessage.PORT_TLS) {
                     // Encrypted DNS attempt: count it against the app, nothing else can be read.
                     val uid = try {
-                        ownerUid(OsConstants.IPPROTO_TCP, packet.src, packet.srcPort ?: 0, packet.dst, packet.dstPort)
+                        ownerUid(OsConstants.IPPROTO_TCP, packet.src, packet.srcPort ?: 0, packet.dst, dstPort)
                     } catch (_: Exception) {
                         -1
                     }
