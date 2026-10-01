@@ -11,6 +11,10 @@ import android.content.pm.ServiceInfo
 import android.os.IBinder
 import android.util.Log
 import io.github.stronghorse44.tunnels.ble.CellSummary
+import io.github.stronghorse44.tunnels.ble.FollowingHeuristic
+import io.github.stronghorse44.tunnels.ble.FollowingLevel
+import io.github.stronghorse44.tunnels.ble.SightingAggregator
+import io.github.stronghorse44.tunnels.ble.SightingRecord
 import io.github.stronghorse44.tunnels.ble.SurroundingsKeys
 import io.github.stronghorse44.tunnels.ble.TrackerSignatures
 import io.github.stronghorse44.tunnels.ble.TrackerState
@@ -45,6 +49,10 @@ data class MonitorState(
     val trackerTypes: Set<String> = emptySet(),
     /** The same keys by their latest state, so the notification can use the tracker section's words. */
     val keysByState: Map<TrackerState, Int> = emptyMap(),
+    /** Unmuted identities close to following ([FollowingHeuristic.isClose]) but not over the threshold; judged per identity. */
+    val keysClose: Int = 0,
+    /** Unmuted identities over the following threshold since start (mutes as they stood when the monitor started). */
+    val keysFollowing: Int = 0,
     val bleAvailable: String? = null,
     val lastCell: String? = null,
     /** Why the monitor stopped or could not start. */
@@ -66,7 +74,9 @@ data class MonitorState(
 class MonitorService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var loop: Job? = null
-    /** Key → latest state; separated sticks once seen, like the aggregator's family state. */
+    /** Key → that identity's sightings since start, folded (one record per window) by the same aggregator the scan uses. */
+    private val keyRecords = HashMap<String, MutableList<SightingRecord>>()
+    /** Key → latest state; separated sticks once seen. */
     private val keys = HashMap<String, TrackerState>()
     private val types = HashSet<String>()
     private var lastWifiCellAt = 0L
@@ -96,11 +106,14 @@ class MonitorService : Service() {
         val initial = MonitorState(running = true, startedAt = System.currentTimeMillis())
         if (!foreground(initial)) return
         keys.clear()
+        keyRecords.clear()
         types.clear()
         lastWifiCellAt = 0L
         _state.value = initial
         loop = scope.launch {
             try {
+                // Mutes are read once at start: identities the user muted (or whose family carries a legacy mute) never count.
+                val muted = withContext(Dispatchers.IO) { SurroundingsTunnel.activeMutes(this@MonitorService, null, initial.startedAt) }
                 while (isActive && !stopping) {
                     val now = System.currentTimeMillis()
                     if (now - initial.startedAt >= MAX_DURATION_MS) {
@@ -129,15 +142,21 @@ class MonitorService : Service() {
                             val previous = keys[s.key]
                             keys[s.key] = if (previous == TrackerState.SEPARATED) previous else s.state
                             types += s.type.slug
+                            // Only what the aggregate needs (session, time, state); the full row went to the store.
+                            keyRecords.getOrPut(s.key) { ArrayList() } += s.copy(battery = null, kind = null)
                         }
                     }
                     record(ble, cell, twins)
+                    val judged = SightingAggregator.aggregate(keyRecords.values.flatten()).devices.values
+                        .filterNot { d -> SurroundingsKeys.isMuted(d.type, d.key, muted) }
                     _state.update {
                         it.copy(
                             windows = it.windows + 1,
                             trackerKeys = keys.size,
                             trackerTypes = types.toSet(),
                             keysByState = keys.values.groupingBy { s -> s }.eachCount(),
+                            keysClose = judged.count { d -> d.level == FollowingLevel.NONE && FollowingHeuristic.isClose(d.sessions, d.spanMinutes) },
+                            keysFollowing = judged.count { d -> d.level != FollowingLevel.NONE },
                             bleAvailable = ble?.available ?: SurroundingsKeys.AVAILABLE_FAILED,
                             lastCell = cell?.registered?.slug ?: it.lastCell,
                         )
@@ -222,7 +241,7 @@ class MonitorService : Service() {
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setContentTitle("Surroundings monitor on")
-            .setContentText(SurroundingsFormat.monitorLine(state.windows, state.keysByState, state.lastCell))
+            .setContentText(SurroundingsFormat.monitorLine(state.windows, state.keysByState, state.lastCell, state.keysClose, state.keysFollowing))
             .setSubText("BLE every ${BLE_INTERVAL_MS / 60_000} min · stops after ${MAX_DURATION_MS / 3_600_000} h")
             .setOngoing(true)
             .setOnlyAlertOnce(true)

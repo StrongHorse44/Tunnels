@@ -79,7 +79,7 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
         val cutoff = now - RETENTION_MS
         val recent = history.filter { it.at >= cutoff }
         val sightings = recent.filter { it.kind == SurroundingsKeys.EVENT_SIGHTING }.mapNotNull { SightingRecord.parse(it.subject, it.summary) } + ble.sightings
-        val muted = SurroundingsKeys.activeMutes(recent.map { SurroundingsKeys.MuteRow(it.kind, it.subject, it.at) }, now)
+        val muted = activeMutes(context, recent, now)
         val aggregate = SightingAggregator.aggregate(sightings)
         val sessions = sightings.map { it.session }.toSet().size
 
@@ -117,7 +117,7 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
 
     /** Routed by the finding's kind, never its subject: a Wi-Fi SSID can be any string, including one that looks like a tracker or cell subject. */
     override fun actionsFor(draft: FindingDraft): List<FindingAction> = when (draft.kind) {
-        SurroundingsRules.TRACKER_FOLLOWING, SurroundingsRules.NEW_TRACKER_TYPE -> trackerActions(draft.subject)
+        SurroundingsRules.TRACKER_FOLLOWING, SurroundingsRules.ROTATING_TRACKER, SurroundingsRules.NEW_TRACKER_TYPE -> trackerActions(draft.subject)
         SurroundingsRules.CELL_DOWNGRADE, SurroundingsRules.CELL_DOWNGRADED -> listOf(
             FindingAction.OpenSettings(Settings.ACTION_NETWORK_OPERATOR_SETTINGS, "Mobile network settings"),
         )
@@ -127,19 +127,22 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
     /**
      * A tracker finding offers find it, Android's own alerts and the mute; the brand guides (identify,
      * disable, report) are sheets in the identity detail, too long for a finding's one-line result.
-     * [subject] is a type or a device subject; one that does not parse gets no find-it entry rather than
-     * a guess at the family.
+     * Following findings are on identity subjects (`tracker:<type>:<key>`): find-it locks to that key and the
+     * mute covers that identity only. A family subject (the new-family notice) gets find it and the alerts but
+     * no mute: a family-wide mute would also silence a planted tag of the same kind. A subject that does not
+     * parse gets neither find it nor mute rather than a guess.
      */
     fun trackerActions(subject: String): List<FindingAction> {
         val parsed = SurroundingsKeys.parseTrackerSubject(subject)
         return listOfNotNull(
             parsed?.let { (type, key) -> TrackerActions.findIt(context, type, key) },
             TrackerActions.unknownTrackerAlerts(context),
-            muteAction(subject),
+            parsed?.second?.let { muteAction(subject) },
         )
     }
 
-    fun muteAction(subject: String): FindingAction = FindingAction.Perform("Known tracker: mute 30 days") { mute(subject) }
+    /** Mutes one identity for [SurroundingsKeys.MUTE_DAYS] days. Only ever offered for identity subjects. */
+    fun muteAction(subject: String): FindingAction = FindingAction.Perform(LABEL_MUTE) { mute(subject) }
 
     /**
      * Cancels the mute on each of [subjects] (an identity and, if the whole family was muted, the family).
@@ -148,16 +151,18 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
     fun unmuteAction(vararg subjects: String): FindingAction = FindingAction.Perform("Unmute", destructive = true) {
         try {
             val store = TunnelsStore.get(context)
-            subjects.forEach { store.recordEvent(id, SurroundingsKeys.EVENT_UNMUTE, it, "unmuted") }
-            "Unmuted ${SurroundingsFormat.trackerTitle(subjects.first())}. It is judged again from this scan on."
+            subjects.forEach { store.recordEvent(SurroundingsKeys.MUTE_LEDGER, SurroundingsKeys.EVENT_UNMUTE, it, "unmuted") }
+            SurroundingsFormat.unmuteMessage(subjects.toList())
         } catch (e: Exception) {
             "Could not save the unmute: ${e.javaClass.simpleName}"
         }
     }
 
-    /** Records a mute row for the tracker subject; the next scan marks it muted and the finding clears. */
-    private suspend fun mute(subject: String): String = try {
-        TunnelsStore.get(context).recordEvent(id, SurroundingsKeys.EVENT_MUTE, subject, "muted")
+    /** Records a mute row for the identity subject; the next scan marks it muted and the finding clears. */
+    private suspend fun mute(subject: String): String = if (SurroundingsKeys.parseTrackerSubject(subject)?.second == null) {
+        "Only a single identity can be muted."
+    } else try {
+        TunnelsStore.get(context).recordEvent(SurroundingsKeys.MUTE_LEDGER, SurroundingsKeys.EVENT_MUTE, subject, "muted")
         "Muted ${SurroundingsFormat.trackerTitle(subject)} for ${SurroundingsKeys.MUTE_DAYS} days. It stays in the list without a warning."
     } catch (e: Exception) {
         "Could not save the mute: ${e.javaClass.simpleName}"
@@ -170,6 +175,30 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
 
     companion object {
         private const val TAG = "Surroundings"
+        const val LABEL_MUTE = "Known tracker: mute 30 days"
+
+        /**
+         * Subjects muted right now. Mute rows since v3 come from their own small stream
+         * ([SurroundingsKeys.MUTE_LEDGER]), so thousands of sighting rows never crowd them out; rows written before
+         * v3 are picked from [legacy] (the tunnel's own events, already read by the caller) when given, else from a
+         * bounded read of that stream. Workaround until the store offers a kind-filtered events query.
+         */
+        suspend fun activeMutes(context: Context, legacy: List<EventEntity>?, now: Long): Set<String> {
+            val rows = try {
+                val store = TunnelsStore.get(context)
+                val ledger = withTimeoutOrNull(STORE_TIMEOUT_MS) { store.dao.events(SurroundingsKeys.MUTE_LEDGER, SurroundingsKeys.MAX_MUTE_ROWS).first() }.orEmpty()
+                val old = legacy ?: withTimeoutOrNull(STORE_TIMEOUT_MS) { store.dao.events(SurroundingsKeys.TUNNEL_ID, MAX_EVENTS).first() }.orEmpty()
+                ledger + old
+            } catch (e: Exception) {
+                Log.w(TAG, "mutes unavailable: ${e.javaClass.simpleName}")
+                legacy.orEmpty()
+            }
+            return SurroundingsKeys.activeMutes(
+                rows.filter { it.kind == SurroundingsKeys.EVENT_MUTE || it.kind == SurroundingsKeys.EVENT_UNMUTE }
+                    .map { SurroundingsKeys.MuteRow(it.kind, it.subject, it.at) },
+                now,
+            )
+        }
         private const val STEPS = 6
         const val BLE_WINDOW_MS = 15_000L
         private const val GRACE_MS = 5_000L

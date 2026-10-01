@@ -44,11 +44,11 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.stronghorse44.tunnels.ble.AppleFindMyFrame
+import io.github.stronghorse44.tunnels.ble.FamilyFacts
+import io.github.stronghorse44.tunnels.ble.FamilySummary
 import io.github.stronghorse44.tunnels.ble.FollowingLevel
-import io.github.stronghorse44.tunnels.ble.FollowingProgress
 import io.github.stronghorse44.tunnels.ble.IdentityFacts
 import io.github.stronghorse44.tunnels.ble.SurroundingsKeys
-import io.github.stronghorse44.tunnels.ble.SurroundingsRules
 import io.github.stronghorse44.tunnels.ble.ThreatSummary
 import io.github.stronghorse44.tunnels.ble.TrackerGuides
 import io.github.stronghorse44.tunnels.ble.TrackerSignatures
@@ -167,7 +167,7 @@ private fun MonitorCard(actions: TunnelScreenActions) {
                 Column(Modifier.weight(1f)) {
                     Text("Background monitor", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
-                        if (monitor.running) "On for ${SurroundingsFormat.elapsed(now - monitor.startedAt)} · ${SurroundingsFormat.monitorLine(monitor.windows, monitor.keysByState, monitor.lastCell)}"
+                        if (monitor.running) "On for ${SurroundingsFormat.elapsed(now - monitor.startedAt)} · ${SurroundingsFormat.monitorLine(monitor.windows, monitor.keysByState, monitor.lastCell, monitor.keysClose, monitor.keysFollowing)}"
                         else "Off",
                         style = MaterialTheme.typography.bodySmall,
                         color = if (monitor.running) StatusColors.ok else GlassColors.dim,
@@ -207,22 +207,21 @@ private fun TrackerSection(state: TunnelScreenState, actions: TunnelScreenAction
     val cards = remember(state.observations) { SurroundingsFormat.trackerCards(state.observations) }
     if (cards.isEmpty()) return
     val identities = remember(cards) { cards.flatMap { it.identities } }
-    val levels = remember(cards) { cards.associate { it.type to it.level } }
-    val scansByType = remember(cards) { cards.associate { it.type to it.sessions } }
     val unlisted = state.observations.fact(SurroundingsKeys.BLE_SUMMARY, SurroundingsKeys.TRACKERS_UNLISTED)?.toIntOrNull() ?: 0
     var sheet by remember { mutableStateOf<Sheet?>(null) }
-    val worst = levels.values.maxByOrNull { it.ordinal } ?: FollowingLevel.NONE
+    val worst = identities.maxOfOrNull { it.level } ?: FollowingLevel.NONE
     val summaryColor = when {
         worst == FollowingLevel.CRITICAL -> StatusColors.blocker
         worst == FollowingLevel.WARN -> StatusColors.warn
-        identities.any { it.state == TrackerState.SEPARATED && !it.muted } -> StatusColors.warn
+        // A separated identity close to following is worth a glance; a crowd of passers-by is not.
+        identities.any { it.state == TrackerState.SEPARATED && it.close } -> StatusColors.warn
         else -> GlassColors.text
     }
 
     Text("Trackers · ${identities.size + unlisted}", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = GlassColors.dim, modifier = Modifier.padding(start = 6.dp, top = 6.dp))
     GlassPanel(Modifier.fillMaxWidth(), tint = summaryColor) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(ThreatSummary.line(identities, levels, scansByType, unlisted), style = MaterialTheme.typography.titleSmall, color = summaryColor)
+            Text(ThreatSummary.line(identities, unlisted), style = MaterialTheme.typography.titleSmall, color = summaryColor)
             MonitorReconcile(state, actions)
         }
     }
@@ -248,7 +247,7 @@ private fun MonitorReconcile(state: TunnelScreenState, actions: TunnelScreenActi
     val lastScan = state.lastScan?.toEpochMilli() ?: 0L
     when {
         monitor.running -> Text(
-            "Background monitor, live: ${ThreatSummary.monitorLine(monitor.keysByState)}. The summary above is the last scan's; scan again to fold the monitor's sightings in.",
+            "Background monitor, live: ${ThreatSummary.monitorLine(monitor.keysByState, monitor.keysClose, monitor.keysFollowing)}. The summary above is the last scan's; scan again to fold the monitor's sightings in.",
             style = MaterialTheme.typography.labelSmall, color = GlassColors.dim,
         )
         monitor.stoppedAt > lastScan && monitor.trackerKeys > 0 -> Row(verticalAlignment = Alignment.CenterVertically) {
@@ -263,13 +262,9 @@ private fun MonitorReconcile(state: TunnelScreenState, actions: TunnelScreenActi
 
 @Composable
 private fun TypeCard(card: SurroundingsFormat.TrackerCard, state: TunnelScreenState, actions: TunnelScreenActions, openSheet: (Sheet) -> Unit) {
-    val level = card.level
-    val tint = when {
-        card.muted -> GlassColors.dim
-        level == FollowingLevel.CRITICAL -> StatusColors.blocker
-        level == FollowingLevel.WARN || card.state == TrackerState.SEPARATED -> StatusColors.warn
-        else -> line
-    }
+    // The family is a summary: its tint follows its worst identity, never family-wide counts.
+    val tint = levelTint(card.worstLevel, card.muted)
+    val family = card.family
     var open by remember(card.subject) { mutableStateOf<String?>(null) }
     GlassPanel(Modifier.fillMaxWidth(), tint = tint) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -282,60 +277,72 @@ private fun TypeCard(card: SurroundingsFormat.TrackerCard, state: TunnelScreenSt
                 }
             }
             val module = state.module as? SurroundingsTunnel
+            // Family-wide mutes are no longer offered; one saved by an earlier version still applies until it ends.
             if (card.muted && module != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "Muted: no warnings for this family until the mute ends or you unmute it.",
+                        "Muted as a whole family: no warnings for any of its identities until the mute ends or you unmute it. New mutes apply to one identity.",
                         style = MaterialTheme.typography.labelSmall, color = GlassColors.dim, modifier = Modifier.weight(1f),
                     )
                     OutlinedButton(onClick = { actions.perform(module.unmuteAction(card.subject)) }, enabled = !state.scan.running) { Text("Unmute") }
                 }
             }
             Text(
-                "${ThreatSummary.identities(card.devicesCount)} · ${card.sessions} scan${if (card.sessions == 1) "" else "s"} over ${SurroundingsRules.duration(card.spanMinutes)} · " +
-                    SurroundingsFormat.stateLabel(card.state) + (if (card.seenToday) " · seen today" else ""),
+                FamilySummary.headline(family) + (if (card.seenToday) " · seen today" else ""),
                 style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
             )
-            FollowingMeter(card.progress, level, tint)
+            Text(FamilySummary.states(family), style = MaterialTheme.typography.bodySmall, color = GlassColors.dim)
+            ClosestMeter(family, tint)
             Text(TrackerSignatures.of(card.type).basis, style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)
             if (card.devices.isEmpty()) {
                 Text("Identities beyond the first ${SurroundingsKeys.MAX_LISTED_DEVICES} are counted, not listed.", style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)
             }
             card.devices.forEach { d ->
                 val f = d.identity(card.type)
-                IdentityRow(f, tint, open == d.key) { open = if (open == d.key) null else d.key }
-                if (open == d.key) IdentityDetail(f, card, level, state, actions, openSheet)
+                IdentityRow(f, open == d.key) { open = if (open == d.key) null else d.key }
+                if (open == d.key) IdentityDetail(f, card.muted, state, actions, openSheet)
             }
         }
     }
 }
 
-/** Scans and minutes toward the following threshold, as two small bars. */
+private fun levelTint(level: FollowingLevel, muted: Boolean): Color = when {
+    muted -> GlassColors.dim
+    level == FollowingLevel.CRITICAL -> StatusColors.blocker
+    level == FollowingLevel.WARN -> StatusColors.warn
+    else -> line
+}
+
+/** The family's closest identity against the following threshold: one line and two small bars (scans, minutes). */
 @Composable
-private fun FollowingMeter(progress: FollowingProgress, level: FollowingLevel, tint: Color) {
+private fun ClosestMeter(family: FamilyFacts, tint: Color) {
+    val progress = family.closestProgress
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                if (level == FollowingLevel.NONE) "Following: ${progress.label}" else "Following: threshold reached (${progress.label})",
-                fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = if (level == FollowingLevel.NONE) GlassColors.dim else tint, modifier = Modifier.weight(1f),
-            )
-        }
+        Text(
+            FamilySummary.closest(family),
+            fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = if (family.following > 0) tint else GlassColors.dim,
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            LinearProgressIndicator(progress = { progress.scanFraction }, modifier = Modifier.weight(1f).height(4.dp), color = tint)
-            LinearProgressIndicator(progress = { progress.minuteFraction }, modifier = Modifier.weight(1f).height(4.dp), color = tint)
+            LinearProgressIndicator(progress = { progress?.scanFraction ?: 0f }, modifier = Modifier.weight(1f).height(4.dp), color = tint)
+            LinearProgressIndicator(progress = { progress?.minuteFraction ?: 0f }, modifier = Modifier.weight(1f).height(4.dp), color = tint)
         }
     }
 }
 
 @Composable
-private fun IdentityRow(f: IdentityFacts, tint: Color, open: Boolean, onClick: () -> Unit) {
+private fun IdentityRow(f: IdentityFacts, open: Boolean, onClick: () -> Unit) {
+    val tint = levelTint(f.level, f.muted)
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(f.key, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = tint, modifier = Modifier.weight(0.3f))
         Text(
             listOfNotNull(
                 SurroundingsFormat.stateLabel(f.state),
                 f.proximityLast?.label,
-                "${f.scans} scan${if (f.scans == 1) "" else "s"}",
+                when {
+                    f.muted -> "muted"
+                    f.level != FollowingLevel.NONE -> "following"
+                    else -> f.progress.scansHint
+                },
                 if (f.seenThisScan) "this scan" else f.lastSeen?.let { "last ${SurroundingsFormat.timeOf(it)}" },
             ).joinToString(" · "),
             fontFamily = FontFamily.Monospace, fontSize = 11.sp, modifier = Modifier.weight(0.7f),
@@ -348,8 +355,8 @@ private fun IdentityRow(f: IdentityFacts, tint: Color, open: Boolean, onClick: (
 @Composable
 private fun IdentityDetail(
     f: IdentityFacts,
-    card: SurroundingsFormat.TrackerCard,
-    level: FollowingLevel,
+    /** The identity's family carries a mute saved before v3: unmuting the identity has to lift that too. */
+    familyMuted: Boolean,
     state: TunnelScreenState,
     actions: TunnelScreenActions,
     openSheet: (Sheet) -> Unit,
@@ -369,7 +376,7 @@ private fun IdentityDetail(
             f.battery?.let { FactRow("battery", it) }
             AppleFindMyFrame.kindLabel(f.kind)?.let { FactRow("kind", it) }
         }
-        Text(TrackerVerdict.line(f, card.progress, level, card.separatedSessions, card.separatedMinutes), style = MaterialTheme.typography.bodySmall)
+        Text(TrackerVerdict.line(f), style = MaterialTheme.typography.bodySmall)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Button(onClick = { actions.perform(TrackerActions.findIt(context, f.type, f.key)) }) { Text(TrackerActions.LABEL_FIND_IT) }
             OutlinedButton(onClick = { actions.perform(TrackerActions.unknownTrackerAlerts(context)) }) { Text(TrackerActions.LABEL_ALERTS) }
@@ -378,9 +385,12 @@ private fun IdentityDetail(
             OutlinedButton(onClick = {
                 openSheet(Sheet(LABEL_REPORT, TrackerGuides.report.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n\n") + "\n\n" + guide.reportNote))
             }) { Text(LABEL_REPORT) }
-            if (tunnel != null && !f.muted) OutlinedButton(onClick = { actions.perform(tunnel.muteAction(subject)) }) { Text("Known tracker: mute") }
+            if (tunnel != null && !f.muted) OutlinedButton(onClick = { actions.perform(tunnel.muteAction(subject)) }) { Text(SurroundingsTunnel.LABEL_MUTE) }
             if (tunnel != null && f.muted) {
-                OutlinedButton(onClick = { actions.perform(tunnel.unmuteAction(subject, SurroundingsKeys.typeSubject(f.type))) }) { Text("Unmute") }
+                OutlinedButton(onClick = {
+                    val subjects = if (familyMuted) arrayOf(subject, SurroundingsKeys.typeSubject(f.type)) else arrayOf(subject)
+                    actions.perform(tunnel.unmuteAction(*subjects))
+                }) { Text("Unmute") }
             }
         }
         Text(TrackerGuides.UNKNOWN_TRACKER_ALERTS, style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)
@@ -407,7 +417,8 @@ private fun GuideCard() {
             if (open) {
                 Text(TrackerGuides.SEARCH, style = MaterialTheme.typography.bodySmall)
                 Text(
-                    "A tag of your own, or a companion's, follows you too: mute it from its row and it stays listed without a warning. " +
+                    "Each identity is judged on its own, so a crowd of strangers' tags of one kind never adds up to \"following\". " +
+                        "A tag of your own, or a companion's, follows you too: mute it from its row and it stays listed without a warning. " +
                         "Only Apple tags say whether they are near their owner; for the others Tunnels can only count how often they recur. " +
                         "Each identity's row opens a detail with its times, signal and the steps to identify, disable and report the tag.",
                     style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,

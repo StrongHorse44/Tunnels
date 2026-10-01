@@ -12,6 +12,15 @@ object SurroundingsKeys {
     const val EVENT_WIFI = "wifi.check"
     const val EVENT_MUTE = "tracker.mute"
     const val EVENT_UNMUTE = "tracker.unmute"
+    /**
+     * The events stream (the `tunnel_id` column) mute and unmute rows are written to since v3, apart from the
+     * sightings, so a bounded read of the few mute rows is never crowded out by thousands of sighting rows.
+     * The store has no kind-filtered query yet; this separate stream is the workaround. Rows written before
+     * v3 sit in the [TUNNEL_ID] stream and are still read from there.
+     */
+    const val MUTE_LEDGER = "surroundings.mutes"
+    /** Mute rows read from [MUTE_LEDGER]: one per user tap, so a few hundred cover 30 days with room to spare. */
+    const val MAX_MUTE_ROWS = 2_000
     const val EVENT_MONITOR = "monitor"
     /** One find-it session: `minutes=3;closest=-48;type=findmy`. Nothing else of the session is kept. */
     const val EVENT_FINDIT = "findit.session"
@@ -34,12 +43,15 @@ object SurroundingsKeys {
     const val SEEN_COUNT = "seen:count"
     const val SEEN_SESSIONS = "seen:sessions"
     const val SEEN_SPAN = "seen:spanMinutes"
+    /** Per-identity subjects only (since v3): sessions and minutes in which that identity said it was away from its owner. */
     const val SEEN_SESSIONS_SEPARATED = "seen:sessions:separated"
     const val SEEN_SPAN_SEPARATED = "seen:spanMinutes:separated"
     const val SEEN_LAST_DAY = "seen:lastDay"
     /** Epoch millis of the first and last sighting of a device (per-device subjects only). */
     const val SEEN_FIRST = "seen:first"
     const val SEEN_LAST = "seen:last"
+    /** True when the identity was seen within [FollowingHeuristic.RECENT_DAYS] days: only then can it carry a following finding. */
+    const val SEEN_RECENT = "seen:recent"
     /** True when the device was in the scan that produced this snapshot, not only in the 30-day history. */
     const val SEEN_THIS_SCAN = "seen:thisScan"
     const val RSSI_AVG = "rssi:avg"
@@ -50,6 +62,27 @@ object SurroundingsKeys {
     /** Device kind slug (Apple only): airtag, accessory, airpods, apple-device. */
     const val KIND = "kind"
     const val DEVICES = "devices"
+    /** Family subjects: how many of the family's identities last reported each state (all identities, listed or not). */
+    const val DEVICES_WITH_OWNER = "devices:withOwner"
+    const val DEVICES_SEPARATED = "devices:separated"
+    const val DEVICES_UNKNOWN = "devices:unknown"
+    /**
+     * Family subjects: the unmuted identity of the family closest to following ([FollowingHeuristic.closeness]),
+     * or [NONE] when no recent unmuted identity is close ([FollowingHeuristic.isClose]); with its own scans and minutes.
+     */
+    const val CLOSEST_KEY = "following:closest"
+    const val CLOSEST_SESSIONS = "following:closest:sessions"
+    const val CLOSEST_SPAN = "following:closest:spanMinutes"
+    /** Family subjects: unmuted identities at WARN or above. */
+    const val FOLLOWING_COUNT = "following:identities"
+    /**
+     * Family subjects, non-Apple only and only when [RotatingTagHeuristic] matches: the sessions, minutes and
+     * distinct keys of what may be one tag changing its identity.
+     */
+    const val ROTATING_SESSIONS = "rotating:sessions"
+    const val ROTATING_SPAN = "rotating:spanMinutes"
+    const val ROTATING_KEYS = "rotating:keys"
+    const val NONE = "none"
     const val CONFIDENCE = "confidence"
     const val MUTED = "muted"
 
@@ -127,8 +160,9 @@ object SurroundingsKeys {
         "type=${type.slug};minutes=$minutes" + (closestDbm?.let { ";closest=$it" } ?: "")
 
     /**
-     * Observations for the BLE side. [muted] holds subjects the user marked as known trackers (type or
-     * device subjects); their observations stay but carry `muted=true` so the rules skip them.
+     * Observations for the BLE side. [muted] holds subjects the user marked as known trackers: identity
+     * subjects, and family subjects muted before v3 (still honoured until they expire, never offered again);
+     * their observations stay but carry `muted=true` so the rules skip them.
      * [currentSession] is the scan window that produced this snapshot: devices last seen in it are marked
      * [SEEN_THIS_SCAN], the rest come from the 30-day history only.
      */
@@ -151,40 +185,72 @@ object SurroundingsKeys {
         val byType = aggregate.types.values.sortedBy { it.type.slug }
         add(BLE_SUMMARY, TRACKERS_BY_TYPE, if (byType.isEmpty()) "none" else byType.joinToString(",") { "${it.type.slug}=${it.devices}" })
 
+        fun isMuted(d: DeviceSighting) = isMuted(d.type, d.key, muted)
+        // Unmuted and closest to following first, so an identity near the threshold is listed (and so judged).
+        val devices = aggregate.devices.values.sortedWith(FollowingHeuristic.deviceOrder(now, ::isMuted))
+        fun level(d: DeviceSighting) = FollowingHeuristic.level(d, now)
+
+        // Family subjects are a summary of their identities; the following rule never reads them.
         for (t in byType) {
             val subject = typeSubject(t.type)
+            val family = devices.filter { it.type == t.type }
             add(subject, DEVICES, t.devices.toString())
+            add(subject, DEVICES_WITH_OWNER, family.count { it.state == TrackerState.WITH_OWNER }.toString())
+            add(subject, DEVICES_SEPARATED, family.count { it.state == TrackerState.SEPARATED }.toString())
+            add(subject, DEVICES_UNKNOWN, family.count { it.state == TrackerState.UNKNOWN }.toString())
             add(subject, SEEN_COUNT, t.sightings.toString())
             add(subject, SEEN_SESSIONS, t.sessions.toString())
             add(subject, SEEN_SPAN, t.spanMinutes.toString())
-            add(subject, SEEN_SESSIONS_SEPARATED, t.sessionsSeparated.toString())
-            add(subject, SEEN_SPAN_SEPARATED, t.spanSeparatedMinutes.toString())
             add(subject, SEEN_LAST_DAY, (now - t.lastSeen < DAY_MS).toString())
             add(subject, RSSI_AVG, t.rssiAvg.toString())
             add(subject, STATE, t.state.slug)
             add(subject, CONFIDENCE, TrackerSignatures.of(t.type).confidence.name.lowercase())
+            val unmuted = family.filterNot(::isMuted)
+            add(subject, FOLLOWING_COUNT, unmuted.count { level(it) != FollowingLevel.NONE }.toString())
+            val closest = unmuted.firstOrNull { FollowingHeuristic.isRecent(it.lastSeen, now) && FollowingHeuristic.isClose(it.sessions, it.spanMinutes) }
+            add(subject, CLOSEST_KEY, closest?.key ?: NONE)
+            if (closest != null) {
+                add(subject, CLOSEST_SESSIONS, closest.sessions.toString())
+                add(subject, CLOSEST_SPAN, closest.spanMinutes.toString())
+            }
+            // The weak rotating-tag hint, over unmuted keys only; see RotatingTagHeuristic.
+            val unmutedKeys = unmuted.map { it.key }.toSet()
+            val sessions = t.sessionKeys.mapNotNull { s -> s.keys.filter { it in unmutedKeys }.toSet().takeIf { it.isNotEmpty() }?.let { s.copy(keys = it) } }
+            RotatingTagHeuristic.assess(t.type, sessions, now)?.let { p ->
+                add(subject, ROTATING_SESSIONS, p.sessions.toString())
+                add(subject, ROTATING_SPAN, p.spanMinutes.toString())
+                add(subject, ROTATING_KEYS, p.keys.toString())
+            }
             if (subject in muted) add(subject, MUTED, "true")
         }
 
-        val devices = aggregate.devices.values.sortedWith(compareByDescending<DeviceSighting> { it.sessions }.thenByDescending { it.lastSeen })
-        for (d in devices.take(MAX_LISTED_DEVICES)) {
+        // The first rows by the order above, plus every unmuted identity the rule would flag even past the cap.
+        val listed = devices.take(MAX_LISTED_DEVICES) + devices.drop(MAX_LISTED_DEVICES).filter { !isMuted(it) && level(it) != FollowingLevel.NONE }
+        for (d in listed) {
             val subject = trackerSubject(d.type, d.key)
             add(subject, SEEN_COUNT, d.sightings.toString())
             add(subject, SEEN_SESSIONS, d.sessions.toString())
             add(subject, SEEN_SPAN, d.spanMinutes.toString())
+            add(subject, SEEN_SESSIONS_SEPARATED, d.sessionsSeparated.toString())
+            add(subject, SEEN_SPAN_SEPARATED, d.spanSeparatedMinutes.toString())
             add(subject, SEEN_FIRST, d.firstSeen.toString())
             add(subject, SEEN_LAST, d.lastSeen.toString())
+            add(subject, SEEN_RECENT, FollowingHeuristic.isRecent(d.lastSeen, now).toString())
             add(subject, SEEN_THIS_SCAN, (currentSession != null && d.lastSession == currentSession).toString())
             add(subject, RSSI_AVG, d.rssiAvg.toString())
             add(subject, RSSI_LAST, d.rssiLast.toString())
             add(subject, STATE, d.state.slug)
             d.battery?.let { add(subject, BATTERY, it) }
             d.kind?.let { add(subject, KIND, it) }
-            if (subject in muted || typeSubject(d.type) in muted) add(subject, MUTED, "true")
+            // A family-level mute from before v3 still mutes every identity of the family until it expires.
+            if (isMuted(d)) add(subject, MUTED, "true")
         }
-        if (devices.size > MAX_LISTED_DEVICES) add(BLE_SUMMARY, TRACKERS_UNLISTED, (devices.size - MAX_LISTED_DEVICES).toString())
+        if (devices.size > listed.size) add(BLE_SUMMARY, TRACKERS_UNLISTED, (devices.size - listed.size).toString())
         return out
     }
+
+    /** Muted directly, or through a family mute saved before v3 (honoured until it expires). */
+    fun isMuted(type: TrackerType, key: String, muted: Set<String>): Boolean = trackerSubject(type, key) in muted || typeSubject(type) in muted
 
     fun wifiObservations(summaries: List<WifiSummary>, available: String, twinsRecorded: Int = 0): List<Observation> {
         val out = ArrayList<Observation>()

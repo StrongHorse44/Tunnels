@@ -88,6 +88,60 @@ class WifiHeuristicsTest {
         assertNull(WifiHeuristics.summarise(mesh).single().twinSuspect)
     }
 
+    private val eap = "[WPA2-EAP/SHA1-CCMP][RSN-EAP/SHA1-CCMP][ESS]"
+
+    @Test
+    fun carrierNetworkWithManyVendorsIsNormal() {
+        // The field case: six access points from six vendors, all Passpoint/802.1X.
+        val spectrum = (1..6).map { ap("Spectrum Mobile", "0$it:1$it:2$it:00:00:01", eap) }
+        assertNull(WifiHeuristics.summarise(spectrum).single().twinSuspect)
+        // Case-insensitive, exact name only.
+        assertNull(WifiHeuristics.summarise(spectrum.map { it.copy(ssid = "SPECTRUM MOBILE") }).single().twinSuspect)
+        assertNotNull(WifiHeuristics.summarise(spectrum.map { it.copy(ssid = "Spectrum Mobile 2") }).single().twinSuspect)
+        assertEquals(WifiHeuristics.HotspotSecurity.ENTERPRISE, WifiHeuristics.carrierHotspot("spectrum mobile"))
+        assertEquals(WifiHeuristics.HotspotSecurity.OPEN, WifiHeuristics.carrierHotspot("XFINITYWIFI"))
+        assertNull(WifiHeuristics.carrierHotspot("Home"))
+        // An open carrier hotspot from many vendors is normal too, with or without enhanced-open neighbours.
+        val xfinity = (1..6).map { ap("xfinitywifi", "0$it:1$it:2$it:00:00:01", "[ESS]") } + ap("xfinitywifi", "aa:bb:cc:00:00:09", "[RSN-OWE-CCMP][ESS]")
+        assertNull(WifiHeuristics.summarise(xfinity).single().twinSuspect)
+    }
+
+    @Test
+    fun carrierNetworkWithAnOpenCopyIsFlagged() {
+        val spectrum = (1..6).map { ap("Spectrum Mobile", "0$it:1$it:2$it:00:00:01", eap) } + ap("Spectrum Mobile", "de:ad:be:00:00:01", "[ESS]")
+        assertEquals(
+            "a public hotspot name broadcast from many access points; one of them advertises open security while others use enterprise sign-in",
+            WifiHeuristics.summarise(spectrum).single().twinSuspect,
+        )
+        // An open copy of an 802.1X name is flagged even alone.
+        assertEquals(
+            "a public hotspot name broadcast from many access points, normally with enterprise sign-in; one of them advertises open security",
+            WifiHeuristics.summarise(listOf(ap("eduroam", "de:ad:be:00:00:01", "[ESS]"))).single().twinSuspect,
+        )
+        // A password copy of an 802.1X name: flagged only next to an enterprise sibling in range.
+        assertEquals(
+            "a public hotspot name broadcast from many access points; one of them advertises a Wi-Fi password (WPA2-Personal) while others use enterprise sign-in",
+            WifiHeuristics.summarise(listOf(ap("eduroam", "01:00:00:00:00:01", eap), ap("eduroam", "de:ad:be:00:00:01", "[WPA2-PSK-CCMP][ESS]"))).single().twinSuspect,
+        )
+        // A home network literally named "Xfinity" (password only, several mesh vendors) is not an impostor of anything.
+        assertNull(WifiHeuristics.summarise((1..5).map { ap("Xfinity", "0$it:00:00:00:00:0$it", "[WPA2-PSK-CCMP][ESS]") }).single().twinSuspect)
+        // A password-protected AP among open hotspots.
+        assertEquals(
+            "a public hotspot name broadcast from many access points; one of them advertises a Wi-Fi password (WPA2-Personal) while others are open",
+            WifiHeuristics.summarise(listOf(ap("attwifi", "01:00:00:00:00:01", "[ESS]"), ap("attwifi", "de:ad:be:00:00:01", "[WPA2-PSK-CCMP][ESS]"))).single().twinSuspect,
+        )
+    }
+
+    @Test
+    fun nonCarrierHomeNetworkKeepsTheVendorRule() {
+        val home = (1..5).map { ap("MyHome", "0$it:00:00:00:00:0$it", "[WPA2-PSK-CCMP][ESS]") }
+        assertEquals("5 access points from different vendors share this name", WifiHeuristics.summarise(home).single().twinSuspect)
+        assertEquals(
+            "an open network uses the same name as a secured one",
+            WifiHeuristics.summarise(home + ap("MyHome", "de:ad:be:00:00:01", "[ESS]")).single().twinSuspect,
+        )
+    }
+
     @Test
     fun hiddenNetworksAreNeverSuspects() {
         val hidden = listOf(ap("", "aa:bb:cc:00:00:01", "[ESS]"), ap(null, "11:22:33:00:00:01", "[WPA2-PSK-CCMP][ESS]"))
