@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import io.github.stronghorse44.tunnels.archive.ArchiveEntry
 import io.github.stronghorse44.tunnels.archive.ArchiveError
@@ -54,7 +55,11 @@ sealed interface UnzipNav {
     data class Install(val file: File) : UnzipNav
 }
 
-class UnzipViewModel(private val app: Application) : AndroidViewModel(app) {
+/**
+ * Survives Android recreating the screen while the folder picker is open (low memory, or
+ * "Don't keep activities"): the staged archive and selection live in [saved]. Passwords are not saved.
+ */
+class UnzipViewModel(private val app: Application, private val saved: SavedStateHandle) : AndroidViewModel(app) {
     private val _state = MutableStateFlow<UnzipState>(UnzipState.Idle)
     val state: StateFlow<UnzipState> = _state.asStateFlow()
 
@@ -65,16 +70,43 @@ class UnzipViewModel(private val app: Application) : AndroidViewModel(app) {
     private var password: CharArray? = null
     private var pendingTree: Uri? = null
     private var job: Job? = null
+    private var restoring = false
+    private var restoredTree: Uri? = null
+
+    init {
+        val path = saved.get<String>(KEY_PATH)
+        val name = saved.get<String>(KEY_NAME)
+        val file = path?.let(::File)
+        if (file != null && name != null && file.isFile && Staging.contains(app, file)) {
+            staged = StagedFile(file, name)
+            restoring = true
+            job = viewModelScope.launch {
+                list(saved.get<IntArray>(KEY_SELECTED)?.toSet())
+                restoring = false
+                val tree = restoredTree ?: return@launch
+                restoredTree = null
+                if (_state.value is UnzipState.NeedsPassword) pendingTree = tree else extractTo(tree)
+            }
+        }
+    }
+
+    private fun saveSelection() {
+        (_state.value as? UnzipState.Listing)?.let { saved[KEY_SELECTED] = it.selected.toIntArray() }
+    }
 
     fun open(uri: Uri) {
         job?.cancel()
         job = viewModelScope.launch {
-            release()
+            discard()
             _state.value = UnzipState.Working("Copying archive…")
-            staged = runCatching { withContext(Dispatchers.IO) { Staging.copyIn(app, uri) } }.getOrElse {
+            val copied = runCatching { withContext(Dispatchers.IO) { Staging.copyIn(app, uri) } }.getOrElse {
                 _state.value = UnzipState.Failed("Can't open this file", it.message ?: "The file couldn't be read.")
                 return@launch
             }
+            staged = copied
+            saved[KEY_PATH] = copied.file.absolutePath
+            saved[KEY_NAME] = copied.displayName
+            saved.remove<IntArray>(KEY_SELECTED)
             list()
         }
     }
@@ -86,7 +118,7 @@ class UnzipViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     /** Lists the archive. Returns true when the listing is shown. */
-    private suspend fun list(): Boolean {
+    private suspend fun list(restoreSelection: Set<Int>? = null): Boolean {
         val file = staged ?: return false
         _state.value = UnzipState.Working("Reading archive…")
         return try {
@@ -94,8 +126,10 @@ class UnzipViewModel(private val app: Application) : AndroidViewModel(app) {
                 Archives.open(file.file, file.displayName, password).use { it.format to it.entries() }
             }
             val all = entries.filterNot { it.isDirectory }.map { it.index }.toSet()
+            val selected = restoreSelection?.intersect(all) ?: all
             val shape = if (format == ArchiveFormat.ZIP) Bundles.shape(entries.map { it.path }) else PackageShape.NOT_AN_APP
-            _state.value = UnzipState.Listing(file.displayName, format, entries, all, shape)
+            _state.value = UnzipState.Listing(file.displayName, format, entries, selected, shape)
+            saveSelection()
             true
         } catch (e: ArchiveException) {
             onError(e.error)
@@ -103,19 +137,30 @@ class UnzipViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun toggle(index: Int) = _state.update { s ->
-        if (s !is UnzipState.Listing) s
-        else s.copy(selected = if (index in s.selected) s.selected - index else s.selected + index)
+    fun toggle(index: Int) {
+        _state.update { s ->
+            if (s !is UnzipState.Listing) s
+            else s.copy(selected = if (index in s.selected) s.selected - index else s.selected + index)
+        }
+        saveSelection()
     }
 
-    fun selectAll(all: Boolean) = _state.update { s ->
-        if (s !is UnzipState.Listing) s
-        else s.copy(selected = if (all) s.entries.filterNot { it.isDirectory }.map { it.index }.toSet() else emptySet())
+    fun selectAll(all: Boolean) {
+        _state.update { s ->
+            if (s !is UnzipState.Listing) s
+            else s.copy(selected = if (all) s.entries.filterNot { it.isDirectory }.map { it.index }.toSet() else emptySet())
+        }
+        saveSelection()
     }
 
     fun extractTo(tree: Uri) {
         val listing = _state.value as? UnzipState.Listing
         val file = staged
+        if (listing == null && restoring) {
+            // Screen was recreated while the picker was open; extract once the archive is re-read.
+            restoredTree = tree
+            return
+        }
         if (listing == null || file == null || !file.file.isFile) {
             // Never fail silently: Android may have stopped Tunnels while the folder picker was open.
             _state.value = UnzipState.Failed(
@@ -216,16 +261,20 @@ class UnzipViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun release() {
+    /** Deletes the staged archive. Called when the screen is really closing, not when it's merely recreated. */
+    fun discard() {
         staged?.let { Staging.discard(app, it.file) }
         staged = null
         password = null
         pendingTree = null
+        listOf(KEY_PATH, KEY_NAME, KEY_SELECTED).forEach { saved.remove<Any>(it) }
     }
 
-    override fun onCleared() = release()
-
     companion object {
+        private const val KEY_PATH = "staged_path"
+        private const val KEY_NAME = "staged_name"
+        private const val KEY_SELECTED = "selected"
+
         /** "primary:Download/Stuff" + "pusher" -> "Download/Stuff/pusher". */
         fun describeLocation(tree: Uri, folder: String): String {
             val base = runCatching { DocumentsContract.getTreeDocumentId(tree) }.getOrNull()

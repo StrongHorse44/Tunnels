@@ -19,6 +19,11 @@ class UnzipActivity : ComponentActivity() {
         setContent { TunnelsTheme { UnzipScreen(vm, onBack = ::finish) } }
     }
 
+    override fun onDestroy() {
+        if (isFinishing) vm.discard()
+        super.onDestroy()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)

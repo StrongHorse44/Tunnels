@@ -27,6 +27,11 @@ class InstallActivity : ComponentActivity() {
         route(intent)
     }
 
+    override fun onDestroy() {
+        if (isFinishing) vm.discard()
+        super.onDestroy()
+    }
+
     override fun onResume() {
         super.onResume()
         vm.refreshPermission()

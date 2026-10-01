@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import io.github.stronghorse44.tunnels.common.Staging
 import io.github.stronghorse44.tunnels.install.FailureExplanation
@@ -40,7 +41,11 @@ sealed interface InstallState {
     data class Failed(val title: String, val detail: String) : InstallState
 }
 
-class InstallViewModel(private val app: Application) : AndroidViewModel(app) {
+/**
+ * Survives Android recreating the screen (low memory, or "Don't keep activities") while the user is in
+ * Settings or the system install dialog: the staged file and in-flight session id live in [saved].
+ */
+class InstallViewModel(private val app: Application, private val saved: SavedStateHandle) : AndroidViewModel(app) {
     private val _state = MutableStateFlow<InstallState>(InstallState.Idle)
     val state: StateFlow<InstallState> = _state.asStateFlow()
 
@@ -60,6 +65,29 @@ class InstallViewModel(private val app: Application) : AndroidViewModel(app) {
     private var staged: File? = null
     private var ownsStaged = false
 
+    init {
+        val path = saved.get<String>(KEY_PATH)
+        val file = path?.let(::File)
+        if (file != null && file.isFile && Staging.contains(app, file)) {
+            staged = file
+            ownsStaged = saved.get<Boolean>(KEY_OWNS) ?: false
+            viewModelScope.launch {
+                inspect(file)
+                val sessionId = saved.get<Int>(KEY_SESSION)
+                val ready = _state.value as? InstallState.Ready
+                if (sessionId != null && ready != null) awaitSession(sessionId, ready)
+            }
+        }
+    }
+
+    private fun remember(file: File, owns: Boolean) {
+        staged = file
+        ownsStaged = owns
+        saved[KEY_PATH] = file.absolutePath
+        saved[KEY_OWNS] = owns
+        saved.remove<Int>(KEY_SESSION)
+    }
+
     fun refreshPermission() {
         _canInstall.value = app.packageManager.canRequestPackageInstalls()
         // Back from uninstalling the old copy: the comparison may have changed.
@@ -68,14 +96,13 @@ class InstallViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun open(uri: Uri) {
         viewModelScope.launch {
-            release()
+            discard()
             _state.value = InstallState.Working("Copying file…")
             val copied = runCatching { withContext(Dispatchers.IO) { Staging.copyIn(app, uri) } }.getOrElse {
                 _state.value = InstallState.Failed("Can't open this file", it.message ?: "The file couldn't be read.")
                 return@launch
             }
-            staged = copied.file
-            ownsStaged = true
+            remember(copied.file, owns = true)
             inspect(copied.file)
         }
     }
@@ -83,13 +110,12 @@ class InstallViewModel(private val app: Application) : AndroidViewModel(app) {
     /** A file another Tunnels screen already put in staging (e.g. an APK picked out of an archive). */
     fun openStaged(file: File) {
         viewModelScope.launch {
-            release()
+            discard()
             if (!file.isFile || !Staging.contains(app, file)) {
                 _state.value = InstallState.Failed("File not found", "The staged file is gone. Open it again.")
                 return@launch
             }
-            staged = file
-            ownsStaged = false
+            remember(file, owns = false)
             inspect(file)
         }
     }
@@ -117,27 +143,36 @@ class InstallViewModel(private val app: Application) : AndroidViewModel(app) {
                 _state.value = InstallState.Done(ready.info, InstallFailure.explain(PackageInstaller.STATUS_FAILURE, e.message), e.message)
                 return@launch
             }
-            // Updates are replayed, so nothing is lost between commit and this subscription.
-            val final = InstallEvents.updates.filter { it.sessionId == sessionId }.first { update ->
-                if (update.status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
-                    _confirm.value = update.confirmIntent
-                    _state.value = InstallState.Installing(ready.info, 1f, awaitingUser = true)
-                    false
-                } else true
-            }
-            val success = final.status == PackageInstaller.STATUS_SUCCESS
-            val failure = if (success) null else InstallFailure.explain(final.status, final.message)
-            _state.value = InstallState.Done(ready.info, failure, final.message)
-            record(ready.info, failure)
+            saved[KEY_SESSION] = sessionId
+            awaitSession(sessionId, ready)
         }
+    }
+
+    /** Follows a committed session to its result. Updates are replayed, so none are missed before subscribing. */
+    private suspend fun awaitSession(sessionId: Int, ready: InstallState.Ready) {
+        _state.value = InstallState.Installing(ready.info, 1f, awaitingUser = false)
+        val final = InstallEvents.updates.filter { it.sessionId == sessionId }.first { update ->
+            if (update.status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                // After a recreate the dialog may already be on screen; don't open it twice.
+                if (saved.get<Int>(KEY_CONFIRMED) != sessionId) _confirm.value = update.confirmIntent
+                _state.value = InstallState.Installing(ready.info, 1f, awaitingUser = true)
+                false
+            } else true
+        }
+        saved.remove<Int>(KEY_SESSION)
+        val success = final.status == PackageInstaller.STATUS_SUCCESS
+        val failure = if (success) null else InstallFailure.explain(final.status, final.message)
+        _state.value = InstallState.Done(ready.info, failure, final.message)
+        record(ready.info, failure)
     }
 
     fun confirmShown() {
         _confirm.value = null
+        saved.get<Int>(KEY_SESSION)?.let { saved[KEY_CONFIRMED] = it }
     }
 
     fun reset() {
-        release()
+        discard()
         _state.value = InstallState.Idle
     }
 
@@ -153,11 +188,18 @@ class InstallViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun release() {
+    /** Deletes our staged copy. Called when the screen is really closing, not when it's merely recreated. */
+    fun discard() {
         if (ownsStaged) Staging.discard(app, staged)
         staged = null
         ownsStaged = false
+        listOf(KEY_PATH, KEY_OWNS, KEY_SESSION, KEY_CONFIRMED).forEach { saved.remove<Any>(it) }
     }
 
-    override fun onCleared() = release()
+    private companion object {
+        const val KEY_PATH = "staged_path"
+        const val KEY_OWNS = "owns_staged"
+        const val KEY_SESSION = "session_id"
+        const val KEY_CONFIRMED = "confirm_shown_for"
+    }
 }
