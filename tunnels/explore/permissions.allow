@@ -1,1 +1,2 @@
 # Permissions the explore module may declare, one per line. CI fails on anything else.
+# Sensors and cameras need none: SensorManager.getSensorList and CameraCharacteristics are permission-free.
