@@ -47,8 +47,9 @@ class TrustStoreTunnel(private val context: Context) : TunnelModule, TunnelUi {
             coroutineContext.ensureActive()
             progress.report(index, aliases.size, alias.substringBefore(':'))
             val source = TrustStoreKeys.sourceOf(alias)
-            if (source == null || (source == TrustStoreKeys.SOURCE_SYSTEM && system >= MAX_PER_SOURCE) || (source == TrustStoreKeys.SOURCE_USER && user >= MAX_PER_SOURCE)) {
-                skipped++
+            val listedSoFar = if (source == TrustStoreKeys.SOURCE_USER) user else system
+            if (source == null || listedSoFar >= MAX_PER_SOURCE) {
+                skipped++ // unknown alias prefix, or over the per-source cap: counted, not listed
                 return@forEachIndexed
             }
             val summary = try {
