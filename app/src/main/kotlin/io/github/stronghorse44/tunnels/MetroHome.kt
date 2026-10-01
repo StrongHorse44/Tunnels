@@ -2,6 +2,8 @@ package io.github.stronghorse44.tunnels
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
+import android.widget.Toast
 import android.content.pm.PackageManager
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
@@ -9,6 +11,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,6 +30,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -54,6 +58,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private val Mono = FontFamily.Monospace
+
+/** Implicit, same-package action the snapshots module answers once it exists. */
+const val SNAPSHOTS_ACTION = "io.github.stronghorse44.tunnels.action.SNAPSHOTS"
 
 /** Home: a console readout above a clickable glass metro map. */
 @Composable
@@ -127,6 +134,7 @@ fun MetroHome(onOpenTunnel: (String) -> Unit) {
 
 @Composable
 private fun ConsoleHeader(version: String, offline: Boolean, keyLevel: String, live: Int, planned: Int) {
+    val context = LocalContext.current
     GlassPanel(Modifier.fillMaxWidth(), tint = LineColors.of(MetroLine.FILES)) {
         Column(Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
             Text("TUNNELS", fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = 7.sp, color = GlassColors.text)
@@ -135,7 +143,15 @@ private fun ConsoleHeader(version: String, offline: Boolean, keyLevel: String, l
             ConsoleLine("net", "NONE", if (offline) "[ok]" to StatusColors.ok else "[!!]" to StatusColors.blocker)
             ConsoleLine("store", "SQLCipher", "[$keyLevel]" to StatusColors.info)
             ConsoleLine("map", "$live live · $planned planned")
-            BlinkingPrompt()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BlinkingPrompt()
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = {
+                    val intent = Intent(SNAPSHOTS_ACTION).setPackage(context.packageName)
+                    if (context.packageManager.resolveActivity(intent, 0) != null) context.startActivity(intent)
+                    else Toast.makeText(context, "Snapshots arrive with phase 1.", Toast.LENGTH_SHORT).show()
+                }) { Text("snapshots ›", fontFamily = Mono, color = LineColors.of(MetroLine.SYSTEM)) }
+            }
         }
     }
 }

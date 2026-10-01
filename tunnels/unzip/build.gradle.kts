@@ -21,6 +21,7 @@ kotlin {
 
 dependencies {
     implementation(project(":core:common"))
+    implementation(project(":core:runtime"))
     implementation(project(":core:store"))
     implementation(project(":core:install"))
     implementation(project(":core:archive"))

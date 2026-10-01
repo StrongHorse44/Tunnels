@@ -17,7 +17,7 @@ class TunnelActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         val id = intent.getStringExtra(EXTRA_TUNNEL) ?: run { finish(); return }
-        setContent { TunnelsTheme { TunnelScreen(vm, id, onBack = ::finish) } }
+        setContent { TunnelsTheme { AppLockGate { TunnelScreen(vm, id, onBack = ::finish) } } }
     }
 
     companion object {
