@@ -40,10 +40,15 @@ class NotificationsSmokeTest {
         val access = module.specialAccess.single()
         assertEquals(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS, access.settingsAction)
         assertTrue("Android restricts notification access for apps installed from a file", access.restricted)
-        val screen = RestrictedSettings.settingsIntent(context, access)
-        assertEquals("the listener's own switch", Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS, screen.action)
-        assertNotNull(screen.resolveActivity(context.packageManager))
-        assertNotNull(RestrictedSettings.appInfoIntent(context).resolveActivity(context.packageManager))
+        // The counter's own listener page, named by its component.
+        val screen = RestrictedSettings.directIntent(context, access)
+        assertNotNull(screen)
+        assertEquals(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS, screen!!.action)
+        assertEquals(
+            NotifListenerService.component(context).flattenToString(),
+            screen.getStringExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME),
+        )
+        assertEquals("package:${context.packageName}", RestrictedSettings.appInfoIntent(context).dataString)
         assertFalse("a stock emulator has not granted notification access", access.isGranted())
         assertFalse(NotifListenerService.connected)
 

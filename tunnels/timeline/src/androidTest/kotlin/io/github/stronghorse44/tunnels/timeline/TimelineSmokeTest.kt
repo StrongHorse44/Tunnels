@@ -43,9 +43,12 @@ class TimelineSmokeTest {
         assertEquals("Usage access", access.label)
         assertEquals(Settings.ACTION_USAGE_ACCESS_SETTINGS, access.settingsAction)
         assertTrue("Android restricts usage access for apps installed from a file", access.restricted)
-        val screen = RestrictedSettings.settingsIntent(context, access)
-        assertEquals("Tunnels' own switch", "package:${context.packageName}", screen.dataString)
-        assertNotNull(screen.resolveActivity(context.packageManager))
+        // Tunnels' own Usage access switch (AOSP Settings answers the action with a package URI since Android 10).
+        val screen = RestrictedSettings.directIntent(context, access)
+        assertNotNull(screen)
+        assertEquals(Settings.ACTION_USAGE_ACCESS_SETTINGS, screen!!.action)
+        assertEquals("package:${context.packageName}", screen.dataString)
+        assertEquals(Settings.ACTION_USAGE_ACCESS_SETTINGS, RestrictedSettings.generalIntent(context, access).action)
         assertEquals(TimelineRules.all().size, module.rules.size)
 
         var reports = 0

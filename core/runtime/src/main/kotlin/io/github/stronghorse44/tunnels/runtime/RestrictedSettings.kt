@@ -1,5 +1,6 @@
 package io.github.stronghorse44.tunnels.runtime
 
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
@@ -28,24 +29,44 @@ object RestrictedSettings {
     fun appInfoIntent(context: Context): Intent =
         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
 
+    /** The screen for this app alone that grants [access] (e.g. Tunnels' own Usage access switch), when it names one. */
+    fun directIntent(context: Context, access: SpecialAccess): Intent? = access.direct?.let { d ->
+        Intent(d.action).apply {
+            if (d.packageUri) data = Uri.parse("package:${context.packageName}")
+            d.extras.forEach { (k, v) -> putExtra(k, v) }
+        }
+    }
+
     /**
-     * The screen that grants [access]: its screen for this app alone when the phone has one, else the general
-     * one. In-app flows (e.g. the Shizuku connect screen) are not exported, and since Android 12 an implicit
-     * intent only reaches them when the package is set, so a target this app answers itself gets the package.
+     * The general screen for [access]. In-app flows (e.g. the Shizuku connect screen) are not exported, and since
+     * Android 12 an implicit intent only reaches them when the package is set, so an action this app answers itself
+     * gets the package; this app is always visible to itself, so that lookup needs no package-visibility grant.
      */
-    fun settingsIntent(context: Context, access: SpecialAccess): Intent {
-        val pm = context.packageManager
-        val pkgUri = Uri.parse("package:${context.packageName}")
-        val direct = access.direct?.let { d ->
-            Intent(d.action).apply {
-                if (d.packageUri) data = pkgUri
-                d.extras.forEach { (k, v) -> putExtra(k, v) }
+    fun generalIntent(context: Context, access: SpecialAccess): Intent {
+        val intent = Intent(access.settingsAction).apply {
+            if (access.settingsAction.contains("APPLICATION_DETAILS") || access.settingsAction.contains("UNKNOWN_APP")) {
+                data = Uri.parse("package:${context.packageName}")
             }
-        }?.takeIf { pm.resolveActivity(it, 0) != null }
-        val intent = direct ?: Intent(access.settingsAction).apply {
-            if (access.settingsAction.contains("APPLICATION_DETAILS") || access.settingsAction.contains("UNKNOWN_APP")) data = pkgUri
         }
         val inApp = Intent(intent).setPackage(context.packageName)
-        return if (pm.resolveActivity(inApp, 0) != null) inApp else intent
+        return if (context.packageManager.resolveActivity(inApp, 0) != null) inApp else intent
+    }
+
+    /**
+     * Opens the screen that grants [access]: this app's own switch when the phone has that screen, else the general
+     * one. Tried by starting it rather than by asking PackageManager first, which package visibility can blind to
+     * Settings. False when neither opened.
+     */
+    fun open(context: Context, access: SpecialAccess): Boolean {
+        directIntent(context, access)?.let { direct ->
+            try {
+                context.startActivity(direct)
+                return true
+            } catch (_: ActivityNotFoundException) {
+                // An older or trimmed Settings: fall through to the general list.
+            } catch (_: SecurityException) {
+            }
+        }
+        return runCatching { context.startActivity(generalIntent(context, access)) }.isSuccess
     }
 }

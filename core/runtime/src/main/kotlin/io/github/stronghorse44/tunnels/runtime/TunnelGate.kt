@@ -75,7 +75,7 @@ fun TunnelGate(module: TunnelModule, content: @Composable () -> Unit) {
                         Text(access.reason, style = MaterialTheme.typography.bodySmall, color = GlassColors.dim)
                     }
                     OutlinedButton(onClick = {
-                        runCatching { context.startActivity(RestrictedSettings.settingsIntent(context, access)) }.onFailure {
+                        if (!RestrictedSettings.open(context, access)) {
                             Toast.makeText(context, "No screen found for ${access.label}", Toast.LENGTH_SHORT).show()
                         }
                     }) { Text("Open setting") }
