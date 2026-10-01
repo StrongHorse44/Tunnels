@@ -267,7 +267,10 @@ object ElfParser {
             return null
         }
 
-        /** Number of dynamic symbols from DT_HASH (nchain) or by walking DT_GNU_HASH; null when neither works. */
+        /**
+         * Number of dynamic symbols from DT_HASH (nchain) or by walking DT_GNU_HASH; null when neither works.
+         * The GNU walk is bounded by [MAX_SYMBOLS] chain reads in total, so a crafted table cannot stall a scan.
+         */
         private fun symbolCount(loads: List<Segment>, dtHash: Long, dtGnuHash: Long): Long? {
             if (dtHash >= 0) {
                 val off = fileOffset(loads, dtHash) ?: return null
@@ -284,16 +287,21 @@ object ElfParser {
                     val buckets = off + 16 + bloomSize * wordSize
                     val chains = buckets + nbuckets * 4
                     var max = symOffset
-                    for (bucket in 0 until nbuckets) {
+                    // One step budget for the whole walk: a hostile table with many buckets pointing at long
+                    // chains would otherwise cost nbuckets * chain reads. Past the budget, or once the count
+                    // is beyond what the symbol loop will read anyway, the walk stops with what it has.
+                    var budget = MAX_SYMBOLS
+                    walk@ for (bucket in 0 until nbuckets) {
                         var index = u32(buckets + bucket * 4)
                         if (index < symOffset) continue
-                        var steps = 0
-                        while (steps++ < MAX_SYMBOLS) {
+                        while (true) {
+                            if (budget-- <= 0) break@walk
                             val chain = u32(chains + (index - symOffset) * 4)
                             index++
                             if ((chain and 1L) != 0L) break
                         }
                         if (index > max) max = index
+                        if (max - symOffset > MAX_SYMBOLS) break
                     }
                     max
                 } catch (_: ElfFormatException) {

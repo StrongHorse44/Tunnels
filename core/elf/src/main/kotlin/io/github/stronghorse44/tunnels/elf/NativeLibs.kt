@@ -42,6 +42,8 @@ object NativeLibs {
     const val MAX_LIB_BYTES = 48L * 1024 * 1024
     /** Per app, across all parsed libraries, so one giant app cannot stall a scan. */
     const val MAX_TOTAL_LIB_BYTES = 256L * 1024 * 1024
+    /** A single library may take at most this share of the Java heap, whatever [MAX_LIB_BYTES] says. */
+    const val HEAP_SHARE = 4L
 
     val ABIS_64 = setOf("arm64-v8a", "x86_64", "riscv64")
 
@@ -59,6 +61,8 @@ object NativeLibs {
         maxTotalBytes: Long = MAX_TOTAL_LIB_BYTES,
     ): NativeLibScan {
         var unreadable = 0
+        // On a small or fragmented heap even an in-cap library may not fit; such libraries count as skipped.
+        val libCap = minOf(maxLibBytes, Runtime.getRuntime().maxMemory() / HEAP_SHARE)
         val zips = ArrayList<ZipFile>()
         try {
             val entries = ArrayList<Entry>()
@@ -84,11 +88,17 @@ object NativeLibs {
             for (entry in entries) {
                 if (considered >= maxLibs) break
                 considered++
-                if (entry.size < 0 || entry.size > maxLibBytes || bytes + entry.size > maxTotalBytes) {
+                if (entry.size < 0 || entry.size > libCap || bytes + entry.size > maxTotalBytes) {
                     skipped++
                     continue
                 }
-                val buf = ByteArray(entry.size.toInt())
+                // OutOfMemoryError is an Error, so nothing upstream would catch it: treat it as "too big".
+                val buf = try {
+                    ByteArray(entry.size.toInt())
+                } catch (_: OutOfMemoryError) {
+                    skipped++
+                    continue
+                }
                 val ok = try {
                     entry.zip.getInputStream(entry.entry).use { DataInputStream(it).readFully(buf) }
                     true

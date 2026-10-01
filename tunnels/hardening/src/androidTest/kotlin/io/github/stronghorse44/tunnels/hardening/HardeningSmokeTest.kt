@@ -1,5 +1,6 @@
 package io.github.stronghorse44.tunnels.hardening
 
+import android.content.pm.PackageManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.stronghorse44.tunnels.elf.HardeningKeys
@@ -8,6 +9,7 @@ import io.github.stronghorse44.tunnels.elf.HardeningRules
 import io.github.stronghorse44.tunnels.elf.HardeningStats
 import io.github.stronghorse44.tunnels.model.FindingAction
 import io.github.stronghorse44.tunnels.model.FindingDraft
+import io.github.stronghorse44.tunnels.model.Observation
 import io.github.stronghorse44.tunnels.model.ScanProgress
 import io.github.stronghorse44.tunnels.model.Severity
 import kotlinx.coroutines.runBlocking
@@ -33,6 +35,9 @@ class HardeningSmokeTest {
         assertTrue(module.requiredPermissions.isEmpty())
         assertEquals(HardeningRules.all.size, module.rules.size)
 
+        val pm = context.packageManager
+        fun stamps() = pm.getInstalledPackages(PackageManager.PackageInfoFlags.of(0)).associate { it.packageName to it.lastUpdateTime }
+        val before = stamps()
         var reports = 0
         val obs = module.scan { _, _, _ -> reports++ }
         assertTrue("some apps were scanned", obs.isNotEmpty())
@@ -89,9 +94,19 @@ class HardeningSmokeTest {
         assertEquals(cleanLibs.size, stats.libsParsed)
         assertTrue(stats.weakest.size <= 3)
 
-        // Second scan hits the cache and must describe the same world.
+        // Second scan hits the cache and must describe the same world, for every app that did not change in
+        // between (Play apps on a google_apis image may self-update while the test runs).
         val again = module.scan(ScanProgress.NONE)
-        assertEquals(obs.sortedWith(compareBy({ it.subject }, { it.key })), again.sortedWith(compareBy({ it.subject }, { it.key })))
+        val after = stamps()
+        val stable = before.filterKeys { pkg -> after[pkg] == before[pkg] }.keys
+        assertTrue("most apps unchanged between scans", stable.size > bySubject.size / 2)
+        assertTrue("this app is unchanged", context.packageName in stable)
+        val againBySubject = again.groupBy { it.subject }
+        val byKey = compareBy<Observation> { it.key }
+        for (pkg in stable) {
+            val first = bySubject[pkg] ?: continue
+            assertEquals(pkg, first.sortedWith(byKey), againBySubject[pkg]?.sortedWith(byKey))
+        }
 
         val draft = FindingDraft(module.id, "android", HardeningRules.WEAK_HARDENING, Severity.WARN, "x")
         val actions = module.actionsFor(draft)

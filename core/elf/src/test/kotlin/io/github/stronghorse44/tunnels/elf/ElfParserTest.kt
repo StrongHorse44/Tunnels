@@ -6,6 +6,8 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import kotlin.random.Random
 
 class ElfParserTest {
@@ -193,6 +195,64 @@ class ElfParserTest {
         ElfParser.parse(garbage)
         val huge = ElfBuilder().build().also { it[56] = 0xFF.toByte(); it[57] = 0xFF.toByte() } // e_phnum = 65535
         assertTrue(ElfParser.parse(huge).parseError!!.contains("program headers"))
+    }
+
+    @Test
+    fun hostileGnuHashWalkIsBounded() {
+        // 100k buckets all pointing at the start of a 100k-word chain whose only terminator is the last word.
+        // A per-bucket walk would cost 1e10 reads; the budgeted walk must finish in well under a second.
+        val bytes = gnuHashBomb(nbuckets = 100_000, chainLength = 100_000)
+        val started = System.nanoTime()
+        val r = ElfParser.parse(bytes)
+        val elapsedMs = (System.nanoTime() - started) / 1_000_000
+        assertTrue("took $elapsedMs ms", elapsedMs < 5_000)
+        assertNull(r.parseError)
+        assertTrue("the real import before the bomb is still seen", r.canary)
+    }
+
+    /**
+     * ELF64 LE image without section headers: one PT_LOAD over the whole file, a dynamic section pointing at a
+     * two-entry .dynsym (importing __stack_chk_fail), its .dynstr, and a DT_GNU_HASH table shaped as a bomb.
+     */
+    private fun gnuHashBomb(nbuckets: Int, chainLength: Int): ByteArray {
+        val phOff = 64
+        val dynOff = phOff + 2 * 56
+        val symOff = dynOff + 5 * 16
+        val strBytes = "\u0000__stack_chk_fail\u0000".toByteArray()
+        val strOff = symOff + 2 * 24
+        val hashOff = (strOff + strBytes.size + 3) / 4 * 4
+        val total = hashOff + 16 + nbuckets * 4 + chainLength * 4
+        val buf = ByteBuffer.allocate(total).order(ByteOrder.LITTLE_ENDIAN)
+        buf.put(0x7F).put('E'.code.toByte()).put('L'.code.toByte()).put('F'.code.toByte())
+        buf.put(2).put(1).put(1).put(0).put(ByteArray(8))
+        buf.putShort(3).putShort(183).putInt(1) // ET_DYN, aarch64
+        buf.putLong(0).putLong(phOff.toLong()).putLong(0) // e_entry, e_phoff, e_shoff
+        buf.putInt(0).putShort(64).putShort(56).putShort(2).putShort(64).putShort(0).putShort(0)
+        fun phdr(type: Int, off: Int, size: Int) {
+            buf.putInt(type).putInt(ElfBuilder.PF_R).putLong(off.toLong()).putLong(off.toLong()).putLong(off.toLong())
+            buf.putLong(size.toLong()).putLong(size.toLong()).putLong(8)
+        }
+        phdr(1, 0, total) // PT_LOAD, vaddr == file offset
+        phdr(2, dynOff, 5 * 16) // PT_DYNAMIC
+        check(buf.position() == dynOff)
+        fun dyn(tag: Long, value: Long) { buf.putLong(tag).putLong(value) }
+        dyn(6, symOff.toLong()) // DT_SYMTAB
+        dyn(5, strOff.toLong()) // DT_STRTAB
+        dyn(10, strBytes.size.toLong()) // DT_STRSZ
+        dyn(0x6ffffef5L, hashOff.toLong()) // DT_GNU_HASH
+        dyn(0, 0)
+        check(buf.position() == symOff)
+        buf.put(ByteArray(24)) // null symbol
+        buf.putInt(1).put(0x12).put(0).putShort(0).putLong(0).putLong(0) // imported __stack_chk_fail
+        check(buf.position() == strOff)
+        buf.put(strBytes)
+        buf.position(hashOff)
+        buf.putInt(nbuckets).putInt(1).putInt(0).putInt(0) // nbuckets, symoffset, bloom_size, bloom_shift
+        repeat(nbuckets) { buf.putInt(1) } // every bucket starts the same chain
+        repeat(chainLength - 1) { buf.putInt(0x10) } // even words: chain continues
+        buf.putInt(0x11) // terminator
+        check(buf.position() == total)
+        return buf.array()
     }
 
     @Test
