@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -53,6 +54,7 @@ class InstallViewModel(private val app: Application) : AndroidViewModel(app) {
     val history: StateFlow<List<EventEntity>> =
         flow { emitAll(TunnelsStore.get(app).events(TunnelCatalog.INSTALLER)) }
             .flowOn(Dispatchers.IO)
+            .catch { emit(emptyList()) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private var staged: File? = null
