@@ -101,7 +101,8 @@ class SystemPackagesTunnel(private val context: Context) : TunnelModule, TunnelU
 
     override fun actionsFor(draft: FindingDraft): List<FindingAction> {
         if (draft.subject == SysPkgKeys.SUMMARY) {
-            return listOf(FindingAction.OpenSettings(Settings.ACTION_SYSTEM_UPDATE_SETTINGS, "System update"))
+            // About phone shows the installed Android version and build the update brought.
+            return listOf(FindingAction.OpenSettings(Settings.ACTION_DEVICE_INFO_SETTINGS, "About phone"))
         }
         val pkg = draft.subject
         val actions = mutableListOf<FindingAction>(FindingAction.OpenAppDetails(pkg))
