@@ -58,6 +58,7 @@ class DnsVpnService : VpnService() {
     private var forwarder: DnsForwarder? = null
     private var counter: SessionCounter? = null
     private var timers: Job? = null
+    private var starting = false
     private var stopping = false
     private var startedAt = 0L
     private val subjects = ConcurrentHashMap<Int, String>()
@@ -83,34 +84,45 @@ class DnsVpnService : VpnService() {
     }
 
     private fun startSession() {
-        if (isRunning) return
+        if (isRunning || starting) return
+        starting = true
+        stopping = false
         // The foreground notification must be up quickly after startForegroundService().
         startForeground(NOTIFICATION_ID, notification(SessionTotals()), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        val failure = openTunnel()
-        if (failure != null) {
-            _state.update { it.copy(running = false, message = failure) }
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-            return
-        }
-        startedAt = System.currentTimeMillis()
-        _state.value = SessionState(running = true, startedAt = startedAt, resolver = state.value.resolver, message = null)
-        timers = scope.launch {
-            launch {
-                while (isActive) {
-                    delay(FLUSH_INTERVAL_MS)
-                    flush(force = false)
-                }
+        scope.launch {
+            // Sockets and binder calls stay off the main thread.
+            val failure = withContext(Dispatchers.IO) { openTunnel() }
+            starting = false
+            if (failure != null) {
+                _state.update { it.copy(running = false, message = failure) }
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return@launch
             }
-            launch {
-                while (isActive) {
-                    delay(REFRESH_MS)
-                    publishTotals()
-                }
+            if (stopping) {
+                // STOP arrived while the tunnel was opening.
+                tearDown()
+                return@launch
             }
-            launch {
-                delay(MAX_DURATION_MS)
-                stopSession("Stopped automatically after ${MAX_DURATION_MS / 60_000} minutes.")
+            startedAt = System.currentTimeMillis()
+            _state.value = SessionState(running = true, startedAt = startedAt, resolver = state.value.resolver, message = null)
+            timers = scope.launch {
+                launch {
+                    while (isActive) {
+                        delay(FLUSH_INTERVAL_MS)
+                        flush(force = false)
+                    }
+                }
+                launch {
+                    while (isActive) {
+                        delay(REFRESH_MS)
+                        publishTotals()
+                    }
+                }
+                launch {
+                    delay(MAX_DURATION_MS)
+                    stopSession("Stopped automatically after ${MAX_DURATION_MS / 60_000} minutes.")
+                }
             }
         }
     }
@@ -216,6 +228,7 @@ class DnsVpnService : VpnService() {
         if (stopping) return
         stopping = true
         if (!isRunning) {
+            // Not running, or still opening: the start coroutine sees [stopping] and tears down.
             _state.update { it.copy(message = reason) }
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()

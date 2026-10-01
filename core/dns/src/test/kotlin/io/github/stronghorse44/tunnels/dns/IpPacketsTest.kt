@@ -102,13 +102,19 @@ class IpPacketsTest {
         val tcp = IpPackets.buildUdp(v4Client, v4Dns, 40000, 853, payload).also { it[9] = 6 }
         val r = IpPackets.parse(tcp) as IpPacket.Other
         assertEquals(6, r.protocol)
+        assertEquals(40000, r.srcPort)
         assertEquals(853, r.dstPort)
+        assertEquals(v4Client, r.src)
+        assertEquals(v4Dns, r.dst)
         val icmp = tcp.copyOf().also { it[9] = 1 }
-        assertEquals(IpPacket.Other(4, 1, null), IpPackets.parse(icmp))
+        assertEquals(IpPacket.Other(4, 1, v4Client, v4Dns, null, null), IpPackets.parse(icmp))
         val tcp6 = IpPackets.buildUdp(v6Client, v6Dns, 1, 853, payload).also { it[6] = 6 }
-        assertEquals(IpPacket.Other(6, 6, 853), IpPackets.parse(tcp6))
+        assertEquals(IpPacket.Other(6, 6, v6Client, v6Dns, 1, 853), IpPackets.parse(tcp6))
         val hopByHop = tcp6.copyOf().also { it[6] = 0 }
-        assertEquals(IpPacket.Other(6, 0, null), IpPackets.parse(hopByHop))
+        assertEquals(IpPacket.Other(6, 0, v6Client, v6Dns, null, null), IpPackets.parse(hopByHop))
+        // A TCP header cut short still reports the protocol, without ports.
+        val stub = tcp.copyOf(22).also { it[2] = 0; it[3] = 22 }
+        assertEquals(IpPacket.Other(4, 6, v4Client, v4Dns, null, null), IpPackets.parse(stub))
     }
 
     @Test

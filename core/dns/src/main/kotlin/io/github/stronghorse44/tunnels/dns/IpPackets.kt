@@ -19,8 +19,15 @@ sealed interface IpPacket {
         val udpChecksumOk: Boolean,
     ) : IpPacket
 
-    /** Any other transport. [dstPort] is filled in for TCP so port 853 can be counted. */
-    data class Other(val version: Int, val protocol: Int, val dstPort: Int?) : IpPacket
+    /** Any other transport. Ports are filled in for TCP so port 853 can be counted and attributed. */
+    data class Other(
+        val version: Int,
+        val protocol: Int,
+        val src: InetAddress,
+        val dst: InetAddress,
+        val srcPort: Int?,
+        val dstPort: Int?,
+    ) : IpPacket
 
     data class Malformed(val reason: String) : IpPacket
 }
@@ -60,8 +67,8 @@ object IpPackets {
         val dst = InetAddress.getByAddress(p.copyOfRange(16, 20))
         return when (protocol) {
             PROTO_UDP -> udp(p, ihl, total, 4, src, dst, ipOk)
-            PROTO_TCP -> IpPacket.Other(4, protocol, if (total - ihl >= 4) u16(p, ihl + 2) else null)
-            else -> IpPacket.Other(4, protocol, null)
+            PROTO_TCP -> tcp(p, ihl, total - ihl, 4, src, dst)
+            else -> IpPacket.Other(4, protocol, src, dst, null, null)
         }
     }
 
@@ -75,9 +82,14 @@ object IpPackets {
         val dst = InetAddress.getByAddress(p.copyOfRange(24, 40))
         return when (next) {
             PROTO_UDP -> udp(p, IPV6_HEADER, total, 6, src, dst, ipOk = true)
-            PROTO_TCP -> IpPacket.Other(6, next, if (payloadLength >= 4) u16(p, IPV6_HEADER + 2) else null)
-            else -> IpPacket.Other(6, next, null)
+            PROTO_TCP -> tcp(p, IPV6_HEADER, payloadLength, 6, src, dst)
+            else -> IpPacket.Other(6, next, src, dst, null, null)
         }
+    }
+
+    private fun tcp(p: ByteArray, start: Int, available: Int, version: Int, src: InetAddress, dst: InetAddress): IpPacket {
+        val ports = available >= 4
+        return IpPacket.Other(version, PROTO_TCP, src, dst, if (ports) u16(p, start) else null, if (ports) u16(p, start + 2) else null)
     }
 
     private fun udp(p: ByteArray, start: Int, total: Int, version: Int, src: InetAddress, dst: InetAddress, ipOk: Boolean): IpPacket {

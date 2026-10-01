@@ -103,7 +103,12 @@ class DnsForwarder(
             is IpPacket.Other -> {
                 if (packet.protocol == IpPackets.PROTO_TCP && packet.dstPort == DnsMessage.PORT_TLS) {
                     // Encrypted DNS attempt: count it against the app, nothing else can be read.
-                    counter.encrypted(subjectOf(-1))
+                    val uid = try {
+                        ownerUid(OsConstants.IPPROTO_TCP, packet.src, packet.srcPort ?: 0, packet.dst, packet.dstPort)
+                    } catch (_: Exception) {
+                        -1
+                    }
+                    counter.encrypted(subjectOf(uid))
                 }
                 dropped.incrementAndGet()
             }
