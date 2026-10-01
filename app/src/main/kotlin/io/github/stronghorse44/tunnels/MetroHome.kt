@@ -67,7 +67,7 @@ const val SNAPSHOTS_ACTION = "io.github.stronghorse44.tunnels.action.SNAPSHOTS"
 fun MetroHome(onOpenTunnel: (String) -> Unit) {
     val context = LocalContext.current
     var placeholder by remember { mutableStateOf<TunnelInfo?>(null) }
-    val offline = remember { declaresNoInternet(context) }
+    val netOn = networkAllowed(context)
     val version = remember { versionName(context) }
     val runtime by produceState<TunnelsRuntime?>(null) {
         value = runCatching { TunnelsRuntime.get(context) }.getOrNull()
@@ -101,7 +101,7 @@ fun MetroHome(onOpenTunnel: (String) -> Unit) {
                 .statusBarsPadding()
                 .padding(horizontal = 14.dp, vertical = 8.dp),
         ) {
-            ConsoleHeader(version, offline, keyLevel, TunnelCatalog.all.count { it.isLive || it.id in liveIds }, TunnelCatalog.all.count { !(it.isLive || it.id in liveIds) })
+            ConsoleHeader(version, netOn, keyLevel, TunnelCatalog.all.count { it.isLive || it.id in liveIds }, TunnelCatalog.all.count { !(it.isLive || it.id in liveIds) })
             Spacer(Modifier.height(14.dp))
             GlassPanel(Modifier.fillMaxWidth()) {
                 MetroMap(
@@ -133,14 +133,14 @@ fun MetroHome(onOpenTunnel: (String) -> Unit) {
 }
 
 @Composable
-private fun ConsoleHeader(version: String, offline: Boolean, keyLevel: String, live: Int, planned: Int) {
+private fun ConsoleHeader(version: String, netOn: Boolean, keyLevel: String, live: Int, planned: Int) {
     val context = LocalContext.current
     GlassPanel(Modifier.fillMaxWidth(), tint = LineColors.of(MetroLine.FILES)) {
         Column(Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
             Text("TUNNELS", fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = 7.sp, color = GlassColors.text)
             Spacer(Modifier.height(10.dp))
             ConsoleLine("build", "v$version")
-            ConsoleLine("net", "NONE", if (offline) "[ok]" to StatusColors.ok else "[!!]" to StatusColors.blocker)
+            ConsoleLine("net", if (netOn) "ON" else "OFF", if (netOn) "[sessions only]" to StatusColors.info else "[ok]" to StatusColors.ok)
             ConsoleLine("store", "SQLCipher", "[$keyLevel]" to StatusColors.info)
             ConsoleLine("map", "$live live · $planned planned")
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -195,10 +195,9 @@ private fun versionName(context: Context): String = runCatching {
     context.packageManager.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0)).versionName
 }.getOrNull() ?: "?"
 
-private fun declaresNoInternet(context: Context): Boolean = runCatching {
-    val info = context.packageManager.getPackageInfo(
-        context.packageName,
-        PackageManager.PackageInfoFlags.of(PackageManager.GET_PERMISSIONS.toLong()),
-    )
-    info.requestedPermissions?.contains(Manifest.permission.INTERNET) != true
-}.getOrDefault(false)
+/**
+ * Whether this app may reach the network right now. INTERNET is declared only for the Traffic and Home
+ * network sessions (rule #1); GrapheneOS's Network toggle revokes it, which is what this reads.
+ */
+private fun networkAllowed(context: Context): Boolean =
+    context.checkSelfPermission(Manifest.permission.INTERNET) == PackageManager.PERMISSION_GRANTED
