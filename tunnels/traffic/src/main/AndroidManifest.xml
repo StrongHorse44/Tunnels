@@ -12,6 +12,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- See which installed apps are VPN apps, so the other-VPN refusal can name them. -->
+    <queries>
+        <intent>
+            <action android:name="android.net.VpnService" />
+        </intent>
+    </queries>
+
     <application>
         <!-- DNS-only VPN: routes just the fake resolver address into the tunnel, counts each app's
              lookups by registrable domain, forwards them to the real resolver, writes the reply back.

@@ -2,6 +2,7 @@ package io.github.stronghorse44.tunnels.traffic
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -20,7 +21,31 @@ import java.net.InetAddress
  * the caller's own [anyVpnActive] check then decides what to say ([OTHER_VPN_MESSAGE]).
  */
 object VpnStatus {
-    const val OTHER_VPN_MESSAGE = "Another VPN (e.g. Surfshark) is connected. Pause it first; Tunnels never disconnects it for you."
+    const val OTHER_VPN_MESSAGE = "Another VPN is connected. Disconnect it in VPN settings first; an Always-on VPN restarts " +
+        "the moment it drops, so turn Always-on off (gear icon) before disconnecting. Tunnels never disconnects it for you."
+
+    /**
+     * [OTHER_VPN_MESSAGE] naming the installed VPN apps (other than Tunnels), since Android does not tell
+     * an ordinary app which of them owns the connected VPN network.
+     */
+    fun otherVpnMessage(context: Context): String {
+        val names = vpnAppLabels(context)
+        return if (names.isEmpty()) OTHER_VPN_MESSAGE
+        else "Another VPN is connected (installed VPN apps: ${names.joinToString()}). Disconnect it in VPN settings " +
+            "first; an Always-on VPN restarts the moment it drops, so turn Always-on off (gear icon) before " +
+            "disconnecting. Tunnels never disconnects it for you."
+    }
+
+    /** Labels of apps exposing a VpnService, Tunnels excluded (manifest <queries> grants the visibility). */
+    fun vpnAppLabels(context: Context): List<String> = runCatching {
+        val pm = context.packageManager
+        pm.queryIntentServices(Intent("android.net.VpnService"), PackageManager.MATCH_ALL)
+            .map { it.serviceInfo.applicationInfo }
+            .filter { it.packageName != context.packageName }
+            .distinctBy { it.packageName }
+            .map { it.loadLabel(pm).toString() }
+            .sorted()
+    }.getOrDefault(emptyList())
 
     /** Documented last resort when the underlying network reports no usable resolver. */
     val FALLBACK_RESOLVER: InetAddress = InetAddress.getByAddress("one.one.one.one", byteArrayOf(1, 1, 1, 1))

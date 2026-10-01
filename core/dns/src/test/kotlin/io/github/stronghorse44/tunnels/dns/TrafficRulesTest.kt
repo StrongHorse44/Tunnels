@@ -91,7 +91,7 @@ class TrafficRulesTest {
         val d = evaluate(app("com.a") + summary(otherVpn = true)).of(TrafficRules.OTHER_VPN_ACTIVE).single()
         assertEquals(TrafficKeys.SUMMARY, d.subject)
         assertEquals(Severity.INFO, d.severity)
-        assertTrue(d.evidence.contains("Pause it"))
+        assertTrue(d.evidence.contains("Disconnect it"))
         assertTrue(!d.sticky)
     }
 

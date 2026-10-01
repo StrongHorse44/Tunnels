@@ -61,7 +61,9 @@ object TrafficRules {
     val otherVpnActive: FindingRule = Rules.perSubject(OTHER_VPN_ACTIVE, Severity.INFO) { subject, obs ->
         if (subject != TrafficKeys.SUMMARY) return@perSubject null
         if (TrafficKeys.value(obs, TrafficKeys.VPN_OTHER_ACTIVE) != "true") return@perSubject null
-        "Another VPN (e.g. Surfshark) is connected. Pause it before starting a Traffic session; Tunnels never disconnects it for you."
+        "Another VPN is connected, so no Traffic session can start. Disconnect it in VPN settings first. " +
+            "An Always-on VPN restarts the moment it drops: turn Always-on off (gear icon) before disconnecting. " +
+            "Tunnels never disconnects it for you."
     }
 
     /** Every rule of the tunnel, in display order. Declared last so the rule values above exist first. */

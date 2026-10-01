@@ -81,7 +81,7 @@ private fun SessionCard(session: SessionState, actions: TunnelScreenActions) {
         // The other-VPN check comes first: asking the system for consent while another VPN is connected
         // would disconnect it (VpnStatus.consentIntent refuses to ask in that case as a second guard).
         if (VpnStatus.anyVpnActive(context)) {
-            refusal = VpnStatus.OTHER_VPN_MESSAGE
+            refusal = VpnStatus.otherVpnMessage(context)
             return
         }
         val intent = VpnStatus.consentIntent(context)

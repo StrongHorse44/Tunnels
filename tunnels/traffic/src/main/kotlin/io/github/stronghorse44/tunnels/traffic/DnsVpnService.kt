@@ -153,7 +153,7 @@ class DnsVpnService : VpnService() {
     private fun openTunnel(): String? {
         // Order matters: prepare() while another VPN is connected would disconnect that VPN (see
         // VpnStatus), so the other-VPN refusal comes first and prepare() runs only on a VPN-free phone.
-        if (VpnStatus.anyVpnActive(this)) return VpnStatus.OTHER_VPN_MESSAGE
+        if (VpnStatus.anyVpnActive(this)) return VpnStatus.otherVpnMessage(this)
         if (prepare(this) != null) return "Android has not given Tunnels VPN consent yet. Open the tunnel and allow it."
         val cm = getSystemService(ConnectivityManager::class.java) ?: return "No connectivity service."
         val resolvers = VpnStatus.resolversOf(cm, VpnStatus.underlyingNetwork(cm))
