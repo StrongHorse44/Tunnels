@@ -1,4 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
     <!-- Declare only what permissions.allow lists. -->
+    <!-- Talk to the Shizuku app: shell access the user grants there. Nothing leaves the device. -->
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
+
+    <!-- See whether the Shizuku app is installed and launch it. -->
+    <queries>
+        <package android:name="moe.shizuku.privileged.api" />
+    </queries>
+
+    <application>
+        <!-- Receives the Shizuku binder. Only the system (INTERACT_ACROSS_USERS_FULL) can call it. -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL"
+            tools:ignore="ExportedContentProvider" />
+
+        <!-- Connect flow the tunnel gate opens: start Shizuku, then grant Tunnels. Same-app only. -->
+        <activity
+            android:name=".ShizukuConnectActivity"
+            android:exported="false"
+            android:label="Connect Shizuku"
+            android:theme="@style/Theme.Tunnels">
+            <intent-filter>
+                <action android:name="io.github.stronghorse44.tunnels.deepmode.action.CONNECT_SHIZUKU" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+    </application>
 </manifest>
