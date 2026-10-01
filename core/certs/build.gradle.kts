@@ -13,5 +13,7 @@ kotlin {
 
 dependencies {
     api(project(":core:model"))
+    // Rule building blocks (Rules.perSubject etc.); the trust store rules live here so they are unit-testable.
+    api(project(":core:engine"))
     testImplementation(libs.junit)
 }
