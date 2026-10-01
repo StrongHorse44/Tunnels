@@ -61,6 +61,23 @@ object SurroundingsFormat {
         return if (key == null) type.label else "${type.label} · $key"
     }
 
+    /**
+     * The line after an unmute. Unmuting one identity that was muted through a legacy family mute lifts the
+     * family mute too, and says so: "Unmuted Apple Find My · deadbeef and the whole Apple Find My family mute."
+     */
+    fun unmuteMessage(subjects: List<String>): String {
+        val parsed = subjects.mapNotNull { s -> SurroundingsKeys.parseTrackerSubject(s)?.let { s to it } }
+        val identity = parsed.firstOrNull { it.second.second != null }
+        val family = parsed.firstOrNull { it.second.second == null }
+        val what = when {
+            identity != null && family != null -> "${trackerTitle(identity.first)} and the whole ${family.second.first.label} family mute"
+            identity != null -> trackerTitle(identity.first)
+            family != null -> "the whole ${family.second.first.label} family mute"
+            else -> subjects.firstOrNull() ?: "nothing"
+        }
+        return "Unmuted $what. It is judged again from this scan on."
+    }
+
     /** The per-type and per-device subjects of a scan, grouped: type → (facts, devices → facts). */
     fun trackerCards(observations: List<Observation>): List<TrackerCard> {
         val bySubject = observations.groupBy { it.subject }

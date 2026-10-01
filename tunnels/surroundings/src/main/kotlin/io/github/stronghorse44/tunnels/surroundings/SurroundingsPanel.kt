@@ -46,7 +46,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.stronghorse44.tunnels.ble.AppleFindMyFrame
 import io.github.stronghorse44.tunnels.ble.FamilyFacts
 import io.github.stronghorse44.tunnels.ble.FamilySummary
-import io.github.stronghorse44.tunnels.ble.FollowingHeuristic
 import io.github.stronghorse44.tunnels.ble.FollowingLevel
 import io.github.stronghorse44.tunnels.ble.IdentityFacts
 import io.github.stronghorse44.tunnels.ble.SurroundingsKeys
@@ -214,8 +213,8 @@ private fun TrackerSection(state: TunnelScreenState, actions: TunnelScreenAction
     val summaryColor = when {
         worst == FollowingLevel.CRITICAL -> StatusColors.blocker
         worst == FollowingLevel.WARN -> StatusColors.warn
-        // A separated identity heard more than once is worth a glance; a crowd of passers-by heard once each is not.
-        identities.any { it.state == TrackerState.SEPARATED && !it.muted && FollowingHeuristic.isCandidate(it.scans) } -> StatusColors.warn
+        // A separated identity close to following is worth a glance; a crowd of passers-by is not.
+        identities.any { it.state == TrackerState.SEPARATED && it.close } -> StatusColors.warn
         else -> GlassColors.text
     }
 
@@ -301,7 +300,7 @@ private fun TypeCard(card: SurroundingsFormat.TrackerCard, state: TunnelScreenSt
             card.devices.forEach { d ->
                 val f = d.identity(card.type)
                 IdentityRow(f, open == d.key) { open = if (open == d.key) null else d.key }
-                if (open == d.key) IdentityDetail(f, state, actions, openSheet)
+                if (open == d.key) IdentityDetail(f, card.muted, state, actions, openSheet)
             }
         }
     }
@@ -356,6 +355,8 @@ private fun IdentityRow(f: IdentityFacts, open: Boolean, onClick: () -> Unit) {
 @Composable
 private fun IdentityDetail(
     f: IdentityFacts,
+    /** The identity's family carries a mute saved before v3: unmuting the identity has to lift that too. */
+    familyMuted: Boolean,
     state: TunnelScreenState,
     actions: TunnelScreenActions,
     openSheet: (Sheet) -> Unit,
@@ -386,7 +387,10 @@ private fun IdentityDetail(
             }) { Text(LABEL_REPORT) }
             if (tunnel != null && !f.muted) OutlinedButton(onClick = { actions.perform(tunnel.muteAction(subject)) }) { Text(SurroundingsTunnel.LABEL_MUTE) }
             if (tunnel != null && f.muted) {
-                OutlinedButton(onClick = { actions.perform(tunnel.unmuteAction(subject, SurroundingsKeys.typeSubject(f.type))) }) { Text("Unmute") }
+                OutlinedButton(onClick = {
+                    val subjects = if (familyMuted) arrayOf(subject, SurroundingsKeys.typeSubject(f.type)) else arrayOf(subject)
+                    actions.perform(tunnel.unmuteAction(*subjects))
+                }) { Text("Unmute") }
             }
         }
         Text(TrackerGuides.UNKNOWN_TRACKER_ALERTS, style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)

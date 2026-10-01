@@ -110,17 +110,24 @@ class WifiHeuristicsTest {
     fun carrierNetworkWithAnOpenCopyIsFlagged() {
         val spectrum = (1..6).map { ap("Spectrum Mobile", "0$it:1$it:2$it:00:00:01", eap) } + ap("Spectrum Mobile", "de:ad:be:00:00:01", "[ESS]")
         assertEquals(
-            "normally a carrier network with many access points; this one advertises open security while others use enterprise sign-in",
+            "a public hotspot name broadcast from many access points; one of them advertises open security while others use enterprise sign-in",
             WifiHeuristics.summarise(spectrum).single().twinSuspect,
         )
-        // A lone password-protected copy of an 802.1X network is flagged even without enterprise siblings in range.
+        // An open copy of an 802.1X name is flagged even alone.
         assertEquals(
-            "normally a carrier network with many access points that uses enterprise sign-in; this one advertises a Wi-Fi password (WPA2-Personal)",
-            WifiHeuristics.summarise(listOf(ap("eduroam", "de:ad:be:00:00:01", "[WPA2-PSK-CCMP][ESS]"))).single().twinSuspect,
+            "a public hotspot name broadcast from many access points, normally with enterprise sign-in; one of them advertises open security",
+            WifiHeuristics.summarise(listOf(ap("eduroam", "de:ad:be:00:00:01", "[ESS]"))).single().twinSuspect,
         )
+        // A password copy of an 802.1X name: flagged only next to an enterprise sibling in range.
+        assertEquals(
+            "a public hotspot name broadcast from many access points; one of them advertises a Wi-Fi password (WPA2-Personal) while others use enterprise sign-in",
+            WifiHeuristics.summarise(listOf(ap("eduroam", "01:00:00:00:00:01", eap), ap("eduroam", "de:ad:be:00:00:01", "[WPA2-PSK-CCMP][ESS]"))).single().twinSuspect,
+        )
+        // A home network literally named "Xfinity" (password only, several mesh vendors) is not an impostor of anything.
+        assertNull(WifiHeuristics.summarise((1..5).map { ap("Xfinity", "0$it:00:00:00:00:0$it", "[WPA2-PSK-CCMP][ESS]") }).single().twinSuspect)
         // A password-protected AP among open hotspots.
         assertEquals(
-            "normally a carrier network with many access points; this one advertises a Wi-Fi password (WPA2-Personal) while others are open",
+            "a public hotspot name broadcast from many access points; one of them advertises a Wi-Fi password (WPA2-Personal) while others are open",
             WifiHeuristics.summarise(listOf(ap("attwifi", "01:00:00:00:00:01", "[ESS]"), ap("attwifi", "de:ad:be:00:00:01", "[WPA2-PSK-CCMP][ESS]"))).single().twinSuspect,
         )
     }

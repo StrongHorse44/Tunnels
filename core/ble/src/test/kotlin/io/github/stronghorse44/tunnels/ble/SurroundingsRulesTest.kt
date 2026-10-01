@@ -77,10 +77,97 @@ class SurroundingsRulesTest {
     private val t0 = 1_700_000_000_000L
 
     /** The whole path a scan takes: stored sighting rows → aggregate → observations (with mutes) → rules. */
-    private fun pipeline(records: List<SightingRecord>, muted: Set<String> = emptySet()): List<FindingDraft> {
+    private fun observe(records: List<SightingRecord>, muted: Set<String> = emptySet(), now: Long = records.maxOf { it.at }): List<Observation> {
         val stored = records.map { SightingRecord.parse(it.subject, it.encode())!! }
-        val obs = SurroundingsKeys.bleObservations(SightingAggregator.aggregate(stored), 100, SurroundingsKeys.AVAILABLE_YES, records.maxOf { it.at }, muted)
-        return evaluate(obs).of(SurroundingsRules.TRACKER_FOLLOWING)
+        return SurroundingsKeys.bleObservations(SightingAggregator.aggregate(stored), 100, SurroundingsKeys.AVAILABLE_YES, now, muted)
+    }
+
+    private fun pipeline(records: List<SightingRecord>, muted: Set<String> = emptySet(), now: Long = records.maxOf { it.at }): List<FindingDraft> =
+        evaluate(observe(records, muted, now)).of(SurroundingsRules.TRACKER_FOLLOWING)
+
+    private val day = 24 * 60 * minute
+
+    @Test
+    fun followingFindingsNeedARecentSighting() {
+        val records = crowd() + follower("deadbeef", 70, TrackerState.SEPARATED)
+        val last = t0 + 70 * minute // deadbeef's last sighting
+        assertEquals(1, pipeline(records, now = last + 7 * day).size)
+        // Eight days on: no finding, but the identity is still listed as history and its verdict says so.
+        val later = last + 8 * day
+        assertTrue(pipeline(records, now = later).isEmpty())
+        val obs = observe(records, now = later).filter { it.subject == "tracker:findmy:deadbeef" }.associate { it.key to it.value }
+        assertEquals("false", obs[SurroundingsKeys.SEEN_RECENT])
+        val facts = IdentityFacts.from(TrackerType.APPLE_FINDMY, "deadbeef", obs)
+        assertEquals(FollowingLevel.NONE, facts.level)
+        assertEquals(FollowingLevel.CRITICAL, facts.assessed)
+        assertTrue(TrackerVerdict.line(facts), TrackerVerdict.line(facts).contains("has not been seen in the last 7 days, so it is kept as history and no longer flagged."))
+        // A tag that changes identity daily leaves one stale key per day: only this week's ones can be flagged.
+        val daily = (0 until 10).flatMap { d ->
+            (0 until 3).map { i -> SightingRecord("d$d-$i", t0 + d * day + i * 40 * minute, TrackerType.APPLE_FINDMY, "day%05d".format(d), TrackerState.SEPARATED, -60) }
+        }
+        val flagged = pipeline(daily, now = t0 + 9 * day + 80 * minute).map { it.subject }
+        assertEquals((2 until 10).map { "tracker:findmy:day%05d".format(it) }.toSet(), flagged.toSet())
+    }
+
+    @Test
+    fun closeMeansRealProgress() {
+        fun closest(records: List<SightingRecord>) = observe(records).single { it.subject == "tracker:findmy" && it.key == SurroundingsKeys.CLOSEST_KEY }.value
+        // Two monitor windows four minutes apart: not close.
+        val quick = listOf(0L, 4L).mapIndexed { i, m -> SightingRecord("m$i", t0 + m * minute, TrackerType.APPLE_FINDMY, "aaaa0001", TrackerState.SEPARATED, -60) }
+        assertEquals("none", closest(crowd() + quick))
+        // Two scans fifteen minutes apart (half the span): close.
+        val slow = listOf(0L, 15L).mapIndexed { i, m -> SightingRecord("m$i", t0 + m * minute, TrackerType.APPLE_FINDMY, "aaaa0001", TrackerState.SEPARATED, -60) }
+        assertEquals("aaaa0001", closest(crowd() + slow))
+        assertTrue(FollowingHeuristic.isClose(2, 15))
+        assertTrue(!FollowingHeuristic.isClose(2, 14))
+        assertTrue(!FollowingHeuristic.isClose(1, 300))
+    }
+
+    @Test
+    fun everyUnmutedWarnIdentityIsListedPastTheCap() {
+        // 45 static Tile keys, each over the WARN threshold, plus 10 identities muted through a legacy family mute.
+        val warn = (0 until 45).flatMap { k -> (0 until 3).map { i -> SightingRecord("s$i", t0 + i * 20 * minute, TrackerType.TILE, "w%07x".format(k), TrackerState.UNKNOWN, -60) } }
+        val muted = (0 until 10).flatMap { k -> (0 until 5).map { i -> SightingRecord("s$i", t0 + i * 20 * minute, TrackerType.CHIPOLO, "m%07x".format(k), TrackerState.UNKNOWN, -60) } }
+        val obs = observe(warn + muted, muted = setOf("tracker:chipolo"))
+        val listed = obs.map { it.subject }.filter { SurroundingsKeys.parseTrackerSubject(it)?.second != null }.toSet()
+        assertEquals(45, listed.count { it.startsWith("tracker:tile:") })
+        // Muted ones sort last, so none of them made the 40 rows.
+        assertEquals(0, listed.count { it.startsWith("tracker:chipolo:") })
+        assertEquals("10", SurroundingsKeys.value(obs.filter { it.subject == SurroundingsKeys.BLE_SUMMARY }, SurroundingsKeys.TRACKERS_UNLISTED))
+        assertEquals(45, evaluate(obs).of(SurroundingsRules.TRACKER_FOLLOWING).size)
+    }
+
+    @Test
+    fun rotatingNonAppleTagGetsAWeakNotice() {
+        // One Tile, one or two keys per scan, changing key, across 4 scans over an hour.
+        val keys = listOf("k1", "k1", "k2", "k3")
+        val lone = keys.mapIndexed { i, k -> SightingRecord("s$i", t0 + i * 20 * minute, TrackerType.TILE, k, TrackerState.UNKNOWN, -60) } +
+            SightingRecord("s2", t0 + 40 * minute, TrackerType.TILE, "k2b", TrackerState.UNKNOWN, -70)
+        val drafts = evaluate(observe(lone))
+        val notice = drafts.of(SurroundingsRules.ROTATING_TRACKER).single()
+        assertEquals("tracker:tile", notice.subject)
+        assertEquals(Severity.NOTICE, notice.severity)
+        assertEquals(
+            "A Tile tag was seen in 4 separate scans over 1 hour under 4 changing identities, never more than 2 at a time. " +
+                "That fits one tag that changes its identity, but Tunnels has not verified how often Tile tags do that, " +
+                "and a different stranger's tag in each scan looks the same. If it keeps happening as you move, use Find it and check bags, pockets and the car.",
+            notice.evidence,
+        )
+        assertTrue(drafts.of(SurroundingsRules.TRACKER_FOLLOWING).isEmpty())
+        // A crowd (many Tile keys per scan) never matches, even recurring over hours.
+        val crowd = (0 until 4).flatMap { i -> (0 until 5).map { k -> SightingRecord("s$i", t0 + i * 20 * minute, TrackerType.TILE, "c$i-$k", TrackerState.UNKNOWN, -70) } }
+        assertTrue(evaluate(observe(crowd)).of(SurroundingsRules.ROTATING_TRACKER).isEmpty())
+        // Apple tags never get it (they say whether they are separated); too short or too few scans neither.
+        assertTrue(evaluate(observe(lone.map { it.copy(type = TrackerType.APPLE_FINDMY) })).of(SurroundingsRules.ROTATING_TRACKER).isEmpty())
+        assertTrue(evaluate(observe(lone.filter { it.session in setOf("s0", "s2") })).of(SurroundingsRules.ROTATING_TRACKER).isEmpty())
+        val short = keys.mapIndexed { i, k -> SightingRecord("s$i", t0 + i * 5 * minute, TrackerType.TILE, k, TrackerState.UNKNOWN, -60) }
+        assertTrue(evaluate(observe(short)).of(SurroundingsRules.ROTATING_TRACKER).isEmpty())
+        // A legacy family mute silences it; a static key over the threshold gets its own WARN instead.
+        assertTrue(evaluate(observe(lone, muted = setOf("tracker:tile"))).of(SurroundingsRules.ROTATING_TRACKER).isEmpty())
+        val static = (0 until 3).map { i -> SightingRecord("s$i", t0 + i * 20 * minute, TrackerType.TILE, "k1", TrackerState.UNKNOWN, -60) }
+        val both = evaluate(observe(static + SightingRecord("s1", t0 + 20 * minute, TrackerType.TILE, "k9", TrackerState.UNKNOWN, -60)))
+        assertTrue(both.of(SurroundingsRules.ROTATING_TRACKER).isEmpty())
+        assertEquals(1, both.of(SurroundingsRules.TRACKER_FOLLOWING).size)
     }
 
     /** The field case: 35 strangers' Find My identities, each heard once, spread over 17 scans in 2 h 7 min. */
@@ -122,7 +209,7 @@ class SurroundingsRulesTest {
         assertEquals(listOf("tracker:findmy:deadbeef"), critical.map { it.subject })
         assertEquals(Severity.CRITICAL, critical.single().severity)
         assertEquals(
-            "Apple Find My identity deadbeef, reporting itself away from its owner, was with you in 3 separate scans over 1 hour 10 minutes. " +
+            "Apple Find My identity deadbeef, reporting itself away from its owner, was with you in 3 separate scans over 1 hour 10 minutes, last seen ${SurroundingsRules.lastSeenLabel(t0 + 70 * minute)}. " +
                 "It is the same identity in every one of those scans, not different tags of the same kind. " +
                 "That is how an AirTag planted on a person behaves. Find it (it chirps when moved after a while), " +
                 "remove its battery, and keep it as evidence if you suspect stalking.",
@@ -133,7 +220,7 @@ class SurroundingsRulesTest {
         assertEquals(listOf("tracker:findmy:deadbeef"), warn.map { it.subject })
         assertEquals(Severity.WARN, warn.single().severity)
         assertEquals(
-            "Apple Find My identity deadbeef was seen in 3 separate scans over 40 minutes (away from owner). " +
+            "Apple Find My identity deadbeef was seen in 3 separate scans over 40 minutes (away from owner), last seen ${SurroundingsRules.lastSeenLabel(t0 + 40 * minute)}. " +
                 "It is the same identity in every one of those scans, not different tags of the same kind. " +
                 "A tag that stays with you across places and hours may have been planted. " +
                 "If it is yours or a companion's, mute it; otherwise check bags, pockets and the car.",
@@ -242,8 +329,8 @@ class SurroundingsRulesTest {
             WifiNetwork("Spectrum Mobile", "de:ad:be:00:00:01", "[ESS]", 2437)
         val carrier = evaluate(SurroundingsKeys.wifiObservations(WifiHeuristics.summarise(aps), SurroundingsKeys.AVAILABLE_YES)).of(SurroundingsRules.EVIL_TWIN_SUSPECT)
         assertEquals(
-            "\"Spectrum Mobile\" looks like it may have an impostor: normally a carrier network with many access points; " +
-                "this one advertises open security while others use enterprise sign-in. A fake access point with a familiar name can intercept traffic. " +
+            "\"Spectrum Mobile\" looks like it may have an impostor: a public hotspot name broadcast from many access points; " +
+                "one of them advertises open security while others use enterprise sign-in. A fake access point with a familiar name can intercept traffic. " +
                 "Forget the network if you do not need it, and do not enter passwords while on it.",
             carrier.single().evidence,
         )

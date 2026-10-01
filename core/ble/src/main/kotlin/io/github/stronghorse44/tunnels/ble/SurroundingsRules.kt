@@ -6,10 +6,15 @@ import io.github.stronghorse44.tunnels.model.FindingDraft
 import io.github.stronghorse44.tunnels.model.FindingRule
 import io.github.stronghorse44.tunnels.model.Observation
 import io.github.stronghorse44.tunnels.model.Severity
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /** Finding rules of the surroundings tunnel. Pure functions over observations, unit-tested here. */
 object SurroundingsRules {
     const val TRACKER_FOLLOWING = "TRACKER_FOLLOWING"
+    const val ROTATING_TRACKER = "ROTATING_TRACKER"
     const val NEW_TRACKER_TYPE = "NEW_TRACKER_TYPE"
     const val OPEN_WIFI_CONNECTED = "OPEN_WIFI_CONNECTED"
     const val EVIL_TWIN_SUSPECT = "EVIL_TWIN_SUSPECT"
@@ -30,26 +35,56 @@ object SurroundingsRules {
         ctx.bySubject().mapNotNull { (subject, obs) ->
             val (type, key) = SurroundingsKeys.parseTrackerSubject(subject) ?: return@mapNotNull null
             if (key == null || obs.muted()) return@mapNotNull null
+            // Recency gate: identities not seen for a week stay listed as history, without a finding.
+            if (obs.v(SurroundingsKeys.SEEN_RECENT) == "false") return@mapNotNull null
             val sessions = obs.v(SurroundingsKeys.SEEN_SESSIONS)?.toIntOrNull() ?: return@mapNotNull null
             val span = obs.v(SurroundingsKeys.SEEN_SPAN)?.toLongOrNull() ?: 0L
             val sepSessions = obs.v(SurroundingsKeys.SEEN_SESSIONS_SEPARATED)?.toIntOrNull() ?: 0
             val sepSpan = obs.v(SurroundingsKeys.SEEN_SPAN_SEPARATED)?.toLongOrNull() ?: 0L
             val state = TrackerState.bySlug(obs.v(SurroundingsKeys.STATE))
+            val lastSeen = obs.v(SurroundingsKeys.SEEN_LAST)?.toLongOrNull()?.let { ", last seen ${lastSeenLabel(it)}" }.orEmpty()
             when (FollowingHeuristic.assess(type, sessions, span, sepSessions, sepSpan)) {
                 FollowingLevel.NONE -> null
                 FollowingLevel.WARN -> FindingDraft(
                     ctx.tunnelId, subject, TRACKER_FOLLOWING, Severity.WARN,
-                    "${type.label} identity $key was seen in $sessions separate scans over ${duration(span)} (${TrackerVerdict.stateLabel(state)}). " +
+                    "${type.label} identity $key was seen in $sessions separate scans over ${duration(span)} (${TrackerVerdict.stateLabel(state)})$lastSeen. " +
                         "$SAME_IDENTITY A tag that stays with you across places and hours may have been planted. " +
                         "If it is yours or a companion's, mute it; otherwise check bags, pockets and the car.",
                 )
                 FollowingLevel.CRITICAL -> FindingDraft(
                     ctx.tunnelId, subject, TRACKER_FOLLOWING, Severity.CRITICAL,
-                    "Apple Find My identity $key, reporting itself away from its owner, was with you in $sepSessions separate scans over ${duration(sepSpan)}. " +
+                    "Apple Find My identity $key, reporting itself away from its owner, was with you in $sepSessions separate scans over ${duration(sepSpan)}$lastSeen. " +
                         "$SAME_IDENTITY That is how an AirTag planted on a person behaves. Find it (it chirps when moved after a while), " +
                         "remove its battery, and keep it as evidence if you suspect stalking.",
                 )
             }
+        }
+    }
+
+    /** "1 Oct 14:32" in the phone's time zone: when an identity was last heard. */
+    fun lastSeenLabel(epochMs: Long, zone: ZoneId = ZoneId.systemDefault()): String =
+        DateTimeFormatter.ofPattern("d MMM HH:mm", Locale.ENGLISH).format(Instant.ofEpochMilli(epochMs).atZone(zone))
+
+    /**
+     * State NOTICE on non-Apple family subjects: a few changing keys per scan recurring across scans, which may be
+     * one tag changing its identity ([RotatingTagHeuristic]). Never WARN: a different stranger's tag in each scan
+     * looks the same. Skipped for families muted before v3, and when an identity of the family is already flagged.
+     */
+    val rotatingTracker: FindingRule = FindingRule { ctx ->
+        ctx.bySubject().mapNotNull { (subject, obs) ->
+            val (type, key) = SurroundingsKeys.parseTrackerSubject(subject) ?: return@mapNotNull null
+            if (key != null || type == TrackerType.APPLE_FINDMY || obs.muted()) return@mapNotNull null
+            if ((obs.v(SurroundingsKeys.FOLLOWING_COUNT)?.toIntOrNull() ?: 0) > 0) return@mapNotNull null
+            val sessions = obs.v(SurroundingsKeys.ROTATING_SESSIONS)?.toIntOrNull() ?: return@mapNotNull null
+            val span = obs.v(SurroundingsKeys.ROTATING_SPAN)?.toLongOrNull() ?: return@mapNotNull null
+            val keys = obs.v(SurroundingsKeys.ROTATING_KEYS)?.toIntOrNull() ?: return@mapNotNull null
+            FindingDraft(
+                ctx.tunnelId, subject, ROTATING_TRACKER, Severity.NOTICE,
+                "A ${type.label} tag was seen in $sessions separate scans over ${duration(span)} under $keys changing identities, " +
+                    "never more than ${RotatingTagHeuristic.MAX_KEYS_PER_SESSION} at a time. That fits one tag that changes its identity, " +
+                    "but Tunnels has not verified how often ${type.label} tags do that, and a different stranger's tag in each scan looks the same. " +
+                    "If it keeps happening as you move, use Find it and check bags, pockets and the car.",
+            )
         }
     }
 
@@ -107,7 +142,7 @@ object SurroundingsRules {
             "That happens in poor coverage, but a fake base station forces it on purpose. GrapheneOS's LTE-only option in Mobile network settings prevents it."
     }
 
-    val all: List<FindingRule> = listOf(trackerFollowing, newTrackerType, openWifiConnected, evilTwinSuspect, cellDowngrade, cellDowngraded)
+    val all: List<FindingRule> = listOf(trackerFollowing, rotatingTracker, newTrackerType, openWifiConnected, evilTwinSuspect, cellDowngrade, cellDowngraded)
 
     /** Minutes as a short phrase: "45 minutes", "1 hour 20 minutes", "3 days". */
     fun duration(minutes: Long): String {

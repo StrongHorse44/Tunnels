@@ -209,8 +209,8 @@ class SightingsTest {
         assertTrue(c(FollowingLevel.NONE, 2, 25) > c(FollowingLevel.NONE, 2, 5))
         // Progress past the threshold does not count twice.
         assertEquals(c(FollowingLevel.NONE, 3, 30), c(FollowingLevel.NONE, 30, 300), 1e-9)
-        assertTrue(!FollowingHeuristic.isCandidate(1))
-        assertTrue(FollowingHeuristic.isCandidate(2))
+        assertTrue(!FollowingHeuristic.isClose(2, 4))
+        assertTrue(FollowingHeuristic.isClose(2, 15))
     }
 
     @Test
@@ -218,7 +218,7 @@ class SightingsTest {
         val records = (0 until 50).map { i -> rec("s${i % 5}", t0 + i * minute, key = "%08x".format(i)) } +
             rec("s9", t0 + 59 * minute, key = "aaaaaaaa", type = TrackerType.APPLE_FINDMY, state = TrackerState.SEPARATED)
         val agg = SightingAggregator.aggregate(records)
-        val obs = SurroundingsKeys.bleObservations(agg, devicesTotal = 123, available = SurroundingsKeys.AVAILABLE_YES, now = t0 + 60 * minute, muted = setOf("tracker:findmy"), sessions30d = 6, currentSession = "s9")
+        val obs = SurroundingsKeys.bleObservations(agg, devicesTotal = 123, available = SurroundingsKeys.AVAILABLE_YES, now = t0 + 60 * minute, sessions30d = 6, currentSession = "s9")
         assertTrue(obs.all { it.tunnelId == SurroundingsKeys.TUNNEL_ID })
         assertEquals(obs.size, obs.map { it.identity }.toSet().size)
         val summary = obs.filter { it.subject == SurroundingsKeys.BLE_SUMMARY }.associate { it.key to it.value }
@@ -247,10 +247,12 @@ class SightingsTest {
         assertEquals("0", tileType[SurroundingsKeys.FOLLOWING_COUNT])
         assertNull(tileType[SurroundingsKeys.SEEN_SESSIONS_SEPARATED])
         val appleType = obs.filter { it.subject == "tracker:findmy" }.associate { it.key to it.value }
-        assertEquals("true", appleType[SurroundingsKeys.MUTED])
+        assertNull(appleType[SurroundingsKeys.MUTED])
         assertEquals("separated", appleType[SurroundingsKeys.STATE])
-        // A muted type mutes its devices too.
-        assertEquals("true", obs.first { it.subject == "tracker:findmy:aaaaaaaa" && it.key == SurroundingsKeys.MUTED }.value)
+        // A muted type (a family mute saved before v3) mutes its devices too.
+        val familyMuted = SurroundingsKeys.bleObservations(SightingAggregator.aggregate(records.takeLast(1)), 1, SurroundingsKeys.AVAILABLE_YES, t0 + 60 * minute, muted = setOf("tracker:findmy"))
+        assertEquals("true", familyMuted.first { it.subject == "tracker:findmy" && it.key == SurroundingsKeys.MUTED }.value)
+        assertEquals("true", familyMuted.first { it.subject == "tracker:findmy:aaaaaaaa" && it.key == SurroundingsKeys.MUTED }.value)
         // Per-device facts the detail shows: first/last seen, last signal, whether it was in this scan.
         val appleDevice = obs.filter { it.subject == "tracker:findmy:aaaaaaaa" }.associate { it.key to it.value }
         assertEquals((t0 + 59 * minute).toString(), appleDevice[SurroundingsKeys.SEEN_FIRST])

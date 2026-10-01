@@ -155,11 +155,19 @@ class TrackerVerdictTest {
         // A snapshot from before v3 (no summary keys) falls back to the listed identities.
         val old = FamilyFacts.from(
             TrackerType.APPLE_FINDMY,
-            mapOf(SurroundingsKeys.DEVICES to "2", SurroundingsKeys.SEEN_SESSIONS to "3", SurroundingsKeys.SEEN_SPAN to "50"),
-            listOf(facts(key = "a", state = TrackerState.WITH_OWNER), facts(key = "b", state = TrackerState.SEPARATED, scans = 2, span = 10)),
+            mapOf(SurroundingsKeys.DEVICES to "5", SurroundingsKeys.SEEN_SESSIONS to "3", SurroundingsKeys.SEEN_SPAN to "50"),
+            listOf(
+                facts(key = "a", state = TrackerState.WITH_OWNER),
+                facts(key = "b", state = TrackerState.SEPARATED, scans = 2, span = 20),
+                facts(key = "c", state = TrackerState.SEPARATED, scans = 2, span = 4),
+            ),
         )
-        assertEquals("1 near its owner · 1 separated", FamilySummary.states(old))
-        assertEquals("Closest to following: b, 2 of 3 scans · 10 of 30 min", FamilySummary.closest(old))
+        // The counts sum to the identity total: the unlisted remainder is "state unknown".
+        assertEquals("1 near its owner · 2 separated · 2 state unknown", FamilySummary.states(old))
+        assertEquals("Closest to following: b, 2 of 3 scans · 20 of 30 min", FamilySummary.closest(old))
+        // Two scans four minutes apart are not close.
+        val quick = FamilyFacts.from(TrackerType.APPLE_FINDMY, emptyMap(), listOf(facts(key = "c", scans = 2, span = 4)))
+        assertEquals("Closest to following: none close", FamilySummary.closest(quick))
     }
 
     @Test

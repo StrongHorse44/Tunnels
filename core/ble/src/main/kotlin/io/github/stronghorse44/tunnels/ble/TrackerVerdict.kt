@@ -19,6 +19,8 @@ data class IdentityFacts(
     /** Scans and minutes in which this identity said it was away from its owner: what the CRITICAL rule judges. */
     val separatedScans: Int = 0,
     val separatedMinutes: Long = 0L,
+    /** Seen within [FollowingHeuristic.RECENT_DAYS] days; older identities are history and never flagged. */
+    val recent: Boolean = true,
 ) {
     val proximityLast: Proximity? get() = rssiLast?.let(Proximity::of)
     val proximityAvg: Proximity? get() = rssiAvg?.let(Proximity::of)
@@ -26,8 +28,14 @@ data class IdentityFacts(
     /** This identity's standing against the following threshold, from its own counts. */
     val progress: FollowingProgress get() = FollowingProgress(scans, spanMinutes)
 
-    /** The same assessment the rule makes for this identity; a muted identity is never flagged. */
-    val level: FollowingLevel get() = if (muted) FollowingLevel.NONE else FollowingHeuristic.assess(type, scans, spanMinutes, separatedScans, separatedMinutes)
+    /** The identity's own counts against the threshold, before mutes and the recency gate. */
+    val assessed: FollowingLevel get() = FollowingHeuristic.assess(type, scans, spanMinutes, separatedScans, separatedMinutes)
+
+    /** The same level the rule acts on: never for a muted identity or one not seen recently. */
+    val level: FollowingLevel get() = if (muted || !recent) FollowingLevel.NONE else assessed
+
+    /** Close to following in the shared sense ([FollowingHeuristic.isClose]): unmuted, recent, real progress. */
+    val close: Boolean get() = !muted && recent && FollowingHeuristic.isClose(scans, spanMinutes)
 
     /** For ordering rows: closest to following first (muted ones last), see [order]. */
     val closeness: Double get() = if (muted) -1.0 else FollowingHeuristic.closeness(level, scans, spanMinutes)
@@ -51,6 +59,7 @@ data class IdentityFacts(
             muted = facts[SurroundingsKeys.MUTED] == "true",
             separatedScans = facts[SurroundingsKeys.SEEN_SESSIONS_SEPARATED]?.toIntOrNull() ?: 0,
             separatedMinutes = facts[SurroundingsKeys.SEEN_SPAN_SEPARATED]?.toLongOrNull() ?: 0L,
+            recent = facts[SurroundingsKeys.SEEN_RECENT] != "false",
         )
 
         /** Identity rows: closest to following first, then the most recently seen. */
@@ -88,6 +97,10 @@ object TrackerVerdict {
         append(' ')
         when {
             facts.muted -> append("Muted as a known tracker: it is listed but never flagged.")
+            !facts.recent && facts.assessed != FollowingLevel.NONE -> append(
+                "It was past the following threshold, but has not been seen in the last ${FollowingHeuristic.RECENT_DAYS} days, " +
+                    "so it is kept as history and no longer flagged.",
+            )
             facts.level == FollowingLevel.CRITICAL -> append(
                 "Flagged as following you: this identity, reporting itself away from its owner, was with you across " +
                     "${facts.separatedScans} scans over ${minutes(facts.separatedMinutes)}.",
@@ -162,16 +175,21 @@ data class FamilyFacts(
          */
         fun from(type: TrackerType, facts: Map<String, String>, listed: List<IdentityFacts>): FamilyFacts {
             fun int(k: String) = facts[k]?.toIntOrNull()
-            val candidates = listed.filter { !it.muted && FollowingHeuristic.isCandidate(it.scans) }.sortedWith(IdentityFacts.order)
+            val candidates = listed.filter { it.close }.sortedWith(IdentityFacts.order)
             val closestKey = facts[SurroundingsKeys.CLOSEST_KEY]?.takeIf { it != SurroundingsKeys.NONE }
                 ?: if (SurroundingsKeys.CLOSEST_KEY in facts) null else candidates.firstOrNull()?.key
             val closest = listed.firstOrNull { it.key == closestKey }
+            val identities = int(SurroundingsKeys.DEVICES) ?: listed.size
+            val withOwner = int(SurroundingsKeys.DEVICES_WITH_OWNER) ?: listed.count { it.state == TrackerState.WITH_OWNER }
+            val separated = int(SurroundingsKeys.DEVICES_SEPARATED) ?: listed.count { it.state == TrackerState.SEPARATED }
+            // Pre-v3 fallback: identities beyond the listed ones have no known state, so the counts still sum to the total.
+            val unknown = int(SurroundingsKeys.DEVICES_UNKNOWN) ?: (identities - withOwner - separated).coerceAtLeast(0)
             return FamilyFacts(
                 type = type,
-                identities = int(SurroundingsKeys.DEVICES) ?: listed.size,
-                withOwner = int(SurroundingsKeys.DEVICES_WITH_OWNER) ?: listed.count { it.state == TrackerState.WITH_OWNER },
-                separated = int(SurroundingsKeys.DEVICES_SEPARATED) ?: listed.count { it.state == TrackerState.SEPARATED },
-                unknown = int(SurroundingsKeys.DEVICES_UNKNOWN) ?: listed.count { it.state == TrackerState.UNKNOWN },
+                identities = identities,
+                withOwner = withOwner,
+                separated = separated,
+                unknown = unknown,
                 scans = int(SurroundingsKeys.SEEN_SESSIONS) ?: 0,
                 spanMinutes = facts[SurroundingsKeys.SEEN_SPAN]?.toLongOrNull() ?: 0L,
                 closestKey = closestKey,

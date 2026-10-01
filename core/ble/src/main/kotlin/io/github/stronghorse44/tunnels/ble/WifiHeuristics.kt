@@ -138,7 +138,7 @@ object WifiHeuristics {
     /** The expected security of a curated carrier or public hotspot name, or null for any other name. */
     fun carrierHotspot(subject: String): HotspotSecurity? = carrierHotspots[subject.trim().lowercase()]
 
-    private const val CARRIER = "normally a carrier network with many access points"
+    private const val HOTSPOT = "a public hotspot name broadcast from many access points"
 
     private fun words(s: WifiSecurity): String = when (s) {
         WifiSecurity.OPEN -> "open security"
@@ -149,22 +149,31 @@ object WifiHeuristics {
     }
 
     /**
-     * For a curated carrier name the vendor spread is normal; only security that does not fit the network is
-     * an impostor sign. An 802.1X/Passpoint network should only ever ask for enterprise sign-in; an open
-     * hotspot network may come with enhanced open (OWE) but should not mix in password-protected copies.
+     * For a curated hotspot name the vendor spread is normal, so the "different vendors" reason is dropped for
+     * these names: in practice it was mostly false positives. Only security that does not fit is an impostor sign:
+     * - An 802.1X/Passpoint name: an open copy is flagged on its own (nobody legitimately runs one); a password
+     *   (or WEP/OWE) copy only next to an enterprise sibling in range, since a home network may well be named
+     *   "Xfinity" or "eduroam" and is not an impostor of anything nearby.
+     * - An open hotspot name: a password-protected copy among open ones. An open twin of an open hotspot name
+     *   cannot be told apart by security at all; Tunnels does not claim to detect it.
      */
     private fun carrierReason(expected: HotspotSecurity, securities: Set<WifiSecurity>): String? {
         val sorted = securities.sortedBy { it.ordinal }
+        val enterpriseNearby = WifiSecurity.ENTERPRISE in securities
         return when (expected) {
-            HotspotSecurity.ENTERPRISE -> {
-                val odd = sorted.firstOrNull { it != WifiSecurity.ENTERPRISE } ?: return null
-                if (WifiSecurity.ENTERPRISE in securities) "$CARRIER; this one advertises ${words(odd)} while others use enterprise sign-in"
-                else "$CARRIER that uses enterprise sign-in; this one advertises ${words(odd)}"
+            HotspotSecurity.ENTERPRISE -> when {
+                WifiSecurity.OPEN in securities && enterpriseNearby ->
+                    "$HOTSPOT; one of them advertises open security while others use enterprise sign-in"
+                WifiSecurity.OPEN in securities ->
+                    "$HOTSPOT, normally with enterprise sign-in; one of them advertises open security"
+                enterpriseNearby -> sorted.firstOrNull { it != WifiSecurity.ENTERPRISE }
+                    ?.let { "$HOTSPOT; one of them advertises ${words(it)} while others use enterprise sign-in" }
+                else -> null
             }
             HotspotSecurity.OPEN -> {
                 val openLike = setOf(WifiSecurity.OPEN, WifiSecurity.OWE)
                 val odd = sorted.firstOrNull { it !in openLike } ?: return null
-                if (WifiSecurity.OPEN in securities) "$CARRIER; this one advertises ${words(odd)} while others are open" else null
+                if (WifiSecurity.OPEN in securities) "$HOTSPOT; one of them advertises ${words(odd)} while others are open" else null
             }
         }
     }

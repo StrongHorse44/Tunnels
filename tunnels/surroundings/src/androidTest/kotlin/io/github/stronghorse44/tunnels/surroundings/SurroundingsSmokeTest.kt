@@ -81,6 +81,7 @@ class SurroundingsSmokeTest {
         val drafts = listOf(
             FindingDraft(module.id, "tracker:findmy:deadbeef", SurroundingsRules.TRACKER_FOLLOWING, Severity.CRITICAL, ""),
             FindingDraft(module.id, "tracker:tile", SurroundingsRules.NEW_TRACKER_TYPE, Severity.NOTICE, "", sticky = true),
+            FindingDraft(module.id, "tracker:tile", SurroundingsRules.ROTATING_TRACKER, Severity.NOTICE, ""),
             FindingDraft(module.id, "Cafe", SurroundingsRules.OPEN_WIFI_CONNECTED, Severity.NOTICE, ""),
             FindingDraft(module.id, "Office", SurroundingsRules.EVIL_TWIN_SUSPECT, Severity.WARN, ""),
             FindingDraft(module.id, SurroundingsKeys.CELL_SUMMARY, SurroundingsRules.CELL_DOWNGRADE, Severity.WARN, ""),
@@ -99,6 +100,8 @@ class SurroundingsSmokeTest {
         assertTrue(tracker.all { it is FindingAction.Perform })
         // A family subject (the new-family notice) is never offered a family-wide mute.
         assertEquals(listOf(TrackerActions.LABEL_FIND_IT, TrackerActions.LABEL_ALERTS), module.actionsFor(drafts[1]).map { it.label })
+        // The rotating-tag notice is family-level too: find it for the family and Android's alerts.
+        assertEquals(listOf(TrackerActions.LABEL_FIND_IT, TrackerActions.LABEL_ALERTS), module.actionsFor(drafts[2]).map { it.label })
         // A subject that is not a tracker subject gets neither find it nor a mute rather than a guess.
         val odd = module.actionsFor(FindingDraft(module.id, "not a tracker", SurroundingsRules.TRACKER_FOLLOWING, Severity.WARN, ""))
         assertEquals(listOf(TrackerActions.LABEL_ALERTS), odd.map { it.label })

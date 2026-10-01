@@ -42,6 +42,12 @@ class SurroundingsFormatTest {
         assertEquals("Apple Find My · deadbeef", SurroundingsFormat.trackerTitle("tracker:findmy:deadbeef"))
         assertEquals("Tile", SurroundingsFormat.trackerTitle("tracker:tile"))
         assertEquals("ble:summary", SurroundingsFormat.trackerTitle("ble:summary"))
+        assertEquals("Unmuted Apple Find My · deadbeef. It is judged again from this scan on.", SurroundingsFormat.unmuteMessage(listOf("tracker:findmy:deadbeef")))
+        assertEquals(
+            "Unmuted Apple Find My · deadbeef and the whole Apple Find My family mute. It is judged again from this scan on.",
+            SurroundingsFormat.unmuteMessage(listOf("tracker:findmy:deadbeef", "tracker:findmy")),
+        )
+        assertEquals("Unmuted the whole Tile family mute. It is judged again from this scan on.", SurroundingsFormat.unmuteMessage(listOf("tracker:tile")))
     }
 
     @Test
@@ -84,7 +90,8 @@ class SurroundingsFormatTest {
         // The family's own counts (4 scans over 95 minutes) are a summary: no identity is past the threshold, so nothing is following.
         assertEquals(FollowingLevel.NONE, tile.worstLevel)
         assertEquals("2 identities · 4 scans over 1 h 35 min", FamilySummary.headline(tile.family))
-        assertEquals("Closest to following: bbbbbbbb, 3 of 3 scans · 0 of 30 min", FamilySummary.closest(tile.family))
+        // Three scans within the same minute are no real progress: nothing is close.
+        assertEquals("Closest to following: none close", FamilySummary.closest(tile.family))
         val apple = cards.single { it.type == TrackerType.APPLE_FINDMY }
         assertEquals(FollowingLevel.NONE, apple.worstLevel)
         assertEquals("1 near its owner", FamilySummary.states(apple.family))

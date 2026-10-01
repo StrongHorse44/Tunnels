@@ -155,6 +155,8 @@ data class TypeSighting(
     val lastSeparated: Long?,
     /** Devices whose latest state was "near its owner"; with [devices] this tells a family of benign tags from unknowns. */
     val devicesWithOwner: Int = 0,
+    /** The keys heard in each session, for [RotatingTagHeuristic]; summaries of the stored rows, nothing new. */
+    val sessionKeys: List<SessionKeys> = emptyList(),
 ) {
     val spanMinutes: Long get() = (lastSeen - firstSeen) / 60_000
     val spanSeparatedMinutes: Long get() = if (firstSeparated != null && lastSeparated != null) (lastSeparated - firstSeparated) / 60_000 else 0
@@ -220,6 +222,7 @@ object SightingAggregator {
                 firstSeparated = separated.minOfOrNull { it.at },
                 lastSeparated = separated.maxOfOrNull { it.at },
                 devicesWithOwner = withOwner,
+                sessionKeys = rs.groupBy { it.session }.map { (session, srs) -> SessionKeys(session, srs.minOf { it.at }, srs.map { it.key }.toSet()) },
             )
         }
         return SightingAggregate(devices, types)
@@ -275,10 +278,69 @@ object FollowingHeuristic {
             sessions.coerceIn(0, MIN_SESSIONS).toDouble() / MIN_SESSIONS +
             spanMinutes.coerceIn(0L, MIN_SPAN_MINUTES).toDouble() / MIN_SPAN_MINUTES
 
-    /** An identity seen in a single scan is never "close to following": every passer-by is. */
-    fun isCandidate(sessions: Int): Boolean = sessions > 1
+    /**
+     * "Close to following": real progress toward the threshold, one scan short of it and at least half its
+     * span. The background monitor scans every couple of minutes, so "seen twice" alone would count most of
+     * a crowd; two scans four minutes apart are not close. Identities over the threshold are close too.
+     * Shared by the family card, the monitor notification and the summary tint.
+     */
+    fun isClose(sessions: Int, spanMinutes: Long): Boolean =
+        sessions >= MIN_SESSIONS - 1 && spanMinutes >= MIN_SPAN_MINUTES / 2
 
-    /** Closest to following first, then the most recently seen. */
-    val deviceOrder: Comparator<DeviceSighting> =
-        compareByDescending<DeviceSighting> { closeness(it.level, it.sessions, it.spanMinutes) }.thenByDescending { it.lastSeen }.thenBy { it.key }
+    /**
+     * Following findings are raised only for identities seen within this many days. Older ones stay listed
+     * as history: a key seen once a week ago is no news, and a tag that changes its identity daily would
+     * otherwise leave a fresh finding behind for every day of the 30-day history.
+     */
+    const val RECENT_DAYS = 7
+    private const val DAY_MS = 24 * 60 * 60_000L
+
+    fun isRecent(lastSeen: Long, now: Long): Boolean = now - lastSeen <= RECENT_DAYS * DAY_MS
+
+    /** The level the rule acts on: the identity's own assessment, but only while it is recent. */
+    fun level(d: DeviceSighting, now: Long): FollowingLevel = if (isRecent(d.lastSeen, now)) d.level else FollowingLevel.NONE
+
+    /**
+     * Listing order: unmuted before muted, then closest to following (recent levels only), then the most
+     * recently seen. [muted] says whether an identity is muted, directly or through a legacy family mute.
+     */
+    fun deviceOrder(now: Long, muted: (DeviceSighting) -> Boolean): Comparator<DeviceSighting> =
+        compareBy<DeviceSighting> { muted(it) }
+            .thenByDescending { closeness(level(it, now), it.sessions, it.spanMinutes) }
+            .thenByDescending { it.lastSeen }
+            .thenBy { it.key }
 }
+
+/**
+ * A weak, family-level hint for non-Apple tags. The per-identity rule relies on a tag keeping one key for
+ * a while; how often Tile, Samsung, Chipolo and other tags change their identity is not verified on-device.
+ * A lone tag that changes its identity looks like a few keys per scan (at most [MAX_KEYS_PER_SESSION]) of
+ * one family recurring across [FollowingHeuristic.MIN_SESSIONS] scans over [FollowingHeuristic.MIN_SPAN_MINUTES]
+ * minutes. A crowd shows many keys per scan and never matches; a different stranger's tag in each scan does
+ * match, which is why this only ever is a NOTICE.
+ */
+object RotatingTagHeuristic {
+    const val MAX_KEYS_PER_SESSION = 2
+
+    data class Pattern(val sessions: Int, val spanMinutes: Long, val keys: Int)
+
+    /**
+     * [sessions] are the family's scan sessions (unmuted keys only). Null unless every one of them had at most
+     * [MAX_KEYS_PER_SESSION] keys, the family recurred across enough sessions and minutes, it changed key at least
+     * once, and it was seen within [FollowingHeuristic.RECENT_DAYS] days.
+     */
+    fun assess(type: TrackerType, sessions: List<SessionKeys>, now: Long): Pattern? {
+        if (type == TrackerType.APPLE_FINDMY || sessions.isEmpty()) return null
+        if (sessions.any { it.keys.size > MAX_KEYS_PER_SESSION }) return null
+        val first = sessions.minOf { it.at }
+        val last = sessions.maxOf { it.at }
+        val span = (last - first) / 60_000
+        val keys = sessions.flatMap { it.keys }.toSet().size
+        if (sessions.size < FollowingHeuristic.MIN_SESSIONS || span < FollowingHeuristic.MIN_SPAN_MINUTES || keys < 2) return null
+        if (!FollowingHeuristic.isRecent(last, now)) return null
+        return Pattern(sessions.size, span, keys)
+    }
+}
+
+/** The keys of one family heard in one scan session. */
+data class SessionKeys(val session: String, val at: Long, val keys: Set<String>)
