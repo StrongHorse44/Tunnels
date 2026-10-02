@@ -92,12 +92,20 @@ Google's Maven is not reachable from the cloud dev container: Android modules on
 - Every module ships unit tests (JVM) and at least one instrumented smoke test under
   `src/androidTest` that runs its `scan()` on the emulator.
 - Observations are summaries (counts, names, hashes, booleans), never raw payloads.
-- Every change that reaches the app ships to Releases. After the final push of a piece of work, start the
-  `ci.yml` workflow on your branch (GitHub tools: run workflow `ci.yml`, ref = your branch; pushes to the
-  integration branch publish on their own). That run publishes a "Debug build #N" prerelease with a plain
-  APK; wait for it to go green and give the user the release link. Never publish from `main`.
+- **`dev` is the one integration branch, and the only branch that publishes phone builds.** Every session:
+  1. Before starting, bring in the latest work: `git fetch origin dev && git merge origin/dev` (on a
+     fresh session branch, `git checkout -B <your branch> origin/dev`).
+  2. Work and push on your own session branch as usual.
+  3. When the piece of work is done, merge `origin/dev` once more, push, then open a pull request from
+     your branch into `dev` (this standing instruction is the user's request for that PR) and turn on
+     auto-merge for it (GitHub tools: `enable_pr_auto_merge`, merge method `merge`). It merges itself
+     when CI is green. Fix any red CI on it as on any PR you own.
+  4. The push to `dev` publishes a "Debug build #N" prerelease with a plain APK. Wait for it to go
+     green and give the user the release link.
+  Session branches never publish: `ci.yml` builds them on a manual run but refuses one that is missing
+  work already on `dev`. Never push straight to `dev`, and never publish from `main`.
 
 ## Workflow
 
-- Phases 1–6 are being built straight through on the integration branch, one PR at the end.
+- Phases 1–6 are being built straight through on `dev`, one PR to `main` at the end.
 - Stop only for decisions that change scope or hard rules.
