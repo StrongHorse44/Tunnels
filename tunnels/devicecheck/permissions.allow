@@ -1,0 +1,6 @@
+# Permissions the devicecheck module may declare, one per line. CI fails on anything else.
+# Device checks read how Tunnels sees this phone; nothing is stored and nothing is sent.
+# Read every app's Network and Sensors permission state, to confirm the GrapheneOS toggles are readable (install-time, no dialog).
+android.permission.QUERY_ALL_PACKAGES
+# Whether a VPN is connected and the network's Private DNS mode, which decide what a Traffic session can see.
+android.permission.ACCESS_NETWORK_STATE

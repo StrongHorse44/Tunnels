@@ -339,5 +339,25 @@ object TrackerDomains {
 
     fun isTracker(host: String): Boolean = match(host) != null
 
+    /** Parents whose products appear as separate vendors ("Google Firebase", "Meta Audience Network"). */
+    private val PARENTS = listOf("Google", "Meta", "Microsoft", "Amazon", "Adobe", "Oracle", "Salesforce", "Yandex", "Nielsen")
+
+    /** The company behind [vendor]: its parent when the vendor is a parent's product, without any parenthetical note. */
+    fun companyOf(vendor: String): String {
+        val name = vendor.substringBefore(" (").trim()
+        return PARENTS.firstOrNull { name == it || name.startsWith("$it ") } ?: name
+    }
+
+    /**
+     * [domains] grouped by the company behind them, most domains first then by name. Domains that are not in the
+     * catalog (a bundled list's hosts, say) are left out.
+     */
+    fun companies(domains: List<String>): List<Pair<String, List<String>>> =
+        domains.mapNotNull { d -> byDomain(d)?.let { companyOf(it.vendor) to d } }
+            .groupBy({ it.first }, { it.second })
+            .entries
+            .sortedWith(compareByDescending<Map.Entry<String, List<String>>> { it.value.size }.thenBy { it.key })
+            .map { it.key to it.value }
+
     fun byDomain(domain: String): TrackerDomain? = byHost[domain] ?: byRegistrable[domain]
 }

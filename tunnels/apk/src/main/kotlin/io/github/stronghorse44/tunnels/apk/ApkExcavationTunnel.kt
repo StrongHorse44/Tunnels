@@ -18,6 +18,7 @@ import io.github.stronghorse44.tunnels.runtime.TunnelScreenState
 import io.github.stronghorse44.tunnels.runtime.TunnelUi
 import io.github.stronghorse44.tunnels.trackers.ApkKeys
 import io.github.stronghorse44.tunnels.trackers.ApkRules
+import io.github.stronghorse44.tunnels.trackers.ExportedCounts
 import io.github.stronghorse44.tunnels.trackers.TrackerMatcher
 import kotlinx.coroutines.yield
 import java.io.File
@@ -41,6 +42,7 @@ class ApkExcavationTunnel(private val context: Context) : TunnelModule, TunnelUi
     private val matcher = TrackerMatcher.DEFAULT
     private val cache = ConcurrentHashMap<String, CachedContents>()
     private val systemFlag = ConcurrentHashMap<String, Boolean>()
+    private val exportedCache = ConcurrentHashMap<String, Pair<Long, Pair<ExportedCounts, List<String>>>>()
 
     private class CachedContents(val lastUpdateTime: Long, val contents: ApkContents)
 
@@ -59,7 +61,9 @@ class ApkExcavationTunnel(private val context: Context) : TunnelModule, TunnelUi
             }
             yield()
         }
-        cache.keys.retainAll(packages.mapTo(HashSet()) { it.packageName })
+        val present = packages.mapTo(HashSet()) { it.packageName }
+        cache.keys.retainAll(present)
+        exportedCache.keys.retainAll(present)
         progress.report(packages.size, packages.size, "done")
         return out
     }
@@ -97,7 +101,35 @@ class ApkExcavationTunnel(private val context: Context) : TunnelModule, TunnelUi
         add(ApkKeys.NATIVE_ABIS, if (contents.abis.isEmpty()) ApkKeys.NO_ABIS else contents.abis.sorted().joinToString(","))
         add(ApkKeys.NATIVE_LIBS, contents.nativeLibs.toString())
         add(ApkKeys.SIZE_MB, Math.round(contents.bytes / (1024.0 * 1024.0)).toString())
+        if (app != null && (app.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) add(ApkKeys.DEBUGGABLE, "true")
+        add(ApkKeys.CLEARTEXT, (app != null && (app.flags and ApplicationInfo.FLAG_USES_CLEARTEXT_TRAFFIC) != 0).toString())
+        // System apps export what the OS needs; only user apps' unguarded components are worth reading.
+        if (!system) exportedOf(pm, pkg, info.lastUpdateTime)?.let { (counts, providers) ->
+            add(ApkKeys.EXPORTED_OPEN, counts.encode())
+            if (providers.isNotEmpty()) add(ApkKeys.OPEN_PROVIDERS, providers.joinToString(","))
+        }
         return obs
+    }
+
+    /**
+     * Exported components with no permission on them, per package version. One PackageManager call per app: asking for
+     * every app's components at once can exceed the binder transaction limit. Null when Android would not say.
+     */
+    private fun exportedOf(pm: PackageManager, pkg: String, lastUpdateTime: Long): Pair<ExportedCounts, List<String>>? {
+        exportedCache[pkg]?.takeIf { it.first == lastUpdateTime }?.let { return it.second }
+        val flags = PackageManager.GET_ACTIVITIES or PackageManager.GET_SERVICES or PackageManager.GET_RECEIVERS or PackageManager.GET_PROVIDERS
+        val result = runCatching {
+            val p = pm.getPackageInfo(pkg, PackageManager.PackageInfoFlags.of(flags.toLong()))
+            val providers = p.providers.orEmpty().filter { it.exported && it.readPermission == null && it.writePermission == null }
+            ExportedCounts(
+                activities = p.activities.orEmpty().count { it.exported && it.permission == null },
+                services = p.services.orEmpty().count { it.exported && it.permission == null },
+                receivers = p.receivers.orEmpty().count { it.exported && it.permission == null },
+                providers = providers.size,
+            ) to providers.mapNotNull { it.authority?.substringBefore(';') }.sorted().take(ApkKeys.OPEN_PROVIDERS_MAX)
+        }.getOrNull() ?: return null
+        exportedCache[pkg] = lastUpdateTime to result
+        return result
     }
 
     private fun contentsOf(pkg: String, lastUpdateTime: Long, app: ApplicationInfo?): ApkContents {

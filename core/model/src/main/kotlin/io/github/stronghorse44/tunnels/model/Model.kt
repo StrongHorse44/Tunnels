@@ -156,4 +156,38 @@ interface TunnelModule {
     suspend fun scan(progress: ScanProgress): List<Observation>
     val rules: List<FindingRule>
     fun actionsFor(draft: FindingDraft): List<FindingAction>
+
+    /**
+     * Keys whose value moves with the clock alone, such as an age in days. A scan that changes only these is not a
+     * change of the phone, so a background check stores no snapshot for it (findings still follow).
+     */
+    val volatileKeys: Set<String> get() = emptySet()
 }
+
+/**
+ * A tunnel that reads other tunnels' latest observations and open findings instead of the phone. The snapshot
+ * engine runs it after the tunnels it reads, inside the same snapshot, whenever one of them was scanned (or when
+ * it is scanned by name), so its findings never lag the data they join. Its observations are stored and diffed
+ * like any other tunnel's, and its [rules] turn them into findings.
+ */
+interface DerivedTunnel : TunnelModule {
+    /** Tunnel ids whose observations and findings [derive] reads. */
+    val sources: Set<String>
+
+    /** Observations of this tunnel (tunnelId = [id]) computed from [input]. Pure: no system calls. */
+    fun derive(input: DerivedInput): List<Observation>
+
+    /** Never called: the engine calls [derive] with the sources' data instead. */
+    override suspend fun scan(progress: ScanProgress): List<Observation> = emptyList()
+}
+
+/** One source tunnel's latest observations and when they were taken. */
+data class SourceData(val observations: List<Observation>, val takenAt: Instant)
+
+data class DerivedInput(
+    /** Per source tunnel that has data: this scan's observations when it ran now, else its newest stored snapshot's. */
+    val sources: Map<String, SourceData>,
+    /** Open (not dismissed) findings of the source tunnels as they stand after this scan. Actions are not attached. */
+    val findings: List<Finding>,
+    val now: Instant,
+)

@@ -4,6 +4,8 @@ name: Compile check
 on:
   push:
     branches: ["phase/**"]
+  # Any other branch: start it by hand (Actions -> Compile check -> Run workflow) for the same fast check without the emulator.
+  workflow_dispatch:
 
 permissions:
   contents: read

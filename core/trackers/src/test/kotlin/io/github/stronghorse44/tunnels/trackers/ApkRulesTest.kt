@@ -62,6 +62,35 @@ class ApkRulesTest {
     }
 
     @Test
+    fun googlesOwnPlayAppsAreNotTrackerFindingsButLookAlikesAre() {
+        val sdks = mapOf("firebase_analytics" to "analytics", "google_admob" to "ads")
+        val gms = app("com.google.android.gms", trackers = sdks, cert = GooglePlay.CERT_SHA256)
+        val fake = app("com.android.vending", trackers = sdks)
+        val drafts = evaluate(gms + fake).of(ApkRules.TRACKER_SDK)
+        assertEquals(listOf("com.android.vending"), drafts.map { it.subject })
+        assertTrue(GooglePlay.isGooglePlay("com.google.android.gsf", GooglePlay.CERT_SHA256.lowercase().chunked(2).joinToString(":")))
+        assertTrue(!GooglePlay.isGooglePlay("com.example.app", GooglePlay.CERT_SHA256))
+    }
+
+    @Test
+    fun debuggableUserAppsWarnAndSystemAppsDoNot() {
+        val debug = app("com.dev.build") + Observation(t, "com.dev.build", ApkKeys.DEBUGGABLE, "true")
+        val sys = app("com.android.thing", system = true) + Observation(t, "com.android.thing", ApkKeys.DEBUGGABLE, "true")
+        val drafts = evaluate(debug + sys + app("com.release")).of(ApkRules.DEBUGGABLE)
+        assertEquals(listOf("com.dev.build"), drafts.map { it.subject })
+        assertEquals(Severity.WARN, drafts.single().severity)
+    }
+
+    @Test
+    fun exportedCountsRoundTrip() {
+        val c = ExportedCounts(activities = 2, services = 0, receivers = 1, providers = 1)
+        assertEquals("activities=2,services=0,receivers=1,providers=1", c.encode())
+        assertEquals(c, ExportedCounts.parse(c.encode()))
+        assertEquals(null, ExportedCounts.parse("activities=2"))
+        assertEquals(null, ExportedCounts.parse(null))
+    }
+
+    @Test
     fun trackerSdkTruncatesLongLists() {
         val ids = listOf("amplitude", "mixpanel", "segment", "heap", "onesignal", "flurry", "countly", "mparticle")
         val many = app("com.many", trackers = ids.associateWith { "analytics" })

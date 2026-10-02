@@ -125,6 +125,10 @@ dependencies {
     implementation(project(":tunnels:homenet"))
     implementation(project(":tunnels:deepmode"))
     implementation(project(":tunnels:updater"))
+    implementation(project(":tunnels:crossroads"))
+    implementation(project(":tunnels:watch"))
+    implementation(project(":tunnels:devicecheck"))
+    implementation(project(":tunnels:pairing"))
 
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.junit)

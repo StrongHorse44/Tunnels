@@ -17,6 +17,8 @@ data class SessionRecord(
     val trackers: Int,
     /** Tracker domain to query count, most queried first, at most [TRACKER_TOP_MAX]. */
     val trackerTop: List<Pair<String, Int>>,
+    /** Lookups the session blocked ([BlockPolicy]); written only when non-zero, so rows from before blocking read 0. */
+    val blocked: Int = 0,
 ) {
     fun encode(): String = Fields.encode(
         listOf(
@@ -27,7 +29,7 @@ data class SessionRecord(
             "top" to Fields.encodeCounts(top),
             "trackers" to trackers.toString(),
             "trackerTop" to Fields.encodeCounts(trackerTop),
-        ),
+        ) + if (blocked > 0) listOf("blocked" to blocked.toString()) else emptyList(),
     )
 
     companion object {
@@ -48,6 +50,7 @@ data class SessionRecord(
                 top = Fields.parseCounts(f["top"]).take(TOP_MAX),
                 trackers = f["trackers"]?.toIntOrNull() ?: 0,
                 trackerTop = Fields.parseCounts(f["trackerTop"]).take(TRACKER_TOP_MAX),
+                blocked = f["blocked"]?.toIntOrNull() ?: 0,
             )
         }
     }

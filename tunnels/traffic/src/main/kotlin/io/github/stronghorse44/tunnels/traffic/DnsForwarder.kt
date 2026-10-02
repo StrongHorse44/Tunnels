@@ -7,9 +7,11 @@ import android.system.OsConstants
 import android.system.StructPollfd
 import android.util.Log
 import io.github.stronghorse44.tunnels.dns.DnsMessage
+import io.github.stronghorse44.tunnels.dns.Doh
 import io.github.stronghorse44.tunnels.dns.IpPacket
 import io.github.stronghorse44.tunnels.dns.IpPackets
 import io.github.stronghorse44.tunnels.dns.SessionCounter
+import io.github.stronghorse44.tunnels.dns.Upstream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InterruptedIOException
@@ -17,13 +19,18 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.SocketException
+import java.net.URL
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import javax.net.ssl.HttpsURLConnection
 
 /**
  * The packet loop of a session. Reads IP packets from the TUN, keeps the UDP port-53 ones, counts each
- * query against the app that owns the socket, forwards it through one protected upstream socket and
- * writes the answer back with fresh IP/UDP headers. Everything else is dropped (TCP 853 is counted as
+ * query against the app that owns the socket, answers it here when the session blocks it, otherwise
+ * forwards it through one protected upstream socket and writes the answer back with fresh IP/UDP headers. Everything else is dropped (TCP 853 is counted as
  * encrypted DNS first). Two plain threads; nothing here touches the UI or the store.
  *
  * While the TUN is established the phone's DNS depends on these threads, so neither may die quietly: a
@@ -41,6 +48,10 @@ class DnsForwarder(
     private val subjectOf: (uid: Int) -> String,
     /** Called once, from a forwarder thread, when a loop ends while the session should still be running. */
     private val onFailure: (String) -> Unit = {},
+    /** Whether a lookup of host by subject is blocked ([io.github.stronghorse44.tunnels.dns.BlockPolicy]): it then gets NXDOMAIN from here. */
+    private val blocks: (subject: String, host: String) -> Boolean = { _, _ -> false },
+    /** Where forwarded lookups go, read per lookup ([Upstream]): the network's resolver, or a DNS-over-HTTPS endpoint. */
+    private val upstreamOf: () -> Upstream = { Upstream() },
 ) {
     private class Pending(val src: InetAddress, val dst: InetAddress, val srcPort: Int, val question: String?, val at: Long)
 
@@ -64,6 +75,20 @@ class DnsForwarder(
 
     val dropped = AtomicInteger(0)
     val answered = AtomicInteger(0)
+    /** Lookups answered here with NXDOMAIN instead of being forwarded. */
+    val blockedCount = AtomicInteger(0)
+
+    /** Encrypted lookups in flight, each one HTTPS POST; bounded so a dead provider cannot pile up threads or memory. */
+    private val doh = ThreadPoolExecutor(
+        DOH_THREADS, DOH_THREADS, 30, TimeUnit.SECONDS, ArrayBlockingQueue(DOH_QUEUE),
+        { r -> Thread(r, "tunnels-dns-doh").apply { isDaemon = true } },
+        { _, _ -> dropped.incrementAndGet() },
+    ).apply { allowCoreThreadTimeOut(true) }
+    private val dohFailuresInRow = AtomicInteger(0)
+    @Volatile private var dohLastAnswer = 0L
+
+    /** Lookups answered by the encrypted resolver. */
+    val encryptedAnswered = AtomicInteger(0)
 
     private val reader = Thread(::readLoop, "tunnels-dns-tun")
     private val responder = Thread(::responseLoop, "tunnels-dns-upstream")
@@ -82,6 +107,7 @@ class DnsForwarder(
     /** Stops both threads; returns once they have exited (bounded wait). */
     fun stop() {
         running = false
+        doh.shutdownNow()
         runCatching { upstream.close() }
         runCatching { reader.join(1500) }
         runCatching { responder.join(1500) }
@@ -175,7 +201,15 @@ class DnsForwarder(
             -1
         }
         val subject = subjectOf(uid)
-        message.queryName?.let { counter.query(subject, it) }
+        val name = message.queryName
+        name?.let { counter.query(subject, it) }
+        if (name != null && blocks(subject, name) && answerBlocked(p, subject)) return
+
+        val upstreamChoice = upstreamOf()
+        if (upstreamChoice.encrypted) {
+            forwardEncrypted(p, upstreamChoice.url!!)
+            return
+        }
 
         val key = pendingKey(message.id, message.queryName)
         synchronized(pending) {
@@ -195,6 +229,104 @@ class DnsForwarder(
             synchronized(pending) { pending.remove(key) }
             dropped.incrementAndGet()
             Log.w(TAG, "upstream send failed: ${e.javaClass.simpleName}")
+        }
+    }
+
+    /**
+     * Sends [p]'s lookup to the DNS-over-HTTPS endpoint [url] from the pool and writes the answer back. A lookup the
+     * provider does not answer is dropped, never retried in plain text: the app's resolver retries on its own. If the
+     * provider answers nothing for [DOH_DEAD_MS] while lookups keep failing, the session is ended through [fail] so
+     * the phone's DNS is handed back instead of staying broken.
+     */
+    private fun forwardEncrypted(p: IpPacket.Udp, url: String) {
+        val query = p.payload
+        val body = Doh.request(query)
+        if (body == null) {
+            dropped.incrementAndGet()
+            return
+        }
+        if (dohLastAnswer == 0L) dohLastAnswer = System.currentTimeMillis()
+        doh.execute {
+            val answer = try {
+                post(url, body)?.let { Doh.response(it, query) }
+            } catch (e: IOException) {
+                Log.w(TAG, "encrypted lookup failed: ${e.javaClass.simpleName}")
+                null
+            }
+            if (!running) return@execute
+            if (answer == null) {
+                dropped.incrementAndGet()
+                val failures = dohFailuresInRow.incrementAndGet()
+                if (failures >= DOH_DEAD_FAILURES && System.currentTimeMillis() - dohLastAnswer > DOH_DEAD_MS) {
+                    fail("$DOH_FAILED ${Upstream.hostOf(url)}")
+                }
+                return@execute
+            }
+            dohFailuresInRow.set(0)
+            dohLastAnswer = System.currentTimeMillis()
+            try {
+                val packet = IpPackets.buildUdp(p.dst, p.src, DnsMessage.PORT, p.srcPort, answer)
+                synchronized(output) { output.write(packet) }
+                answered.incrementAndGet()
+                encryptedAnswered.incrementAndGet()
+            } catch (e: Exception) {
+                dropped.incrementAndGet()
+                Log.w(TAG, "encrypted reply dropped: ${e.javaClass.simpleName}")
+            }
+        }
+    }
+
+    /** One RFC 8484 POST. Tunnels is excluded from its own VPN, so this goes out over the physical network. */
+    private fun post(url: String, body: ByteArray): ByteArray? {
+        val conn = URL(url).openConnection() as HttpsURLConnection
+        try {
+            conn.requestMethod = "POST"
+            conn.connectTimeout = DOH_TIMEOUT_MS
+            conn.readTimeout = DOH_TIMEOUT_MS
+            conn.useCaches = false
+            conn.instanceFollowRedirects = false
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", Doh.CONTENT_TYPE)
+            conn.setRequestProperty("Accept", Doh.CONTENT_TYPE)
+            conn.setFixedLengthStreamingMode(body.size)
+            conn.outputStream.use { it.write(body) }
+            if (conn.responseCode != HttpsURLConnection.HTTP_OK || conn.contentType?.startsWith(Doh.CONTENT_TYPE) != true) {
+                runCatching { conn.errorStream?.close() }
+                return null
+            }
+            return conn.inputStream.use { input ->
+                val out = java.io.ByteArrayOutputStream()
+                val chunk = ByteArray(4096)
+                while (true) {
+                    val n = input.read(chunk)
+                    if (n < 0) break
+                    if (out.size() + n > Doh.MAX_RESPONSE) return null
+                    out.write(chunk, 0, n)
+                }
+                out.toByteArray()
+            }
+        } catch (e: IOException) {
+            // Closing the stream returns the connection to the keep-alive pool; on errors drop it.
+            conn.disconnect()
+            throw e
+        }
+    }
+
+    /**
+     * Writes a "no such domain" answer to [p] straight back into the tunnel. Nothing leaves the phone for a blocked
+     * lookup. False when no answer could be built or written; the lookup is then forwarded as usual.
+     */
+    private fun answerBlocked(p: IpPacket.Udp, subject: String): Boolean {
+        val reply = DnsMessage.nxdomain(p.payload) ?: return false
+        return try {
+            val packet = IpPackets.buildUdp(p.dst, p.src, DnsMessage.PORT, p.srcPort, reply)
+            synchronized(output) { output.write(packet) }
+            counter.blocked(subject)
+            blockedCount.incrementAndGet()
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "blocked answer not written: ${e.javaClass.simpleName}")
+            false
         }
     }
 
@@ -263,5 +395,14 @@ class DnsForwarder(
         private const val RESPONSE_MAX = 4096
         /** Upstream socket replacements tolerated per session before the forwarder reports failure. */
         private const val MAX_REOPENS = 8
+
+        /** Prefix of the failure reason when the encrypted resolver stopped answering; the host follows. */
+        const val DOH_FAILED = "encrypted resolver not answering:"
+        private const val DOH_THREADS = 4
+        private const val DOH_QUEUE = 128
+        private const val DOH_TIMEOUT_MS = 5_000
+        /** The session ends after this long without an encrypted answer while at least [DOH_DEAD_FAILURES] lookups failed. */
+        private const val DOH_DEAD_MS = 30_000L
+        private const val DOH_DEAD_FAILURES = 12
     }
 }

@@ -73,3 +73,13 @@ data class EventEntity(
     val subject: String,
     val summary: String,
 )
+
+/**
+ * Small settings the user chose (blocking categories, background checks, the inbox's last visit). Kept in the
+ * encrypted store rather than SharedPreferences because some name apps. Not observations: retention does not apply.
+ */
+@Entity(tableName = "settings")
+data class SettingEntity(
+    @PrimaryKey val key: String,
+    val value: String,
+)

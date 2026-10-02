@@ -26,7 +26,9 @@ object TrafficRules {
             if (count <= 0) return@mapNotNull null
             val names = TrafficKeys.list(TrafficKeys.value(obs, TrafficKeys.TRACKER_TOP))
             val severity = if (count >= MANY_TRACKERS) Severity.WARN else Severity.NOTICE
-            FindingDraft(ctx.tunnelId, subject, TRACKER_DOMAINS, severity, "Contacted ${plural(count, "tracking domain")} in the last 30 days: ${describe(names, count)}.")
+            val blocked = TrafficKeys.intValue(obs, TrafficKeys.BLOCKED30) ?: 0
+            val blockedText = if (blocked > 0) " Sessions blocked ${plural(blocked, "lookup")} to them; outside a session they go out." else ""
+            FindingDraft(ctx.tunnelId, subject, TRACKER_DOMAINS, severity, "Contacted ${plural(count, "tracking domain")} in the last 30 days: ${describe(names, count)}.$blockedText")
         }
     }
 

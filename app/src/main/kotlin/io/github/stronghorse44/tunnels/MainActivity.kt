@@ -6,12 +6,14 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import io.github.stronghorse44.tunnels.common.TunnelsTheme
+import io.github.stronghorse44.tunnels.devicecheck.DeviceChecksActivity
 import io.github.stronghorse44.tunnels.installer.InstallActivity
 import io.github.stronghorse44.tunnels.model.TunnelCatalog
 import io.github.stronghorse44.tunnels.runtime.AppLockGate
 import io.github.stronghorse44.tunnels.runtime.TunnelActivity
 import io.github.stronghorse44.tunnels.unzip.UnzipActivity
 import io.github.stronghorse44.tunnels.updater.UpdateActivity
+import io.github.stronghorse44.tunnels.watch.InboxActivity
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -20,7 +22,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             TunnelsTheme {
                 AppLockGate {
-                MetroHome(
+                WellHome(
                     onOpenTunnel = { id ->
                         when (id) {
                             TunnelCatalog.INSTALLER -> startActivity(Intent(this, InstallActivity::class.java))
@@ -29,6 +31,8 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     onOpenUpdates = { startActivity(UpdateActivity.intent(this)) },
+                    onOpenFindings = { startActivity(InboxActivity.intent(this)) },
+                    onOpenChecks = { startActivity(DeviceChecksActivity.intent(this)) },
                 )
                 }
             }
