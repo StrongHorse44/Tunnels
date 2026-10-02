@@ -1,6 +1,19 @@
 package io.github.stronghorse44.tunnels.common
 
 import android.provider.Settings
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import kotlinx.coroutines.delay
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -147,22 +160,58 @@ fun WellView(
     }
 }
 
+/** Where [RingArc] draws its band in a box of [size]: the ring's centre and radius, in pixels. */
+private class ArcGeometry(size: Size, bandFromBottomPx: Float) {
+    val u = size.width / 300f
+    val r = 368f * u
+    val c = Offset(size.width / 2f, size.height - bandFromBottomPx - r)
+
+    /** Bead [i] of [n], left to right in catalog order, spread over 40° around the band's lowest point. */
+    fun bead(i: Int, n: Int): Offset {
+        val deg = if (n <= 1) 0.0 else -20.0 + i * 40.0 / (n - 1)
+        val a = (90.0 - deg) * PI / 180.0
+        return Offset(c.x + r * cos(a).toFloat(), c.y + r * sin(a).toFloat())
+    }
+}
+
+/** The tunnels that share [stratum]'s band, in catalog order; Explore's side shaft has its own. */
+private fun bandMates(stratum: Stratum?) = if (stratum == null) emptyList() else TunnelCatalog.all.filter { it.stratum == stratum }
+
 /**
  * A tunnel's header band: you stand on [stratum]'s ring, a sweep of its light across the screen with the
- * stratum above showing below it and the one beneath faint above. Beads are that stratum's tunnels; [tunnelId]
- * is lit. The band's lowest point sits [bandFromBottom] above the bottom of the box.
+ * group above showing below it and the one beneath faint above (Explore, a side shaft, shows only its own).
+ * Beads are that group's tunnels, left to right in list order; [tunnelId] is lit, and [onLitBead] receives its
+ * centre in root coordinates (the scan's bead drop starts there). The band's lowest point sits [bandFromBottom]
+ * above the bottom of the box.
  */
 @Composable
-fun RingArc(stratum: Stratum?, tunnelId: String?, color: Color, modifier: Modifier = Modifier, bandFromBottom: Dp = 30.dp) {
+fun RingArc(
+    stratum: Stratum?,
+    tunnelId: String?,
+    color: Color,
+    modifier: Modifier = Modifier,
+    bandFromBottom: Dp = 26.dp,
+    onLitBead: (Offset) -> Unit = {},
+) {
     val ink = GlassColors.void
-    Canvas(modifier) {
-        val w = size.width
-        val u = w / 300f
-        val r = 368f * u
-        val cy = size.height - bandFromBottom.toPx() - r
-        val c = Offset(w / 2f, cy)
-        val above = stratum?.let { s -> Stratum.entries.getOrNull(s.ordinal - 1)?.takeIf { it != Stratum.EXPLORE } }
-        val below = stratum?.let { s -> Stratum.entries.getOrNull(s.ordinal + 1)?.takeIf { it != Stratum.EXPLORE } }
+    val mates = remember(stratum) { bandMates(stratum) }
+    val density = LocalDensity.current
+    Canvas(
+        modifier.onGloballyPositioned { coords ->
+            val i = mates.indexOfFirst { it.id == tunnelId }
+            if (i >= 0) {
+                val g = ArcGeometry(Size(coords.size.width.toFloat(), coords.size.height.toFloat()), with(density) { bandFromBottom.toPx() })
+                onLitBead(coords.positionInRoot() + g.bead(i, mates.size))
+            }
+        },
+    ) {
+        val g = ArcGeometry(size, bandFromBottom.toPx())
+        val u = g.u
+        val r = g.r
+        val c = g.c
+        val side = stratum == Stratum.EXPLORE
+        val above = if (side) null else stratum?.let { s -> Stratum.entries.getOrNull(s.ordinal - 1) }
+        val below = if (side) null else stratum?.let { s -> Stratum.entries.getOrNull(s.ordinal + 1)?.takeIf { it != Stratum.EXPLORE } }
         if (above != null) drawCircle(StratumColors.of(above).copy(alpha = 0.55f), r + 26f * u, c, style = Stroke(16f * u))
         if (below != null) drawCircle(StratumColors.of(below).copy(alpha = 0.35f), r - 24f * u, c, style = Stroke(8f * u))
         drawCircle(color.copy(alpha = 0.35f), r, c, style = Stroke(40f * u))
@@ -170,15 +219,52 @@ fun RingArc(stratum: Stratum?, tunnelId: String?, color: Color, modifier: Modifi
         drawCircle(ink.copy(alpha = 0.45f), r, c, style = Stroke(12f * u, pathEffect = PathEffect.dashPathEffect(floatArrayOf(1.1f * u, 3.2f * u))))
         drawCircle(ink.copy(alpha = 0.7f), r + 11f * u, c, style = Stroke(1.2f * u))
         drawCircle(ink.copy(alpha = 0.7f), r - 11f * u, c, style = Stroke(1.2f * u))
-        val mates = if (stratum == null) emptyList() else TunnelCatalog.all.filter { it.stratum == stratum }
         mates.forEachIndexed { i, t ->
-            val deg = if (mates.size == 1) 0.0 else -20.0 + i * 40.0 / (mates.size - 1)
-            val a = (90.0 + deg) * PI / 180.0
-            val p = Offset(c.x + r * cos(a).toFloat(), c.y + r * sin(a).toFloat())
+            val p = g.bead(i, mates.size)
             val here = t.id == tunnelId
             if (here) drawCircle(Color.White.copy(alpha = 0.45f), 9f * u, p)
             drawCircle(Color.White, (if (here) 4.8f else 3f) * u, p)
             drawCircle(ink, (if (here) 4.8f else 3f) * u, p, style = Stroke((if (here) 1.6f else 1f) * u))
+        }
+    }
+}
+
+/**
+ * The scan's opening: the tunnel's bead lifts off the band at [from], falls to [to] (the glory's centre) and
+ * splashes, a ring of light spreading out as the glory blooms there. [progress] runs 0..1; nothing is drawn
+ * outside it. Coordinates are in this canvas's space.
+ */
+fun DrawScope.drawBeadDrop(from: Offset, to: Offset, progress: Float) {
+    if (progress <= 0f || progress >= 1f) return
+    val bead = 6.dp.toPx()
+    val glow = Glory.colors
+    when {
+        progress < 0.25f -> {
+            val k = progress / 0.25f
+            val p = from + Offset(0f, -6.dp.toPx() * k)
+            drawCircle(Color.White.copy(alpha = 0.35f * k), bead * (1.5f + 2f * k), p)
+            drawCircle(Color.White, bead * (1f + 0.5f * k), p)
+        }
+        progress < 0.78f -> {
+            val k = (progress - 0.25f) / 0.53f
+            val fall = k * k // gravity: slow off the band, fast into the water
+            val start = from + Offset(0f, -6.dp.toPx())
+            val p = start + (to - start) * fall
+            // A short trail of the glory's colours behind the drop.
+            for (i in 1..4) {
+                val q = start + (to - start) * (fall - i * 0.035f).coerceAtLeast(0f)
+                drawCircle(glow[i % glow.size].copy(alpha = 0.35f - i * 0.07f), bead * (1.2f - i * 0.15f), q)
+            }
+            drawCircle(Color.White.copy(alpha = 0.3f), bead * 2.6f, p)
+            drawCircle(Color.White, bead * (1.5f - 0.4f * k), p)
+        }
+        else -> {
+            val k = (progress - 0.78f) / 0.22f
+            drawCircle(Color.White.copy(alpha = 0.8f * (1f - k)), bead * (1f + 3f * k), to)
+            drawCircle(
+                Brush.sweepGradient(glow, to), radius = 20.dp.toPx() + 70.dp.toPx() * k, center = to,
+                style = Stroke(2.dp.toPx() * (1f - k) + 0.5f), alpha = 1f - k,
+            )
         }
     }
 }
@@ -189,8 +275,23 @@ fun RingArc(stratum: Stratum?, tunnelId: String?, color: Color, modifier: Modifi
  * screen like the rest of the well. [total] 0 means the tunnel has not reported a count yet.
  */
 @Composable
-fun GloryScan(done: Int, total: Int, caption: String, modifier: Modifier = Modifier) {
+fun GloryScan(
+    done: Int,
+    total: Int,
+    caption: String,
+    modifier: Modifier = Modifier,
+    enterDelayMillis: Int = 0,
+    onCenter: (Offset) -> Unit = {},
+) {
     val still = rememberReducedMotion()
+    // The glory blooms in where the bead lands, so it waits for the drop before it appears.
+    val enter = remember { Animatable(if (still) 1f else 0f) }
+    LaunchedEffect(Unit) {
+        if (!still) {
+            delay(enterDelayMillis.toLong())
+            enter.animateTo(1f, tween(600, easing = FastOutSlowInEasing))
+        }
+    }
     val t = rememberInfiniteTransition(label = "glory")
     val ripple by t.animateFloat(0f, 1f, infiniteRepeatable(tween(4_500, easing = LinearEasing)), label = "ripple")
     val breathe by t.animateFloat(0.6f, 1f, infiniteRepeatable(tween(1_800), RepeatMode.Reverse), label = "breathe")
@@ -198,7 +299,17 @@ fun GloryScan(done: Int, total: Int, caption: String, modifier: Modifier = Modif
     val glow = if (still) 1f else breathe
 
     Column(modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.size(200.dp), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .size(200.dp)
+                .onGloballyPositioned { onCenter(it.positionInRoot() + Offset(it.size.width / 2f, it.size.height / 2f)) }
+                .graphicsLayer {
+                    alpha = enter.value
+                    scaleX = 0.55f + 0.45f * enter.value
+                    scaleY = 0.55f + 0.45f * enter.value
+                },
+            contentAlignment = Alignment.Center,
+        ) {
             Canvas(Modifier.fillMaxSize()) {
                 val r0 = size.minDimension * 0.30f
                 for (k in 0 until 2) {
@@ -244,5 +355,22 @@ fun SpectrumButton(label: String, onClick: () -> Unit, modifier: Modifier = Modi
             Modifier.fillMaxWidth().background(Brush.horizontalGradient(Spectrum.primary)).padding(horizontal = 18.dp, vertical = 12.dp),
             contentAlignment = Alignment.Center,
         ) { Text(label, fontWeight = FontWeight.SemiBold) }
+    }
+}
+
+/** The Prism edge button: dark glass with a rim of the corridor's spectrum. Used for Scan and quieter actions. */
+@Composable
+fun PrismButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    Box(
+        modifier
+            .heightIn(min = 44.dp)
+            .clip(CircleShape)
+            .background(Color(0xFF170D50))
+            .border(1.5.dp, Brush.horizontalGradient(Spectrum.rim), CircleShape)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = if (enabled) GlassColors.text else GlassColors.dim)
     }
 }

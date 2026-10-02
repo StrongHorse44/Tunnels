@@ -29,28 +29,20 @@ fun ProvideDepth(depth: Float, content: @Composable () -> Unit) {
 }
 
 /**
- * Frosted glass over the water: a faint tinted fill, a bright top edge fading down the rim, and a sheen
- * across the upper third. The fill thins as the water darkens so panels never glow brighter than home.
+ * Prism edge glass: deep violet glass over the water with a thin iridescent rim, as if light caught the
+ * edge of a prism. [tint] washes the fill faintly with the panel's colour.
  */
-fun Modifier.glass(shape: Shape = RoundedCornerShape(22.dp), tint: Color = Color.White): Modifier = this
+fun Modifier.glass(shape: Shape = RoundedCornerShape(18.dp), tint: Color = Color.White): Modifier = this
     .clip(shape)
-    .background(
-        Brush.verticalGradient(
-            listOf(Color.White.copy(alpha = 0.10f), tint.copy(alpha = 0.08f), Color.White.copy(alpha = 0.03f)),
-        ),
-    )
-    .drawBehind {
-        drawRect(
-            Brush.verticalGradient(
-                listOf(Color.White.copy(alpha = 0.08f), Color.Transparent),
-                endY = size.height * 0.4f,
-            ),
-        )
-    }
+    .background(Color(0xFF170D50).copy(alpha = 0.55f))
+    .background(tint.copy(alpha = if (tint == Color.White) 0f else 0.04f))
     .border(
         1.dp,
-        Brush.verticalGradient(
-            listOf(Color.White.copy(alpha = 0.34f), tint.copy(alpha = 0.30f), Color.White.copy(alpha = 0.05f)),
+        Brush.linearGradient(
+            listOf(
+                Color(0xFFFF3FA4).copy(alpha = 0.55f), Color(0xFFFFC83D).copy(alpha = 0.35f),
+                Color(0xFF4FD8FF).copy(alpha = 0.40f), Color(0xFFCBB8FF).copy(alpha = 0.55f),
+            ),
         ),
         shape,
     )
@@ -59,7 +51,7 @@ fun Modifier.glass(shape: Shape = RoundedCornerShape(22.dp), tint: Color = Color
 fun GlassPanel(
     modifier: Modifier = Modifier,
     tint: Color = Color.White,
-    shape: Shape = RoundedCornerShape(22.dp),
+    shape: Shape = RoundedCornerShape(18.dp),
     content: @Composable BoxScope.() -> Unit,
 ) {
     Box(modifier.glass(shape, tint), content = content)

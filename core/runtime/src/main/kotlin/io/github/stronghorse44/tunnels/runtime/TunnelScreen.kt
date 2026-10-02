@@ -1,5 +1,17 @@
 package io.github.stronghorse44.tunnels.runtime
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import io.github.stronghorse44.tunnels.common.PrismButton
+import io.github.stronghorse44.tunnels.common.drawBeadDrop
+import io.github.stronghorse44.tunnels.common.rememberReducedMotion
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
@@ -39,7 +51,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Snackbar
@@ -74,6 +85,9 @@ import io.github.stronghorse44.tunnels.model.TunnelCatalog
 import java.text.DateFormat
 import java.util.Date
 
+/** How long the bead takes to lift off the band, fall and splash when a scan starts. */
+private const val DROP_MILLIS = 1_100
+
 fun severityColor(s: Severity): Color = when (s) {
     Severity.INFO -> StatusColors.info
     Severity.NOTICE -> StatusColors.ok
@@ -91,9 +105,21 @@ fun TunnelScreen(vm: TunnelViewModel, tunnelId: String, onBack: () -> Unit) {
     val title = info?.title ?: tunnelId
     val module = state.module
     var openFinding by remember { mutableStateOf<String?>(null) }
+    // Where the tunnel's bead sits on the header band and where the scan's glory will bloom, in root coordinates.
+    var beadAt by remember { mutableStateOf<Offset?>(null) }
+    var gloryAt by remember { mutableStateOf<Offset?>(null) }
+    var rootAt by remember { mutableStateOf(Offset.Zero) }
+    val still = rememberReducedMotion()
+    val drop = remember { Animatable(1f) }
+    LaunchedEffect(state.scan.running) {
+        if (state.scan.running && !still) {
+            drop.snapTo(0f)
+            drop.animateTo(1f, tween(DROP_MILLIS, easing = LinearEasing))
+        }
+    }
 
-    Box(Modifier.fillMaxSize()) {
-        TunnelScaffold(title, line, onBack, stratum = info?.stratum, tunnelId = tunnelId) { padding ->
+    Box(Modifier.fillMaxSize().onGloballyPositioned { rootAt = it.positionInRoot() }) {
+        TunnelScaffold(title, line, onBack, stratum = info?.stratum, tunnelId = tunnelId, onLitBead = { beadAt = it }) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
                 if (module == null) {
                     Text(state.error ?: "Opening…", Modifier.padding(16.dp), color = GlassColors.dim)
@@ -107,7 +133,7 @@ fun TunnelScreen(vm: TunnelViewModel, tunnelId: String, onBack: () -> Unit) {
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        item { ScanPanel(state, title, info?.stratum, line, vm::scan) }
+                        item { ScanPanel(state, title, info?.stratum, line, vm::scan, onGlory = { gloryAt = it }) }
                         if (ui != null) item { ui.Content(state, vm) }
                         if (state.findings.isNotEmpty()) {
                             item { SectionTitle("Findings", state.findings.size) }
@@ -127,6 +153,13 @@ fun TunnelScreen(vm: TunnelViewModel, tunnelId: String, onBack: () -> Unit) {
                     Snackbar(Modifier.align(Alignment.BottomCenter).padding(12.dp), action = { TextButton(onClick = vm::clearMessage) { Text("OK") } }) { Text(msg) }
                 }
             }
+        }
+
+        // The scan opens with the tunnel's bead falling from the band into the water where the glory blooms.
+        val from = beadAt
+        val to = gloryAt
+        if (from != null && to != null && drop.value < 1f) {
+            Canvas(Modifier.fillMaxSize()) { drawBeadDrop(from - rootAt, to - rootAt, drop.value) }
         }
 
         // A finding opens one level further down, in darker water than its tunnel.
@@ -149,18 +182,34 @@ fun TunnelScreen(vm: TunnelViewModel, tunnelId: String, onBack: () -> Unit) {
 }
 
 @Composable
-private fun ScanPanel(state: TunnelScreenState, title: String, stratum: Stratum?, line: MetroLine, onScan: () -> Unit) {
-    if (state.scan.running) {
-        val sc = state.scan
-        // Counts are the tunnel's own items (apps, libraries), not tunnels; once all are read the scan is still saving.
-        val now = when {
-            sc.itemsTotal > 0 && sc.itemsDone >= sc.itemsTotal -> "saving"
-            sc.item.isNotBlank() -> sc.item
-            else -> "starting"
-        }
-        GloryScan(sc.itemsDone, sc.itemsTotal, "${title.lowercase()} · $now")
-        return
+private fun ScanPanel(
+    state: TunnelScreenState,
+    title: String,
+    stratum: Stratum?,
+    line: MetroLine,
+    onScan: () -> Unit,
+    onGlory: (Offset) -> Unit,
+) {
+    // The panel fades as the bead falls and the glory takes its place; the list below eases down to make room.
+    Crossfade(state.scan.running, Modifier.animateContentSize(tween(600)), animationSpec = tween(450), label = "scan") { running ->
+        if (running) ScanningGlory(state, title, onGlory) else ScanControls(state, stratum, line, onScan)
     }
+}
+
+@Composable
+private fun ScanningGlory(state: TunnelScreenState, title: String, onGlory: (Offset) -> Unit) {
+    val sc = state.scan
+    // Counts are the tunnel's own items (apps, libraries), not tunnels; once all are read the scan is still saving.
+    val now = when {
+        sc.itemsTotal > 0 && sc.itemsDone >= sc.itemsTotal -> "saving"
+        sc.item.isNotBlank() -> sc.item
+        else -> "starting"
+    }
+    GloryScan(sc.itemsDone, sc.itemsTotal, "${title.lowercase()} · $now", enterDelayMillis = (DROP_MILLIS * 0.72f).toInt(), onCenter = onGlory)
+}
+
+@Composable
+private fun ScanControls(state: TunnelScreenState, stratum: Stratum?, line: MetroLine, onScan: () -> Unit) {
     val fmt = remember { DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT) }
     val color = if (stratum != null) StratumColors.of(stratum) else LineColors.of(line)
     GlassPanel(Modifier.fillMaxWidth(), tint = color) {
@@ -173,12 +222,12 @@ private fun ScanPanel(state: TunnelScreenState, title: String, stratum: Stratum?
                         style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
                     )
                 }
-                Button(onClick = onScan, shape = CircleShape) { Text("Scan") }
+                PrismButton("Scan", onScan)
             }
             state.lastResult?.let { r ->
                 Text(
                     "${r.observations} observations · ${r.newFindings} new findings · ${r.clearedFindings} cleared",
-                    fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = color,
+                    fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = GlassColors.dim,
                 )
             }
             state.error?.let { Text(it, color = StatusColors.blocker, style = MaterialTheme.typography.bodySmall) }
@@ -218,7 +267,7 @@ fun FindingCard(f: Finding, onAction: (FindingAction) -> Unit, onDismiss: () -> 
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier.padding(top = 4.dp),
             ) {
-                f.actions.firstOrNull()?.let { a -> Button(onClick = { onAction(a) }, shape = CircleShape) { Text(a.label) } }
+                f.actions.firstOrNull()?.let { a -> PrismButton(a.label, { onAction(a) }) }
                 TextButton(onClick = onOpen) {
                     val more = f.actions.size - 1
                     Text(if (more > 0) "$more more action${if (more == 1) "" else "s"} ›" else "Details ›", color = GlassColors.text)
@@ -301,9 +350,7 @@ private fun FindingDetail(
                             onClick = { onAction(a) }, modifier = Modifier.fillMaxWidth(), shape = CircleShape,
                             border = BorderStroke(1.dp, StatusColors.blocker.copy(alpha = 0.7f)),
                         ) { Text(a.label, color = Color(0xFFFFB3C0)) }
-                        else -> OutlinedButton(onClick = { onAction(a) }, modifier = Modifier.fillMaxWidth(), shape = CircleShape) {
-                            Text(a.label, color = GlassColors.text)
-                        }
+                        else -> PrismButton(a.label, { onAction(a) }, Modifier.fillMaxWidth())
                     }
                 }
                 if (f.sticky) TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Dismiss", color = GlassColors.dim) }

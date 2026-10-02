@@ -17,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -40,6 +41,7 @@ fun TunnelScaffold(
     onBack: () -> Unit,
     stratum: Stratum? = null,
     tunnelId: String? = null,
+    onLitBead: (Offset) -> Unit = {},
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val entry = TunnelCatalog.all.firstOrNull { it.id == tunnelId } ?: TunnelCatalog.all.firstOrNull { it.title == title }
@@ -49,8 +51,9 @@ fun TunnelScaffold(
         Scaffold(
             topBar = {
                 Box(Modifier.fillMaxWidth()) {
-                    RingArc(s, entry?.id, color, Modifier.matchParentSize())
-                    Column(Modifier.statusBarsPadding().padding(start = 4.dp, end = 16.dp, top = 4.dp, bottom = 64.dp)) {
+                    RingArc(s, entry?.id, color, Modifier.matchParentSize(), onLitBead = onLitBead)
+                    // The band rises toward the screen edges, so the title keeps well clear of its lowest point.
+                    Column(Modifier.statusBarsPadding().padding(start = 4.dp, end = 16.dp, top = 4.dp, bottom = 96.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             IconButton(onClick = onBack) {
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = GlassColors.text)

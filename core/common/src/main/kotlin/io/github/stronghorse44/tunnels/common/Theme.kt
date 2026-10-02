@@ -58,6 +58,9 @@ object Glory {
 /** The corridor's hot end, for the one primary action on a finding. */
 object Spectrum {
     val primary = listOf(Color(0xFFFF3FA4), Color(0xFFFF7A2E), Color(0xFFFFC83D))
+
+    /** The full corridor, magenta to lilac: the Prism edge rim on buttons and bars. */
+    val rim = listOf(Color(0xFFFF3FA4), Color(0xFFFF7A2E), Color(0xFFFFC83D), Color(0xFF46E889), Color(0xFF4FD8FF), Color(0xFFCBB8FF))
 }
 
 object StatusColors {
@@ -75,8 +78,9 @@ object GlassColors {
 }
 
 private val scheme = darkColorScheme(
-    primary = Color(0xFFFF8A3D),
-    onPrimary = Color(0xFF1F0A00),
+    // Lilac, not orange: plain Material buttons in the tunnels read as part of the glass, not as warnings.
+    primary = Color(0xFFCBB8FF),
+    onPrimary = Color(0xFF0D0736),
     secondary = Color(0xFFFF3FA4),
     onSecondary = Color(0xFF2A0016),
     tertiary = Color(0xFF46E889),
