@@ -38,7 +38,12 @@ sealed interface InstallState {
     data class Installing(val info: ApkInfo, val progress: Float, val awaitingUser: Boolean) : InstallState
     /** [failure] is null on success. */
     data class Done(val info: ApkInfo, val failure: FailureExplanation?, val rawMessage: String?) : InstallState
-    /** [handOff]: the sender shared the file with Android's installer only; offer to pass it on there. */
+    /**
+     * Tunnels just installed an update of itself. Android then reopens this screen with the old request,
+     * whose read access it withdrew during the update, so there is nothing left to open.
+     */
+    data class SelfUpdated(val version: String) : InstallState
+    /** [handOff]: the sender didn't let Tunnels read the file; offer to pass the request to Android's installer. */
     data class Failed(val title: String, val detail: String, val handOff: Boolean = false) : InstallState
 }
 
@@ -100,12 +105,15 @@ class InstallViewModel(private val app: Application, private val saved: SavedSta
             discard()
             _state.value = InstallState.Working("Copying file…")
             val copied = runCatching { withContext(Dispatchers.IO) { Staging.copyIn(app, uri) } }.getOrElse {
-                _state.value = if (it is SecurityException) {
-                    // Apps like updaters often grant read access to Android's installer by name, so the
-                    // file reaches Tunnels without permission to read it.
+                val self = app.packageManager.getPackageInfo(app.packageName, 0)
+                _state.value = if (it is SecurityException && System.currentTimeMillis() - self.lastUpdateTime < SELF_UPDATE_WINDOW_MS) {
+                    InstallState.SelfUpdated(self.versionName ?: "")
+                } else if (it is SecurityException) {
+                    // Some apps grant read access to Android's installer by name, so the file reaches
+                    // Tunnels without permission to read it.
                     InstallState.Failed(
                         "This app didn't share the file with Tunnels",
-                        "The app that sent it let only Android's installer read it, so Tunnels can't check it. " +
+                        "The app that sent it didn't give Tunnels permission to read it. " +
                             "Hand it to Android's installer to continue, or save the APK and open it here from Files.",
                         handOff = true,
                     )
@@ -209,6 +217,9 @@ class InstallViewModel(private val app: Application, private val saved: SavedSta
     }
 
     private companion object {
+        /** How recently Tunnels must have been updated for a dead request to count as the update replaying. */
+        private const val SELF_UPDATE_WINDOW_MS = 5 * 60 * 1000L
+
         const val KEY_PATH = "staged_path"
         const val KEY_OWNS = "owns_staged"
         const val KEY_SESSION = "session_id"
