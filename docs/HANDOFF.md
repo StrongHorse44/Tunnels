@@ -10,6 +10,16 @@
 > **console readout**. Tunnels are stations grouped into metro lines (Files, Inspect, System, Activity,
 > Network, Explore), each line drawn as a colored liquid in its own glass tube; live stations glow,
 > unbuilt ones are hollow on a dashed segment. Explore stays a separate curiosity-only line.
+> **Design update (2026-10-02): Prism well.** The metro map is replaced. Home looks down a spiral stairwell:
+> one ring per stratum (Surface magenta, Topsoil orange, Bedrock amber, Core green), each tunnel a bead on its
+> ring, the open-findings count in a glory at the bottom; Explore is a dashed side shaft. The UI darkens with
+> depth: home is dusk violet, a tunnel is a step darker (deeper strata darker still), a finding is darker again
+> (`core:metro` `Depth`). A tunnel's header is its stratum's ring; a finding opens full screen with its subject
+> in the glory; a running scan shows the glory and ripples on the water, counting the tunnel's items. New launcher
+> icon to match. Home lists the groups as a depth gauge (plain names: Network, Apps, System, Deep checks, Explore;
+> the strata stay internal to the code). Panels are Prism edge glass (deep violet, iridescent rim); Scan and
+> other actions are dark buttons with a spectrum rim. Starting a scan drops the tunnel's bead from the header band
+> into the panel, where the glory blooms and counts the tunnel's items.
 > **Build decisions (2026-10-01, phases 1–6):** all six phases built straight through, each with its own
 > CI (unit + emulator tests); tracker signatures from an own curated list; `main` created from Phase 0 and
 > the single PR targets it; Traffic refuses to start while another VPN is active; Deep mode built fully

@@ -22,7 +22,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             TunnelsTheme {
                 AppLockGate {
-                MetroHome(
+                WellHome(
                     onOpenTunnel = { id ->
                         when (id) {
                             TunnelCatalog.INSTALLER -> startActivity(Intent(this, InstallActivity::class.java))

@@ -38,7 +38,7 @@ compile and test locally.
 | — | `tunnels:crossroads` (derived: joins other tunnels, no system reads) | `core:crossrules` | crossroads |
 | — | `tunnels:watch` (findings inbox, background checks, notification) | `core:watchrules` | — |
 | — | `tunnels:devicecheck` (device checks screen) | `core:devicecheck` | — |
-| — | `app` (metro home) | `core:metro` (map geometry, label placement) | — |
+| — | `app` (well home) | `core:metro` (well geometry, depth palette, map layout) | — |
 
 Shared, lead-owned: `core:model`, `core:engine`, `core:store`, `core:common`, `core:runtime`, `app`.
 
@@ -86,8 +86,9 @@ tests; Maven Central rate-limits (HTTP 429) are transient, retry.
   The repo is private, so Actions minutes are limited: do not tag every push. The phase workflows are
   path-filtered, so the `[emulator]` commit must change a file under your module (an empty commit
   does not trigger a run).
-- `ci.yml`: integration, `main`, PRs. Full build, all unit tests, permission checks, app emulator
-  smoke test, numbered debug release on integration pushes.
+- `ci.yml`: integration, `main`, PRs, and manual runs (`workflow_dispatch`) on any branch. Full build,
+  all unit tests, permission checks, app emulator smoke test, and a numbered debug release on integration
+  pushes and on every manual run outside `main`.
 
 ## Status (2026-10-01)
 

@@ -29,6 +29,11 @@ data class ScanState(
     val done: Int = 0,
     val total: Int = 0,
     val label: String = "",
+    /** Items the current tunnel has read (apps, libraries, certificates) out of [itemsTotal]; 0 of 0 until it reports. */
+    val itemsDone: Int = 0,
+    val itemsTotal: Int = 0,
+    /** What the current tunnel is reading now, without the tunnel's name or the counts. */
+    val item: String = "",
 )
 
 data class ScanResult(
@@ -72,7 +77,7 @@ class SnapshotEngine(private val registry: TunnelRegistry, private val store: Tu
             modules.forEachIndexed { index, module ->
                 _state.value = ScanState(true, module.id, index, modules.size, module.info.title)
                 val progress = ScanProgress { done, total, label ->
-                    _state.value = ScanState(true, module.id, index, modules.size, "${module.info.title}: $label ($done/$total)")
+                    _state.value = ScanState(true, module.id, index, modules.size, "${module.info.title}: $label ($done/$total)", done, total, label)
                 }
                 try {
                     // A radio or system service that hangs must not stall the whole snapshot.
