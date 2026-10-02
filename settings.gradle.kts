@@ -41,6 +41,7 @@ include(
     ":core:crossrules",
     ":core:watchrules",
     ":core:devicecheck",
+    ":core:pairing",
     ":tunnels:installer",
     ":tunnels:unzip",
     ":tunnels:permissions",
@@ -62,4 +63,5 @@ include(
     ":tunnels:crossroads",
     ":tunnels:watch",
     ":tunnels:devicecheck",
+    ":tunnels:pairing",
 )

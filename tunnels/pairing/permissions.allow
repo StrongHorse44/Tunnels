@@ -1,0 +1,4 @@
+# Permissions the pairing module may declare, one per line. CI fails on anything else.
+# Pairing checks one phone from another through two QR codes on their screens: no network, nothing leaves either phone.
+# Read the other phone's QR code. Asked for only when a scan starts; frames are decoded in memory and never stored.
+android.permission.CAMERA

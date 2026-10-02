@@ -34,6 +34,7 @@ sealed interface PrivateDns {
 object DeviceChecks {
     const val ACTION_INBOX = "io.github.stronghorse44.tunnels.action.INBOX"
     const val ACTION_SNAPSHOTS = "io.github.stronghorse44.tunnels.action.SNAPSHOTS"
+    const val ACTION_PAIRING = "io.github.stronghorse44.tunnels.action.PAIRING"
 
     // android.provider.Settings actions, spelled out so this module stays plain Kotlin.
     const val SETTINGS_ALL_APPS = "android.settings.MANAGE_ALL_APPLICATIONS_SETTINGS"
@@ -241,28 +242,29 @@ object DeviceChecks {
     }
 
     const val AUDITOR = "app.attestation.auditor"
-    const val GRAPHENE_APPS = "app.grapheneos.apps"
 
     /**
      * Whether a check from outside this phone is possible. Silicon reads attestation from the phone itself, which a
-     * compromised OS could fake; Auditor (or Tunnels' own pairing) verifies it from a second phone.
+     * compromised OS could fake; a second phone (Tunnels' own pairing, or GrapheneOS's Auditor) verifies it from outside.
      */
-    fun secondPhone(auditorInstalled: Boolean, appStoreInstalled: Boolean): CheckResult {
+    fun secondPhone(auditorInstalled: Boolean, pairedPhones: Int): CheckResult {
         val id = "second_phone"
         val title = "Verified from a second phone"
-        return if (auditorInstalled) {
+        val auditor = if (auditorInstalled) " Auditor is installed too and does the same between two Auditor apps." else
+            " GrapheneOS's Auditor app does the same, if you prefer it."
+        return if (pairedPhones > 0) {
             CheckResult(
                 id, title, CheckStatus.NOTE,
-                "Auditor is installed. Pair it with Auditor on a second phone you trust: each audit checks this phone's hardware " +
-                    "attestation from outside it, which nothing on a compromised phone can fake, Tunnels included.",
-                CheckAction.OpenApp(AUDITOR, "Open Auditor"),
+                "This phone verifies ${pairedPhones} paired phone${if (pairedPhones == 1) "" else "s"}. To have this phone checked, let a " +
+                    "phone you trust run Second phone on it now and then: nothing on a compromised phone can fake that check.$auditor",
+                CheckAction.OpenScreen(ACTION_PAIRING, "Open Second phone"),
             )
         } else {
             CheckResult(
                 id, title, CheckStatus.TODO,
-                "Silicon reads this phone's attestation on this phone, and a compromised OS could fake what an app here sees. " +
-                    "GrapheneOS's Auditor app verifies it from a second phone you trust. Install Auditor from the App Store on both.",
-                if (appStoreInstalled) CheckAction.OpenApp(GRAPHENE_APPS, "Open App Store") else null,
+                "Silicon reads this phone's attestation on this phone, and a compromised OS could fake what an app here sees. A second " +
+                    "phone you trust can check it from outside with two QR codes and no network.$auditor",
+                CheckAction.OpenScreen(ACTION_PAIRING, "Open Second phone"),
             )
         }
     }

@@ -64,7 +64,7 @@ object DeviceCheckRunner {
                     DeviceChecks.networkToggle(toggles.network, grapheneOs),
                     DeviceChecks.sensorsToggle(toggles.sensors, grapheneOs),
                     DeviceChecks.verifiedBoot(silicon?.first, silicon?.second, now),
-                    DeviceChecks.secondPhone(installed(app, DeviceChecks.AUDITOR), installed(app, DeviceChecks.GRAPHENE_APPS)),
+                    DeviceChecks.secondPhone(installed(app, DeviceChecks.AUDITOR), pairedPhones(app)),
                 ),
             ),
             CheckGroup(
@@ -130,6 +130,11 @@ object DeviceCheckRunner {
         val flags = info.requestedPermissionsFlags ?: return false
         return i < flags.size && flags[i] and PackageInfo.REQUESTED_PERMISSION_GRANTED != 0
     }
+
+    /** Phones this one verifies, counted from the pins line by line; the pins themselves are pairing's business. */
+    private suspend fun pairedPhones(context: Context): Int = runCatching {
+        TunnelsStore.get(context).setting("pairing.pins").orEmpty().lines().count { it.isNotBlank() }
+    }.getOrDefault(0)
 
     private fun installed(context: Context, packageName: String): Boolean = runCatching {
         context.packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))

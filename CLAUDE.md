@@ -54,6 +54,7 @@ everything, so uninstall wipes all data and nothing goes to cloud backup.
 - `core:crossrules` + `tunnels:crossroads` Crossroads, a derived tunnel (joins other tunnels' data; a bead in the well)
 - `core:watchrules` + `tunnels:watch` findings inbox and opt-in background checks (JobScheduler, offline tunnels only)
 - `core:devicecheck` + `tunnels:devicecheck` device checks: confirms on the phone the readings Tunnels relies on
+- `core:pairing` + `tunnels:pairing` Second phone: one phone verifies another's hardware attestation through two QR codes (CAMERA, no network)
 - `app` well home (the strata as rings of a stairwell, Prism well design); `verifyPermissions` runs before every assemble
 
 Keep Android-free logic in the plain Kotlin modules so it can be tested without an emulator.
