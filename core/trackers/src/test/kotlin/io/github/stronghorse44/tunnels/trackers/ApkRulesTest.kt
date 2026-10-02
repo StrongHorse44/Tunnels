@@ -22,6 +22,7 @@ class ApkRulesTest {
         abis: String = "arm64-v8a",
         skipped: String? = null,
         version: String = "1.0 (1)",
+        certHistory: List<String> = emptyList(),
     ): List<Observation> = buildList {
         add(Observation(t, pkg, ApkKeys.LABEL, pkg.substringAfterLast('.')))
         add(Observation(t, pkg, ApkKeys.SYSTEM, system.toString()))
@@ -31,6 +32,7 @@ class ApkRulesTest {
         skipped?.let { add(Observation(t, pkg, ApkKeys.SDK_SKIPPED, it)) }
         add(Observation(t, pkg, ApkKeys.CERT_SHA256, cert))
         add(Observation(t, pkg, ApkKeys.CERT_COUNT, "1"))
+        if (certHistory.isNotEmpty()) add(Observation(t, pkg, ApkKeys.CERT_HISTORY, certHistory.joinToString(",")))
         add(Observation(t, pkg, ApkKeys.INSTALLER, installer))
         add(Observation(t, pkg, ApkKeys.TARGET_SDK, targetSdk.toString()))
         add(Observation(t, pkg, ApkKeys.NATIVE_ABIS, abis))
@@ -111,6 +113,25 @@ class ApkRulesTest {
         assertTrue(d.evidence, d.evidence.startsWith("Signing certificate changed from AA:BB:CC:DD… to EE:FF:00:11…"))
         // A newly installed app has no "before" and must not trigger.
         assertTrue(evaluate(after + app("com.new"), before).of(ApkRules.CERT_CHANGED).map { it.subject } == listOf("com.a"))
+    }
+
+    @Test
+    fun rotatedKeyWhoseLineageNamesTheOldCertRaisesNothing() {
+        val old = "8C4E8F36" + "11".repeat(28)
+        val new = "B3354FD4" + "22".repeat(28)
+        val before = app("com.google.android.apps.tycho", cert = old)
+        // Android lists the lineage oldest first; case must not matter.
+        val rotated = app("com.google.android.apps.tycho", cert = new, certHistory = listOf("00".repeat(32), old.lowercase()))
+        assertTrue(evaluate(rotated, before).of(ApkRules.CERT_CHANGED).isEmpty())
+    }
+
+    @Test
+    fun newKeyWithAnUnrelatedLineageIsStillCritical() {
+        val before = app("com.a", cert = "AABBCCDD" + "11".repeat(28))
+        val stranger = app("com.a", cert = "EEFF0011" + "22".repeat(28), certHistory = listOf("99".repeat(32)))
+        val d = evaluate(stranger, before).of(ApkRules.CERT_CHANGED).single()
+        assertEquals(Severity.CRITICAL, d.severity)
+        assertTrue(d.evidence, d.evidence.contains("doesn't name the old one as rotated"))
     }
 
     @Test

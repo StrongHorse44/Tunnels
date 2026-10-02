@@ -116,6 +116,17 @@ fun InstallScreen(vm: InstallViewModel, onBack: () -> Unit, onHandOff: () -> Uni
                     onUninstall = { uninstall(s.info.facts.packageName) },
                     onFinish = vm::reset,
                 )
+                is InstallState.SelfUpdated -> {
+                    Text("Tunnels was updated", style = MaterialTheme.typography.titleLarge, color = StatusColors.ok)
+                    Text(
+                        "Now running ${s.version}. Android withdraws access to files when an app updates, so the file " +
+                            "you opened before can't be reopened. Open it again if you still need it.",
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = onBack) { Text("Done") }
+                        OutlinedButton(onClick = { picker.launch(PICK_TYPES) }) { Text("Pick a file") }
+                    }
+                }
                 is InstallState.Failed -> {
                     Text(s.title, style = MaterialTheme.typography.titleLarge, color = StatusColors.blocker)
                     Text(s.detail)

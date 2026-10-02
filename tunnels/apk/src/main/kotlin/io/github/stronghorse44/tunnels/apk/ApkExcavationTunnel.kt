@@ -92,8 +92,12 @@ class ApkExcavationTunnel(private val context: Context) : TunnelModule, TunnelUi
         add(ApkKeys.CERT_SHA256, signers.firstOrNull()?.let(::sha256) ?: "none")
         add(ApkKeys.CERT_COUNT, signers.size.toString())
         // Android keeps a rotation history only for single-signer apps; multi-signer apps cannot rotate.
-        val history = info.signingInfo?.takeIf { !it.hasMultipleSigners() }?.signingCertificateHistory?.size ?: 0
-        add(ApkKeys.CERT_LINEAGE, maxOf(history - 1, 0).toString())
+        val lineage = info.signingInfo?.takeIf { !it.hasMultipleSigners() }?.signingCertificateHistory.orEmpty()
+        add(ApkKeys.CERT_LINEAGE, maxOf(lineage.size - 1, 0).toString())
+        // Earlier certificates, so a rotated key can be told apart from a different signer.
+        val current = signers.firstOrNull()?.let(::sha256)
+        val earlier = lineage.map(::sha256).filter { it != current }
+        if (earlier.isNotEmpty()) add(ApkKeys.CERT_HISTORY, earlier.joinToString(","))
 
         add(ApkKeys.INSTALLER, runCatching { pm.getInstallSourceInfo(pkg).installingPackageName }.getOrNull() ?: ApkKeys.UNKNOWN_INSTALLER)
         add(ApkKeys.TARGET_SDK, (app?.targetSdkVersion ?: 0).toString())

@@ -40,12 +40,26 @@ object ApkRules {
         }
     }
 
-    /** Sticky CRITICAL: the first signer's certificate is not the one seen before. */
-    val certChanged: FindingRule = Rules.onChange(CERT_CHANGED, Severity.CRITICAL) { e ->
-        val c = e as? DiffEntry.Changed ?: return@onChange null
-        if (c.key.key != ApkKeys.CERT_SHA256) return@onChange null
-        "Signing certificate changed from ${ApkKeys.shortFingerprint(c.before.value)} to ${ApkKeys.shortFingerprint(c.after.value)}. " +
-            "Only the original developer should be able to sign an update."
+    /**
+     * Sticky CRITICAL: the first signer's certificate is not the one seen before, and the new key's signing lineage
+     * doesn't name the old one. A key the developer rotated carries the old certificate in its lineage, which Android
+     * verified before installing the update; that is routine and needs no action, so it raises nothing.
+     */
+    val certChanged: FindingRule = FindingRule { ctx ->
+        if (ctx.isFirstScan) return@FindingRule emptyList()
+        val bySubject by lazy { ctx.bySubject() }
+        ctx.diff.mapNotNull { e ->
+            val c = e as? DiffEntry.Changed ?: return@mapNotNull null
+            if (c.key.key != ApkKeys.CERT_SHA256) return@mapNotNull null
+            val history = ApkKeys.list(ApkKeys.value(bySubject[c.key.subject].orEmpty(), ApkKeys.CERT_HISTORY))
+            if (history.any { it.equals(c.before.value, ignoreCase = true) }) return@mapNotNull null
+            FindingDraft(
+                ctx.tunnelId, c.key.subject, CERT_CHANGED, Severity.CRITICAL,
+                "Signing certificate changed from ${ApkKeys.shortFingerprint(c.before.value)} to ${ApkKeys.shortFingerprint(c.after.value)}, " +
+                    "and the new key doesn't name the old one as rotated. Only the original developer should be able to sign an update.",
+                sticky = true,
+            )
+        }
     }
 
     /** Sticky WARN: the app now reports a different installing package. */
