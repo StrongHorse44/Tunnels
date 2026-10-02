@@ -1,8 +1,8 @@
 # Tunnels
 
 An offline Android app for GrapheneOS that digs into layers of the phone most people never see. Each
-layer is a *tunnel*; every security finding comes with an action. Home screen: a console readout over a
-clickable glass metro map, one line per tunnel group.
+layer is a *tunnel*; every security finding comes with an action. Home screen: a stairwell seen from above,
+one lit ring per stratum with each tunnel a bead on its ring; the app grows darker the deeper you go.
 
 **No network egress by design.** CI fails the build if any module declares a permission outside its own
 `permissions.allow`, and `android.permission.INTERNET` is allowed in exactly three modules (Traffic, Home

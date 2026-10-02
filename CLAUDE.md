@@ -49,9 +49,9 @@ everything, so uninstall wipes all data and nothing goes to cloud backup.
 - `core:store` Room + SQLCipher, Keystore-wrapped key
 - `core:common` theme, shared composables, private staging area for incoming files
 - `tunnels:installer`, `tunnels:unzip` one module per tunnel group; each declares its own permissions
-- `core:metro` home map geometry and label placement (plain Kotlin, unit-tested)
+- `core:metro` home well geometry, depth palette, and the older metro map layout (plain Kotlin, unit-tested)
 - `core:updates` + `tunnels:updater` in-app updates from GitHub releases (user-started; INTERNET allowed)
-- `app` metro home (console readout + glass metro map); `verifyPermissions` runs before every assemble
+- `app` well home (the strata as rings of a stairwell, Prism well design); `verifyPermissions` runs before every assemble
 
 Keep Android-free logic in the plain Kotlin modules so it can be tested without an emulator.
 Google's Maven is not reachable from the cloud dev container: Android modules only compile in CI.

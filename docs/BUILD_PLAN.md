@@ -35,7 +35,7 @@ compile and test locally.
 | 5 | `tunnels:homenet` (INTERNET allowed) | `core:lan` | home_network |
 | 6 | `tunnels:deepmode` | — | deep_mode |
 | — | `tunnels:updater` (INTERNET allowed: user-started update checks) | `core:updates` | — |
-| — | `app` (metro home) | `core:metro` (map geometry, label placement) | — |
+| — | `app` (well home) | `core:metro` (well geometry, depth palette, map layout) | — |
 
 Shared, lead-owned: `core:model`, `core:engine`, `core:store`, `core:common`, `core:runtime`, `app`.
 

@@ -1,5 +1,26 @@
 package io.github.stronghorse44.tunnels.runtime
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import io.github.stronghorse44.tunnels.common.DepthBackground
+import io.github.stronghorse44.tunnels.common.HorizonScan
+import io.github.stronghorse44.tunnels.common.SpectrumButton
+import io.github.stronghorse44.tunnels.common.StratumColors
+import io.github.stronghorse44.tunnels.common.WellView
+import io.github.stronghorse44.tunnels.metro.Depth
+import io.github.stronghorse44.tunnels.model.Stratum
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,7 +40,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Snackbar
@@ -68,47 +88,75 @@ fun TunnelScreen(vm: TunnelViewModel, tunnelId: String, onBack: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     val info = TunnelCatalog.byId(tunnelId)
     val line = info?.line ?: MetroLine.FILES
+    val title = info?.title ?: tunnelId
     val module = state.module
+    var openFinding by remember { mutableStateOf<String?>(null) }
 
-    TunnelScaffold(info?.title ?: tunnelId, line, onBack) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
-            if (module == null) {
-                Text(state.error ?: "Opening…", Modifier.padding(16.dp), color = GlassColors.dim)
-                return@TunnelScaffold
-            }
-            TunnelGate(module) {
-                val ui = module as? TunnelUi
-                val grouped = remember(state.observations) { state.observations.groupBy { it.subject }.toSortedMap() }
-                LazyColumn(
-                    Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    item { ScanPanel(state, line, vm::scan) }
-                    if (ui != null) item { ui.Content(state, vm) }
-                    if (state.findings.isNotEmpty()) {
-                        item { SectionTitle("Findings", state.findings.size) }
-                        items(state.findings, key = { it.id }) { f -> FindingCard(f, vm::perform, { vm.dismiss(f) }) }
-                    } else if (state.lastScan != null && module.rules.isNotEmpty()) {
-                        item { Text("No findings.", color = StatusColors.ok, modifier = Modifier.padding(horizontal = 6.dp)) }
-                    }
-                    if (ui?.showObservations != false && grouped.isNotEmpty()) {
-                        item { SectionTitle("Observations", grouped.size) }
-                        items(grouped.entries.toList(), key = { it.key }) { (subject, obs) -> SubjectCard(subject, obs, line) }
+    Box(Modifier.fillMaxSize()) {
+        TunnelScaffold(title, line, onBack, stratum = info?.stratum, tunnelId = tunnelId) { padding ->
+            Box(Modifier.fillMaxSize().padding(padding)) {
+                if (module == null) {
+                    Text(state.error ?: "Opening…", Modifier.padding(16.dp), color = GlassColors.dim)
+                    return@TunnelScaffold
+                }
+                TunnelGate(module) {
+                    val ui = module as? TunnelUi
+                    val grouped = remember(state.observations) { state.observations.groupBy { it.subject }.toSortedMap() }
+                    LazyColumn(
+                        Modifier.fillMaxSize(),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        item { ScanPanel(state, title, info?.stratum, line, vm::scan) }
+                        if (ui != null) item { ui.Content(state, vm) }
+                        if (state.findings.isNotEmpty()) {
+                            item { SectionTitle("Findings", state.findings.size) }
+                            items(state.findings, key = { it.id }) { f ->
+                                FindingCard(f, vm::perform, { vm.dismiss(f) }, onOpen = { openFinding = f.id })
+                            }
+                        } else if (state.lastScan != null && module.rules.isNotEmpty()) {
+                            item { Text("No findings.", color = StatusColors.ok, modifier = Modifier.padding(horizontal = 6.dp)) }
+                        }
+                        if (ui?.showObservations != false && grouped.isNotEmpty()) {
+                            item { SectionTitle("Observations", grouped.size) }
+                            items(grouped.entries.toList(), key = { it.key }) { (subject, obs) -> SubjectCard(subject, obs, line) }
+                        }
                     }
                 }
+                state.message?.let { msg ->
+                    Snackbar(Modifier.align(Alignment.BottomCenter).padding(12.dp), action = { TextButton(onClick = vm::clearMessage) { Text("OK") } }) { Text(msg) }
+                }
             }
-            state.message?.let { msg ->
-                Snackbar(Modifier.align(Alignment.BottomCenter).padding(12.dp), action = { TextButton(onClick = vm::clearMessage) { Text("OK") } }) { Text(msg) }
-            }
+        }
+
+        // A finding opens one level further down, in darker water than its tunnel.
+        val index = state.findings.indexOfFirst { it.id == openFinding }
+        if (index >= 0) {
+            BackHandler { openFinding = null }
+            FindingDetail(
+                f = state.findings[index],
+                position = index,
+                count = state.findings.size,
+                tunnelTitle = title,
+                depth = Depth.ofTunnel(info?.stratum) + 1f,
+                onAction = vm::perform,
+                onDismiss = { vm.dismiss(state.findings[index]); openFinding = null },
+                onStep = { step -> openFinding = state.findings[(index + step).mod(state.findings.size)].id },
+                onBack = { openFinding = null },
+            )
         }
     }
 }
 
 @Composable
-private fun ScanPanel(state: TunnelScreenState, line: MetroLine, onScan: () -> Unit) {
+private fun ScanPanel(state: TunnelScreenState, title: String, stratum: Stratum?, line: MetroLine, onScan: () -> Unit) {
+    if (state.scan.running) {
+        HorizonScan("Looking over ${title.lowercase()}", state.scan.done, state.scan.total, state.scan.label)
+        return
+    }
     val fmt = remember { DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT) }
-    GlassPanel(Modifier.fillMaxWidth(), tint = LineColors.of(line)) {
+    val color = if (stratum != null) StratumColors.of(stratum) else LineColors.of(line)
+    GlassPanel(Modifier.fillMaxWidth(), tint = color) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -118,16 +166,12 @@ private fun ScanPanel(state: TunnelScreenState, line: MetroLine, onScan: () -> U
                         style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
                     )
                 }
-                Button(onClick = onScan, enabled = !state.scan.running) { Text(if (state.scan.running) "Scanning…" else "Scan") }
-            }
-            if (state.scan.running) {
-                LinearProgressIndicator(Modifier.fillMaxWidth())
-                Text(state.scan.label, style = MaterialTheme.typography.bodySmall, color = GlassColors.dim)
+                Button(onClick = onScan, shape = CircleShape) { Text("Scan") }
             }
             state.lastResult?.let { r ->
-                if (!state.scan.running) Text(
+                Text(
                     "${r.observations} observations · ${r.newFindings} new findings · ${r.clearedFindings} cleared",
-                    fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = LineColors.of(line),
+                    fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = color,
                 )
             }
             state.error?.let { Text(it, color = StatusColors.blocker, style = MaterialTheme.typography.bodySmall) }
@@ -140,36 +184,135 @@ private fun SectionTitle(title: String, count: Int) {
     Text("$title · $count", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = GlassColors.dim, modifier = Modifier.padding(start = 6.dp, top = 6.dp))
 }
 
+private fun kindLabel(kind: String) = kind.lowercase().replace('_', ' ')
+
+private fun isDestructive(a: FindingAction) = a is FindingAction.RequestUninstall || (a is FindingAction.Perform && a.destructive)
+
+/** A finding in its tunnel's list: what and how bad, its first action, and the way down to the full finding. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun FindingCard(f: Finding, onAction: (FindingAction) -> Unit, onDismiss: () -> Unit) {
+fun FindingCard(f: Finding, onAction: (FindingAction) -> Unit, onDismiss: () -> Unit, onOpen: () -> Unit = {}) {
     val color = severityColor(f.severity)
     GlassPanel(Modifier.fillMaxWidth(), tint = color) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.clickable(onClick = onOpen).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(10.dp).clip(CircleShape).background(color))
+                Box(Modifier.size(12.dp).clip(CircleShape).border(3.dp, color, CircleShape))
                 Spacer(Modifier.width(8.dp))
                 Text(f.severity.name, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = color)
                 Spacer(Modifier.width(8.dp))
-                Text(f.kind.lowercase().replace('_', ' '), fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = GlassColors.dim)
+                Text(kindLabel(f.kind), fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = GlassColors.dim)
                 Spacer(Modifier.weight(1f))
                 if (f.sticky) TextButton(onClick = onDismiss) { Text("Dismiss", color = GlassColors.dim) }
             }
             Text(f.subject, style = MaterialTheme.typography.titleSmall)
-            Text(f.evidence, style = MaterialTheme.typography.bodyMedium)
-            // Every action stays reachable (deep mode offers several per finding); they wrap onto more rows.
+            Text(f.evidence, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier.padding(top = 4.dp),
             ) {
-                f.actions.forEachIndexed { i, a ->
-                    if (i == 0) Button(onClick = { onAction(a) }) { Text(a.label) }
-                    else OutlinedButton(onClick = { onAction(a) }) { Text(a.label) }
+                f.actions.firstOrNull()?.let { a -> Button(onClick = { onAction(a) }, shape = CircleShape) { Text(a.label) } }
+                TextButton(onClick = onOpen) {
+                    val more = f.actions.size - 1
+                    Text(if (more > 0) "$more more action${if (more == 1) "" else "s"} ›" else "Details ›", color = GlassColors.text)
                 }
             }
         }
     }
+}
+
+/**
+ * One finding, full screen, one level below its tunnel: the subject sits in the glory at the bottom of the
+ * well, then what was found, the evidence, and every action, strongest first.
+ */
+@Composable
+private fun FindingDetail(
+    f: Finding,
+    position: Int,
+    count: Int,
+    tunnelTitle: String,
+    depth: Float,
+    onAction: (FindingAction) -> Unit,
+    onDismiss: () -> Unit,
+    onStep: (Int) -> Unit,
+    onBack: () -> Unit,
+) {
+    val color = severityColor(f.severity)
+    val fmt = remember { DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT) }
+    DepthBackground(depth) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 18.dp, vertical = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to $tunnelTitle", tint = GlassColors.text) }
+                Text(tunnelTitle.uppercase(), fontFamily = FontFamily.Monospace, fontSize = 10.sp, letterSpacing = 1.4.sp, color = GlassColors.dim, modifier = Modifier.weight(1f))
+                if (count > 1) {
+                    TextButton(onClick = { onStep(-1) }) { Text("‹", color = GlassColors.text) }
+                    Text("${position + 1} / $count", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = GlassColors.dim)
+                    TextButton(onClick = { onStep(1) }) { Text("›", color = GlassColors.text) }
+                }
+            }
+            WellView(Modifier.fillMaxWidth(0.6f)) {
+                Box(
+                    Modifier.fillMaxSize(0.62f).clip(RoundedCornerShape(30)).background(color),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        f.subject.substringAfterLast('.').take(1).uppercase().ifBlank { "?" },
+                        fontWeight = FontWeight.Black, fontSize = 20.sp, color = GlassColors.void,
+                    )
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "${f.severity.name} · ${kindLabel(f.kind).uppercase()}",
+                fontFamily = FontFamily.Monospace, fontSize = 10.sp, letterSpacing = 1.4.sp, color = GlassColors.void,
+                modifier = Modifier.clip(CircleShape).background(color).padding(horizontal = 10.dp, vertical = 4.dp),
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(f.subject, fontWeight = FontWeight.Bold, fontSize = 20.sp, lineHeight = 24.sp, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(6.dp))
+            Text(f.evidence, style = MaterialTheme.typography.bodyMedium, color = GlassColors.text.copy(alpha = 0.88f), textAlign = TextAlign.Center)
+            Spacer(Modifier.height(14.dp))
+            Column(Modifier.fillMaxWidth()) {
+                Ledger("first seen", fmt.format(Date(f.firstSeen.toEpochMilli())))
+                Ledger("last seen", fmt.format(Date(f.lastSeen.toEpochMilli())))
+                Ledger("tunnel", tunnelTitle)
+            }
+            Spacer(Modifier.height(16.dp))
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                f.actions.forEachIndexed { i, a ->
+                    when {
+                        i == 0 && !isDestructive(a) -> SpectrumButton(a.label, { onAction(a) }, Modifier.fillMaxWidth())
+                        isDestructive(a) -> OutlinedButton(
+                            onClick = { onAction(a) }, modifier = Modifier.fillMaxWidth(), shape = CircleShape,
+                            border = BorderStroke(1.dp, StatusColors.blocker.copy(alpha = 0.7f)),
+                        ) { Text(a.label, color = Color(0xFFFFB3C0)) }
+                        else -> OutlinedButton(onClick = { onAction(a) }, modifier = Modifier.fillMaxWidth(), shape = CircleShape) {
+                            Text(a.label, color = GlassColors.text)
+                        }
+                    }
+                }
+                if (f.sticky) TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Dismiss", color = GlassColors.dim) }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun Ledger(key: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Text(key, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = GlassColors.dim, modifier = Modifier.weight(0.4f))
+        Text(value, fontFamily = FontFamily.Monospace, fontSize = 11.sp, textAlign = TextAlign.End, modifier = Modifier.weight(0.6f))
+    }
+    Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.12f)))
 }
 
 @Composable
