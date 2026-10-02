@@ -18,6 +18,7 @@ import io.github.stronghorse44.tunnels.dns.BlockPolicy
 import io.github.stronghorse44.tunnels.dns.SessionCounter
 import io.github.stronghorse44.tunnels.dns.SessionTotals
 import io.github.stronghorse44.tunnels.dns.TrafficKeys
+import io.github.stronghorse44.tunnels.dns.Upstream
 import io.github.stronghorse44.tunnels.runtime.TunnelActivity
 import io.github.stronghorse44.tunnels.store.TunnelsStore
 import kotlinx.coroutines.CoroutineScope
@@ -110,6 +111,8 @@ class DnsVpnService : VpnService() {
             // The user's blocking choices, read before the tunnel opens so the first lookup already follows them.
             withContext(Dispatchers.IO) { runCatching { TunnelsStore.get(this@DnsVpnService).setting(BlockPolicy.KEY) }.getOrNull() }
                 ?.let { _policy.value = BlockPolicy.decode(it) }
+            withContext(Dispatchers.IO) { runCatching { TunnelsStore.get(this@DnsVpnService).setting(Upstream.KEY) }.getOrNull() }
+                ?.let { _upstream.value = Upstream.decode(it) }
             // Sockets and binder calls stay off the main thread.
             val failure = withContext(Dispatchers.IO) { openTunnel() }
             starting = false
@@ -203,10 +206,17 @@ class DnsVpnService : VpnService() {
                 subjectOf = ::subjectOf,
                 onFailure = { why ->
                     Log.w(TAG, "forwarder failure: $why")
-                    scope.launch { stopSession(FORWARDER_FAILED_MESSAGE) }
+                    val message = if (why.startsWith(DnsForwarder.DOH_FAILED)) {
+                        "The encrypted resolver (${why.removePrefix(DnsForwarder.DOH_FAILED).trim()}) stopped answering, so the session " +
+                            "ended and lookups work again. Pick another resolver, or your network's, before the next session."
+                    } else {
+                        FORWARDER_FAILED_MESSAGE
+                    }
+                    scope.launch { stopSession(message) }
                 },
                 // Read per lookup, so a change in the panel applies to the running session at once.
                 blocks = { subject, host -> _policy.value.blocks(subject, host) != null },
+                upstreamOf = { _upstream.value },
             )
         } catch (e: Exception) {
             // The forwarder opens its upstream socket as it is built; EPERM there means the Network toggle went off.
@@ -223,7 +233,7 @@ class DnsVpnService : VpnService() {
         forwarder = fwd
         counter = sessionCounter
         subjects.clear()
-        _state.update { it.copy(resolver = resolvers.first().hostAddress) }
+        _state.update { it.copy(resolver = resolverLabel(resolvers)) }
         return null
     }
 
@@ -255,8 +265,12 @@ class DnsVpnService : VpnService() {
         val physical = if (VpnStatus.isVpn(cm, network)) VpnStatus.underlyingNetwork(cm) else network
         val resolvers = VpnStatus.resolversOf(cm, physical)
         if (resolvers != fwd.resolvers) fwd.resolvers = resolvers
-        _state.update { it.copy(resolver = resolvers.first().hostAddress) }
+        _state.update { it.copy(resolver = resolverLabel(resolvers)) }
     }
+
+    /** The encrypted provider when one is chosen, otherwise the network resolver's address. */
+    private fun resolverLabel(resolvers: List<InetAddress>): String =
+        _upstream.value.takeIf { it.encrypted }?.label ?: resolvers.first().hostAddress.orEmpty()
 
     private fun ownerUid(cm: ConnectivityManager, protocol: Int, src: InetAddress, srcPort: Int, dst: InetAddress, dstPort: Int): Int =
         try {
@@ -396,6 +410,16 @@ class DnsVpnService : VpnService() {
         /** Applies [policy] to the running session (if any) and to the next ones. The caller stores it. */
         fun setPolicy(policy: BlockPolicy) {
             _policy.value = policy
+        }
+
+        private val _upstream = MutableStateFlow(Upstream())
+        /** Where forwarded lookups go. Loaded and saved like [policy]. */
+        val upstream: StateFlow<Upstream> = _upstream.asStateFlow()
+
+        /** Applies [upstream] to the running session (from its next lookup) and to the next ones. The caller stores it. */
+        fun setUpstream(upstream: Upstream) {
+            _upstream.value = upstream
+            _state.update { s -> if (s.running && s.resolver != null) s.copy(resolver = if (upstream.encrypted) upstream.label else "your network's resolver") else s }
         }
         /** True until the session's last rows are stored, so a scan started on the flip sees them all. */
         val isRunning: Boolean get() = _state.value.running

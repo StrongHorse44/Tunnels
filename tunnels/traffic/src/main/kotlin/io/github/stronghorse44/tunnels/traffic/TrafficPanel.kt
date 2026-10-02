@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -45,6 +46,7 @@ import io.github.stronghorse44.tunnels.common.StatusColors
 import io.github.stronghorse44.tunnels.dns.BlockPolicy
 import io.github.stronghorse44.tunnels.dns.TrackerKind
 import io.github.stronghorse44.tunnels.dns.TrafficKeys
+import io.github.stronghorse44.tunnels.dns.Upstream
 import io.github.stronghorse44.tunnels.model.MetroLine
 import io.github.stronghorse44.tunnels.model.Observation
 import io.github.stronghorse44.tunnels.runtime.Choice
@@ -70,6 +72,15 @@ fun TrafficPanel(state: TunnelScreenState, actions: TunnelScreenActions) {
         withContext(Dispatchers.IO) { runCatching { TunnelsStore.get(context).setting(BlockPolicy.KEY) }.getOrNull() }
             ?.let { DnsVpnService.setPolicy(BlockPolicy.decode(it)) }
     }
+    val upstream by DnsVpnService.upstream.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) { runCatching { TunnelsStore.get(context).setting(Upstream.KEY) }.getOrNull() }
+            ?.let { DnsVpnService.setUpstream(Upstream.decode(it)) }
+    }
+    fun saveUpstream(u: Upstream) {
+        DnsVpnService.setUpstream(u)
+        scope.launch(Dispatchers.IO) { runCatching { TunnelsStore.get(context).putSetting(Upstream.KEY, u.encode()) } }
+    }
     fun save(p: BlockPolicy) {
         DnsVpnService.setPolicy(p)
         scope.launch(Dispatchers.IO) { runCatching { TunnelsStore.get(context).putSetting(BlockPolicy.KEY, p.encode()) } }
@@ -77,6 +88,8 @@ fun TrafficPanel(state: TunnelScreenState, actions: TunnelScreenActions) {
     SessionCard(session, actions)
     Spacer(Modifier.height(10.dp))
     BlockingCard(session, policy, ::save)
+    Spacer(Modifier.height(10.dp))
+    EncryptionCard(session, upstream, ::saveUpstream)
     Spacer(Modifier.height(10.dp))
     AppList(state.observations, policy) { subject ->
         save(policy.copy(exempt = if (subject in policy.exempt) policy.exempt - subject else policy.exempt + subject))
@@ -128,10 +141,75 @@ private fun BlockingCard(session: SessionState, policy: BlockPolicy, onChange: (
             privateDns?.let { host ->
                 Text(
                     "Private DNS is set to $host: lookups go there encrypted and skip the session, so nothing is counted or " +
-                        "blocked. Set Private DNS to Automatic in Network settings before a session.",
+                        "blocked. Set Private DNS to Automatic in Network settings before a session, and choose $host under " +
+                        "Encrypt forwarded lookups to keep them encrypted while it runs.",
                     style = MaterialTheme.typography.bodySmall,
                     color = StatusColors.warn,
                 )
+            }
+        }
+    }
+}
+
+/** Where forwarded lookups go: the network's resolver in plain text, or a DNS-over-HTTPS provider the user picks. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EncryptionCard(session: SessionState, upstream: Upstream, onChange: (Upstream) -> Unit) {
+    val context = LocalContext.current
+    val line = LineColors.of(MetroLine.NETWORK)
+    val privateDns = remember(session.running) { VpnStatus.privateDnsHost(context) }
+    // Offered while Private DNS still names a host; once picked it is stored as a custom endpoint and survives the switch to Automatic.
+    val fromPrivateDns = remember(privateDns) { privateDns?.let(Upstream::fromPrivateDns) }
+    var editing by remember { mutableStateOf(false) }
+    var draft by remember { mutableStateOf(if (upstream.provider == Upstream.CUSTOM) upstream.url.orEmpty() else "") }
+    var invalid by remember { mutableStateOf(false) }
+    GlassPanel(Modifier.fillMaxWidth(), tint = line) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Encrypt forwarded lookups", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Sent to " + upstream.label,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (upstream.encrypted) StatusColors.ok else GlassColors.dim,
+            )
+            Text(
+                "A session forwards every lookup it does not block. Pick a provider and they go out over HTTPS to it, so your " +
+                    "network only sees encrypted traffic to that provider; if it stops answering, the session ends rather than " +
+                    "falling back to plain text. Android still needs Private DNS on Automatic during a session.",
+                style = MaterialTheme.typography.bodySmall,
+                color = GlassColors.dim,
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Choice("Network (unencrypted)", !upstream.encrypted, line, { editing = false; onChange(Upstream()) })
+                Upstream.PRESETS.forEach { preset ->
+                    Choice(preset.name, upstream.provider == preset.id, line, { editing = false; Upstream.preset(preset.id)?.let(onChange) })
+                }
+                fromPrivateDns?.let { u ->
+                    Choice("Private DNS: ${Upstream.hostOf(u.url)}", upstream == u, line, { editing = false; onChange(u) })
+                }
+                Choice("Custom…", editing || (upstream.provider == Upstream.CUSTOM && upstream != fromPrivateDns), line, { editing = true })
+            }
+            Upstream.PRESETS.firstOrNull { it.id == upstream.provider }?.let { preset ->
+                Text("${preset.name}: ${preset.note}.", style = MaterialTheme.typography.bodySmall, color = GlassColors.dim)
+            }
+            if (editing) {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it; invalid = false },
+                    label = { Text("DNS-over-HTTPS URL") },
+                    placeholder = { Text("https://dns.example.net/dns-query") },
+                    singleLine = true,
+                    isError = invalid,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (invalid) Text("Needs an https:// address without a query string.", style = MaterialTheme.typography.bodySmall, color = StatusColors.warn)
+                Row {
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { editing = false }) { Text("Cancel") }
+                    TextButton(onClick = {
+                        val u = Upstream.custom(draft)
+                        if (u == null) invalid = true else { onChange(u); editing = false }
+                    }) { Text("Use") }
+                }
             }
         }
     }
