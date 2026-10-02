@@ -79,7 +79,7 @@ fun UnzipScreen(vm: UnzipViewModel, onBack: () -> Unit) {
                     GlassPanel(Modifier.fillMaxWidth(), tint = LineColors.of(MetroLine.FILES)) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("Open an archive", style = MaterialTheme.typography.titleMedium)
-                            Text("zip (including password-protected), 7z, tar, tar.gz, tar.xz, tar.bz2, gz, xz and bz2.", style = MaterialTheme.typography.bodyMedium)
+                            Text("zip (including password-protected), 7z, tar, tar.gz, tar.xz, tar.bz2, gz, xz, bz2, and PMTiles map archives.", style = MaterialTheme.typography.bodyMedium)
                             Button(onClick = { picker.launch(arrayOf("*/*")) }) { Text("Pick an archive") }
                             Text(
                                 "You can also open archives from Files or your browser with \"Tunnels Unzip\".",
