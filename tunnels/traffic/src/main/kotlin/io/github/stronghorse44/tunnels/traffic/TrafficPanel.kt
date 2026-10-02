@@ -44,6 +44,8 @@ import io.github.stronghorse44.tunnels.common.GlassPanel
 import io.github.stronghorse44.tunnels.common.LineColors
 import io.github.stronghorse44.tunnels.common.StatusColors
 import io.github.stronghorse44.tunnels.dns.BlockPolicy
+import io.github.stronghorse44.tunnels.dns.Blocklists
+import io.github.stronghorse44.tunnels.dns.TrackerDomains
 import io.github.stronghorse44.tunnels.dns.TrackerKind
 import io.github.stronghorse44.tunnels.dns.TrafficKeys
 import io.github.stronghorse44.tunnels.dns.Upstream
@@ -91,9 +93,7 @@ fun TrafficPanel(state: TunnelScreenState, actions: TunnelScreenActions) {
     Spacer(Modifier.height(10.dp))
     EncryptionCard(session, upstream, ::saveUpstream)
     Spacer(Modifier.height(10.dp))
-    AppList(state.observations, policy) { subject ->
-        save(policy.copy(exempt = if (subject in policy.exempt) policy.exempt - subject else policy.exempt + subject))
-    }
+    AppList(state.observations, policy, ::save)
 }
 
 /** Whether sessions block tracker lookups, which kinds, which apps are let through, and what can stop it working. */
@@ -131,12 +131,35 @@ private fun BlockingCard(session: SessionState, policy: BlockPolicy, onChange: (
                         Choice(kind.label, on, line, { onChange(policy.copy(kinds = if (on) policy.kinds - kind else policy.kinds + kind)) })
                     }
                 }
+                Blocklists.ALL.forEach { list ->
+                    val on = list.id in policy.lists
+                    val count = remember(on) { if (on) BundledLists.get(context, list.id).size else 0 }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Also block the ${list.name} list", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                (if (on && count > 0) "$count " else "") + "${list.description}, shipped with this version · ${list.license}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = GlassColors.dim,
+                            )
+                        }
+                        Switch(checked = on, onCheckedChange = { onChange(policy.copy(lists = if (it) policy.lists + list.id else policy.lists - list.id)) })
+                    }
+                }
                 BlockPolicy.CAVEATS.filterKeys { it in policy.kinds }.forEach { (kind, caveat) ->
                     Text("Blocking ${kind.label} $caveat.", style = MaterialTheme.typography.bodySmall, color = StatusColors.warn)
                 }
                 if (policy.exempt.isNotEmpty()) {
                     Text("Let through: " + policy.exempt.sorted().joinToString(", ") { appLabel(context, it) }, style = MaterialTheme.typography.bodySmall, color = GlassColors.dim)
                 }
+            }
+            if (policy.strict.isNotEmpty()) {
+                Text(
+                    "Everything blocked for: " + policy.strict.sorted().joinToString(", ") { appLabel(context, it) } +
+                        if (policy.enabled) "" else " (even with blocking off)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = GlassColors.dim,
+                )
             }
             privateDns?.let { host ->
                 Text(
@@ -300,7 +323,8 @@ private fun SessionCard(session: SessionState, actions: TunnelScreenActions) {
             }
             (refusal ?: session.message)?.let { msg ->
                 val networkOff = msg == VpnStatus.NETWORK_OFF_MESSAGE
-                val warn = refusal != null || networkOff || msg.contains("Could not") || msg.contains("revoked") || msg == DnsVpnService.FORWARDER_FAILED_MESSAGE
+                val warn = refusal != null || networkOff || msg.contains("Could not") || msg.contains("revoked") ||
+                    msg.contains("stopped answering") || msg == DnsVpnService.FORWARDER_FAILED_MESSAGE
                 Text(msg, style = MaterialTheme.typography.bodySmall, color = if (warn) StatusColors.warn else GlassColors.dim)
                 if (networkOff) {
                     TextButton(onClick = {
@@ -319,8 +343,9 @@ private fun SessionCard(session: SessionState, actions: TunnelScreenActions) {
 
 private class AppRow(val subject: String, val domains: Int, val queries: Int, val trackers: Int, val top: List<String>, val trackerTop: List<String>, val encrypted: Int, val blocked: Int)
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AppList(observations: List<Observation>, policy: BlockPolicy, onToggleExempt: (String) -> Unit) {
+private fun AppList(observations: List<Observation>, policy: BlockPolicy, onChange: (BlockPolicy) -> Unit) {
     val context = LocalContext.current
     val rows = remember(observations) {
         observations.groupBy { it.subject }
@@ -380,16 +405,28 @@ private fun AppList(observations: List<Observation>, policy: BlockPolicy, onTogg
                         style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
                     )
                     if (row.trackerTop.isNotEmpty()) {
+                        val companies = TrackerDomains.companies(row.trackerTop)
+                        val unnamed = row.trackerTop.size - companies.sumOf { it.second.size }
                         Text(
-                            "Trackers: ${row.trackerTop.joinToString(", ")}" + if (row.blocked > 0) " · ${row.blocked} lookups blocked" else "",
+                            "Trackers: " + companies.joinToString("; ") { (company, domains) -> "$company (${domains.joinToString(", ")})" } +
+                                (if (unnamed > 0) "; $unnamed more" else "") +
+                                if (row.blocked > 0) " · ${row.blocked} lookups blocked" else "",
                             style = MaterialTheme.typography.bodySmall,
                             color = StatusColors.warn,
                         )
                     }
-                    if (policy.enabled && row.trackers > 0) {
+                    if (row.trackers > 0 && TrafficKeys.isPackageSubject(row.subject)) {
+                        val all = row.subject in policy.strict
                         val exempt = row.subject in policy.exempt
-                        TextButton(onClick = { onToggleExempt(row.subject) }) {
-                            Text(if (exempt) "Block its trackers again" else "Let its trackers through (if it breaks)")
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = { onChange(policy.blockingAll(row.subject, !all)) }) {
+                                Text(if (all) "Stop blocking everything" else "Block all its trackers")
+                            }
+                            if (policy.enabled && !all) {
+                                TextButton(onClick = { onChange(policy.exempting(row.subject, !exempt)) }) {
+                                    Text(if (exempt) "Block its trackers again" else "Let its trackers through (if it breaks)")
+                                }
+                            }
                         }
                     }
                 }

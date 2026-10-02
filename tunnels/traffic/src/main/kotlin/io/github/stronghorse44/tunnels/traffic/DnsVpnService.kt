@@ -15,6 +15,7 @@ import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import io.github.stronghorse44.tunnels.dns.BlockPolicy
+import io.github.stronghorse44.tunnels.dns.Blocklists
 import io.github.stronghorse44.tunnels.dns.SessionCounter
 import io.github.stronghorse44.tunnels.dns.SessionTotals
 import io.github.stronghorse44.tunnels.dns.TrafficKeys
@@ -113,6 +114,8 @@ class DnsVpnService : VpnService() {
                 ?.let { _policy.value = BlockPolicy.decode(it) }
             withContext(Dispatchers.IO) { runCatching { TunnelsStore.get(this@DnsVpnService).setting(Upstream.KEY) }.getOrNull() }
                 ?.let { _upstream.value = Upstream.decode(it) }
+            // Bundled lists are read before the first lookup, not on the forwarder thread.
+            if (_policy.value.needsLists) withContext(Dispatchers.IO) { Blocklists.ALL.forEach { BundledLists.get(this@DnsVpnService, it.id) } }
             // Sockets and binder calls stay off the main thread.
             val failure = withContext(Dispatchers.IO) { openTunnel() }
             starting = false
@@ -215,7 +218,9 @@ class DnsVpnService : VpnService() {
                     scope.launch { stopSession(message) }
                 },
                 // Read per lookup, so a change in the panel applies to the running session at once.
-                blocks = { subject, host -> _policy.value.blocks(subject, host) != null },
+                blocks = { subject, host ->
+                _policy.value.blocks(subject, host, listed = { h, ids -> BundledLists.listed(this, h, ids) }) != null
+            },
                 upstreamOf = { _upstream.value },
             )
         } catch (e: Exception) {

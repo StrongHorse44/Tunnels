@@ -64,3 +64,10 @@ no-egress claim can be verified. See [docs/HANDOFF.md](docs/HANDOFF.md).
 - Android modules compile in GitHub Actions; the plain-Kotlin `core/*` modules also build and test
   locally with `scripts/jvm-check/run.sh :core:NAME:test`.
 - Layout, CI and conventions: [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md).
+
+## Third-party data
+
+- `tunnels/traffic/src/main/assets/blocklists/adaway.txt`: the AdAway default hosts list
+  ([github.com/AdAway/adaway.github.io](https://github.com/AdAway/adaway.github.io)) by the AdAway contributors,
+  licensed under [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). Reduced to hostnames, otherwise
+  unchanged; refreshed before releases with `scripts/update-blocklists.sh`. The app never downloads it.
