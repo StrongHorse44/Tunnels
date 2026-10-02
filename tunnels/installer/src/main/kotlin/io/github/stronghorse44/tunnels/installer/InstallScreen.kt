@@ -61,7 +61,7 @@ import java.util.Date
 private val PICK_TYPES = arrayOf("application/vnd.android.package-archive", "application/zip", "application/octet-stream")
 
 @Composable
-fun InstallScreen(vm: InstallViewModel, onBack: () -> Unit) {
+fun InstallScreen(vm: InstallViewModel, onBack: () -> Unit, onHandOff: () -> Unit = {}) {
     val context = LocalContext.current
     val state by vm.state.collectAsStateWithLifecycle()
     val canInstall by vm.canInstall.collectAsStateWithLifecycle()
@@ -119,6 +119,7 @@ fun InstallScreen(vm: InstallViewModel, onBack: () -> Unit) {
                 is InstallState.Failed -> {
                     Text(s.title, style = MaterialTheme.typography.titleLarge, color = StatusColors.blocker)
                     Text(s.detail)
+                    if (s.handOff) Button(onClick = onHandOff) { Text("Open in Android's installer") }
                     Button(onClick = { picker.launch(PICK_TYPES) }) { Text("Pick another file") }
                 }
             }

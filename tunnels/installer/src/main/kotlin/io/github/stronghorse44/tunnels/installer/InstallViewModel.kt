@@ -38,7 +38,8 @@ sealed interface InstallState {
     data class Installing(val info: ApkInfo, val progress: Float, val awaitingUser: Boolean) : InstallState
     /** [failure] is null on success. */
     data class Done(val info: ApkInfo, val failure: FailureExplanation?, val rawMessage: String?) : InstallState
-    data class Failed(val title: String, val detail: String) : InstallState
+    /** [handOff]: the sender shared the file with Android's installer only; offer to pass it on there. */
+    data class Failed(val title: String, val detail: String, val handOff: Boolean = false) : InstallState
 }
 
 /**
@@ -99,7 +100,18 @@ class InstallViewModel(private val app: Application, private val saved: SavedSta
             discard()
             _state.value = InstallState.Working("Copying file…")
             val copied = runCatching { withContext(Dispatchers.IO) { Staging.copyIn(app, uri) } }.getOrElse {
-                _state.value = InstallState.Failed("Can't open this file", it.message ?: "The file couldn't be read.")
+                _state.value = if (it is SecurityException) {
+                    // Apps like updaters often grant read access to Android's installer by name, so the
+                    // file reaches Tunnels without permission to read it.
+                    InstallState.Failed(
+                        "This app didn't share the file with Tunnels",
+                        "The app that sent it let only Android's installer read it, so Tunnels can't check it. " +
+                            "Hand it to Android's installer to continue, or save the APK and open it here from Files.",
+                        handOff = true,
+                    )
+                } else {
+                    InstallState.Failed("Can't open this file", it.message ?: "The file couldn't be read.")
+                }
                 return@launch
             }
             remember(copied.file, owns = true)
