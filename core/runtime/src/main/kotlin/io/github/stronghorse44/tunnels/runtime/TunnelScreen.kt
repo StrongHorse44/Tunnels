@@ -245,13 +245,19 @@ private fun kindLabel(kind: String) = kind.lowercase().replace('_', ' ')
 
 private fun isDestructive(a: FindingAction) = a is FindingAction.RequestUninstall || (a is FindingAction.Perform && a.destructive)
 
-/** A finding in its tunnel's list: what and how bad, its first action, and the way down to the full finding. */
+/**
+ * A finding in a list: what and how bad, its first action, and the way to the rest. With [onOpen] (a tunnel's own
+ * list) that leads down to the full finding; without it (the inbox, an app's page) the card opens in place, with the
+ * whole evidence and every action.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun FindingCard(f: Finding, onAction: (FindingAction) -> Unit, onDismiss: () -> Unit, onOpen: () -> Unit = {}) {
+fun FindingCard(f: Finding, onAction: (FindingAction) -> Unit, onDismiss: () -> Unit, onOpen: (() -> Unit)? = null) {
     val color = severityColor(f.severity)
-    GlassPanel(Modifier.fillMaxWidth(), tint = color) {
-        Column(Modifier.clickable(onClick = onOpen).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    var expanded by remember(f.id) { mutableStateOf(false) }
+    val open = onOpen ?: { expanded = !expanded }
+    GlassPanel(Modifier.fillMaxWidth().animateContentSize(), tint = color) {
+        Column(Modifier.clickable(onClick = open).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(12.dp).clip(CircleShape).border(3.dp, color, CircleShape))
                 Spacer(Modifier.width(8.dp))
@@ -262,16 +268,37 @@ fun FindingCard(f: Finding, onAction: (FindingAction) -> Unit, onDismiss: () -> 
                 if (f.sticky) TextButton(onClick = onDismiss) { Text("Dismiss", color = GlassColors.dim) }
             }
             Text(f.subject, style = MaterialTheme.typography.titleSmall)
-            Text(f.evidence, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.padding(top = 4.dp),
-            ) {
-                f.actions.firstOrNull()?.let { a -> PrismButton(a.label, { onAction(a) }) }
-                TextButton(onClick = onOpen) {
-                    val more = f.actions.size - 1
-                    Text(if (more > 0) "$more more action${if (more == 1) "" else "s"} ›" else "Details ›", color = GlassColors.text)
+            Text(
+                f.evidence,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = if (expanded) Int.MAX_VALUE else 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (expanded) {
+                Column(Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    f.actions.forEachIndexed { i, a ->
+                        when {
+                            isDestructive(a) -> OutlinedButton(
+                                onClick = { onAction(a) }, modifier = Modifier.fillMaxWidth(), shape = CircleShape,
+                                border = BorderStroke(1.dp, StatusColors.blocker.copy(alpha = 0.7f)),
+                            ) { Text(a.label, color = Color(0xFFFFB3C0)) }
+                            i == 0 -> SpectrumButton(a.label, { onAction(a) }, Modifier.fillMaxWidth())
+                            else -> PrismButton(a.label, { onAction(a) }, Modifier.fillMaxWidth())
+                        }
+                    }
+                    TextButton(onClick = { expanded = false }, modifier = Modifier.fillMaxWidth()) { Text("Less ‹", color = GlassColors.dim) }
+                }
+            } else {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(top = 4.dp),
+                ) {
+                    f.actions.firstOrNull()?.let { a -> PrismButton(a.label, { onAction(a) }) }
+                    TextButton(onClick = open) {
+                        val more = f.actions.size - 1
+                        Text(if (more > 0) "$more more action${if (more == 1) "" else "s"} ›" else "Details ›", color = GlassColors.text)
+                    }
                 }
             }
         }

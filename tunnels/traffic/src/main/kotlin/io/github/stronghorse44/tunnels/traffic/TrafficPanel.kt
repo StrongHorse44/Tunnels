@@ -6,6 +6,7 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -390,21 +391,19 @@ private fun AppList(observations: List<Observation>, policy: BlockPolicy, onChan
             rows.take(LIST_MAX).forEach { row ->
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(label(row.subject), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                        val linked = appPage && AppPage.isApp(row.subject)
+                        Text(
+                            label(row.subject) + if (linked) " ›" else "",
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.weight(1f).then(if (linked) Modifier.clickable { AppPage.open(context, row.subject) } else Modifier),
+                        )
                         if (row.trackers > 0) {
                             Text("${row.trackers} tracker${if (row.trackers == 1) "" else "s"}", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = StatusColors.warn)
                             Spacer(Modifier.width(8.dp))
                         }
                         Text("${row.queries}", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = LineColors.of(MetroLine.NETWORK))
                     }
-                    if (label(row.subject) != row.subject) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(row.subject, style = MaterialTheme.typography.labelSmall, color = GlassColors.dim, modifier = Modifier.weight(1f))
-                            if (appPage && AppPage.isApp(row.subject)) {
-                                TextButton(onClick = { AppPage.open(context, row.subject) }) { Text("About ›", style = MaterialTheme.typography.labelSmall) }
-                            }
-                        }
-                    }
+                    if (label(row.subject) != row.subject) Text(row.subject, style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)
                     Text(
                         buildString {
                             append("${row.domains} domains")
@@ -424,16 +423,21 @@ private fun AppList(observations: List<Observation>, policy: BlockPolicy, onChan
                             color = StatusColors.warn,
                         )
                     }
-                    if (row.trackers > 0 && TrafficKeys.isPackageSubject(row.subject)) {
+                    val linked = appPage && AppPage.isApp(row.subject)
+                    val blockable = row.trackers > 0 && TrafficKeys.isPackageSubject(row.subject)
+                    if (linked || blockable) {
                         val all = row.subject in policy.strict
                         val exempt = row.subject in policy.exempt
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TextButton(onClick = { onChange(policy.blockingAll(row.subject, !all)) }) {
-                                Text(if (all) "Stop blocking everything" else "Block all its trackers")
-                            }
-                            if (policy.enabled && !all) {
-                                TextButton(onClick = { onChange(policy.exempting(row.subject, !exempt)) }) {
-                                    Text(if (exempt) "Block its trackers again" else "Let its trackers through (if it breaks)")
+                            if (linked) TextButton(onClick = { AppPage.open(context, row.subject) }) { Text("About this app ›") }
+                            if (blockable) {
+                                TextButton(onClick = { onChange(policy.blockingAll(row.subject, !all)) }) {
+                                    Text(if (all) "Stop blocking everything" else "Block all its trackers")
+                                }
+                                if (policy.enabled && !all) {
+                                    TextButton(onClick = { onChange(policy.exempting(row.subject, !exempt)) }) {
+                                        Text(if (exempt) "Block its trackers again" else "Let its trackers through (if it breaks)")
+                                    }
                                 }
                             }
                         }
