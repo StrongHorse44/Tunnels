@@ -34,6 +34,8 @@ data class InboxState(
     val filter: Inbox.Filter = Inbox.Filter.ALL,
     val tunnel: String? = null,
     val settings: WatchSettings = WatchSettings(),
+    /** False until the stored settings arrive: changing them before would save defaults over the user's choice. */
+    val settingsLoaded: Boolean = false,
     val status: WatchStatus = WatchStatus(),
     val scan: ScanState = ScanState(),
     val checking: Boolean = false,
@@ -68,7 +70,7 @@ class InboxViewModel(private val app: Application) : AndroidViewModel(app) {
                     .flowOn(Dispatchers.IO)
                     .collect { list -> _state.update { it.copy(loaded = true, findings = list) } }
             }
-            launch { store.settingFlow(WatchSettings.KEY).collect { v -> _state.update { it.copy(settings = WatchSettings.decode(v)) } } }
+            launch { store.settingFlow(WatchSettings.KEY).collect { v -> _state.update { it.copy(settings = WatchSettings.decode(v), settingsLoaded = true) } } }
             launch { store.settingFlow(WatchStatus.KEY).collect { v -> _state.update { it.copy(status = WatchStatus.decode(v)) } } }
             launch(Dispatchers.IO) {
                 runCatching { WatchScheduler.ensure(app) }
@@ -116,6 +118,7 @@ class InboxViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private fun save(settings: WatchSettings, reschedule: Boolean, then: () -> Unit = {}) {
         val rt = runtime ?: return
+        if (!_state.value.settingsLoaded) return
         _state.update { it.copy(settings = settings) }
         viewModelScope.launch {
             withContext(Dispatchers.IO) {

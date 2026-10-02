@@ -203,7 +203,7 @@ private fun ChecksPanel(
                         color = if (settings.enabled) StatusColors.ok else GlassColors.dim,
                     )
                 }
-                Switch(checked = settings.enabled, onCheckedChange = onToggle)
+                Switch(checked = settings.enabled, onCheckedChange = onToggle, enabled = state.settingsLoaded)
             }
             if (settings.enabled) {
                 Text("Every", style = MaterialTheme.typography.labelMedium, color = GlassColors.dim)

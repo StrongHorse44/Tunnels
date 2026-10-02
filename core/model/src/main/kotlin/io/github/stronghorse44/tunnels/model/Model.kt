@@ -156,6 +156,12 @@ interface TunnelModule {
     suspend fun scan(progress: ScanProgress): List<Observation>
     val rules: List<FindingRule>
     fun actionsFor(draft: FindingDraft): List<FindingAction>
+
+    /**
+     * Keys whose value moves with the clock alone, such as an age in days. A scan that changes only these is not a
+     * change of the phone, so a background check stores no snapshot for it (findings still follow).
+     */
+    val volatileKeys: Set<String> get() = emptySet()
 }
 
 /**

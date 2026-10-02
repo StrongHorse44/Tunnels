@@ -35,6 +35,9 @@ compile and test locally.
 | 5 | `tunnels:homenet` (INTERNET allowed) | `core:lan` | home_network |
 | 6 | `tunnels:deepmode` | — | deep_mode |
 | — | `tunnels:updater` (INTERNET allowed: user-started update checks) | `core:updates` | — |
+| — | `tunnels:crossroads` (derived: joins other tunnels, no system reads) | `core:crossrules` | crossroads |
+| — | `tunnels:watch` (findings inbox, background checks, notification) | `core:watchrules` | — |
+| — | `tunnels:devicecheck` (device checks screen) | `core:devicecheck` | — |
 | — | `app` (metro home) | `core:metro` (map geometry, label placement) | — |
 
 Shared, lead-owned: `core:model`, `core:engine`, `core:store`, `core:common`, `core:runtime`, `app`.
@@ -51,7 +54,14 @@ Shared, lead-owned: `core:model`, `core:engine`, `core:store`, `core:common`, `c
 - `TunnelUi` (core:runtime): optional custom Compose content for a tunnel; without it the generic
   tunnel screen (scan button, observations by subject, findings with actions) is used.
 - `SnapshotEngine` (core:runtime): runs scans off the main thread with progress, stores a
-  snapshot, diffs against the previous one, derives findings through the rules, applies retention.
+  snapshot, diffs against the previous one, derives findings through the rules, applies retention. The
+  planning is `ScanPlanner`'s (core:engine, plain Kotlin, unit-tested).
+- `DerivedTunnel` (core:model): a tunnel computed from other tunnels' latest observations and open findings
+  (Crossroads). The engine runs it after its sources, in the same snapshot, whenever a source was scanned.
+- `TunnelModule.volatileKeys`: keys that move with the clock alone (Silicon's patch age). A background check
+  (`scan(storeIfUnchanged = false)`) stores no snapshot when only these changed.
+- Settings the user chooses (blocking, background checks, the inbox's last visit) live in the encrypted store's
+  `settings` table (`TunnelsStore.setting`/`putSetting`), schema 3 with a migration from 2.
 
 ## Permissions
 
@@ -84,6 +94,25 @@ tests; Maven Central rate-limits (HTTP 429) are transient, retry.
 All phases are implemented and merged on the integration branch; every module has unit tests and an
 instrumented smoke test that ran on an API 36 emulator. Nothing has been verified on the Pixel 10 yet:
 each module's report lists the device checks that matter, collected in the pull request description.
+
+## Status (2026-10-02): hardening build-out
+
+Added on `ccr-98346e16-n3l9iz`: Crossroads (cross-tunnel findings), the findings inbox, background checks with
+notifications, device checks, and tracker blocking in Traffic sessions. GitHub Actions did not start any job for
+this branch that day (every run failed before a runner was assigned), so none of this has been through CI or an
+emulator yet. The plain-Kotlin modules' tests pass locally, and the Android sources and instrumented tests were
+typechecked against Robolectric's android-all and JetBrains' desktop Compose with stubs for the Android-only
+AndroidX APIs; Room's KSP step, AGP and resources were not exercised. First CI run to watch: the 2 to 3 store
+migration (`StoreMigrationTest`) and the new modules' instrumented tests in `ci.yml`'s smoke job.
+
+Device checks to make on the Pixel 10 (the Device checks screen walks through most of them):
+- The Network and Sensors toggle checks pass (turn one app's toggle off first).
+- A background check runs on schedule with the phone idle; Device checks reports the last one. If GrapheneOS defers
+  it, battery use Unrestricted should fix it.
+- Blocking: with Private DNS on Automatic, a session's tracker lookups get NXDOMAIN, the app still works, and the
+  counts show blocked lookups. With Private DNS set to a host, the panel warns and nothing is seen.
+- Crossroads: a sideloaded app with an accessibility service on raises the critical finding; turning the service off
+  clears it on the next scan.
 
 ## Follow-ups (deferred, not blockers)
 

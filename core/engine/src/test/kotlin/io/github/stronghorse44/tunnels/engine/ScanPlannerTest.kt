@@ -72,6 +72,22 @@ class ScanPlannerTest {
     }
 
     @Test
+    fun aChangeInClockDrivenKeysAloneIsNotAChange() {
+        val clock = object : Sensor("silicon") {
+            override val volatileKeys = setOf("patchAgeDays")
+        }
+        val before = listOf(o("silicon", "device", "patchAgeDays", "10"), o("silicon", "device", "boot", "verified"))
+        val aged = listOf(o("silicon", "device", "patchAgeDays", "11"), o("silicon", "device", "boot", "verified"))
+        val quiet = ScanPlanner.plan(listOf(clock to aged), emptyList(), mapOf("silicon" to SourceData(before, t0)), emptyList(), emptySet(), t1)
+        assertFalse(quiet.observationsChanged)
+        val unlocked = listOf(o("silicon", "device", "patchAgeDays", "11"), o("silicon", "device", "boot", "unverified"))
+        assertTrue(ScanPlanner.plan(listOf(clock to unlocked), emptyList(), mapOf("silicon" to SourceData(before, t0)), emptyList(), emptySet(), t1).observationsChanged)
+        // A first scan always counts, whatever its keys.
+        val onlyClock = listOf(o("silicon", "device", "patchAgeDays", "11"))
+        assertTrue(ScanPlanner.plan(listOf(clock to onlyClock), emptyList(), emptyMap(), emptyList(), emptySet(), t1).observationsChanged)
+    }
+
+    @Test
     fun aChangeAddsAStickyFindingAndClearsAState() {
         val perm = Sensor("perm")
         val before = listOf(o("perm", "a", "mic", "granted"))

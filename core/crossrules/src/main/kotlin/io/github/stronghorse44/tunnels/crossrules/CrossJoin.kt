@@ -32,6 +32,9 @@ object CrossJoin {
     /** Traffic observations already cover 30 days of sessions. */
     val FRESH_TRAFFIC: Duration = Duration.ofDays(30)
 
+    /** Sources whose data date is recorded on the summary subject. */
+    val DATED_SOURCES: List<String> = listOf(Sources.TIMELINE, Sources.DEEP)
+
     fun observe(input: DerivedInput, zone: ZoneId = ZoneId.systemDefault()): List<Observation> {
         val now = input.now
         fun fresh(id: String, maxAge: Duration?): SourceData? =
@@ -117,7 +120,9 @@ object CrossJoin {
             facts.forEach { (k, v) -> out += Observation(CrossKeys.TUNNEL_ID, pkg, k, v) }
         }
 
-        for (id in Sources.ALL.sorted()) {
+        // The days the activity readings were taken: the rules' evidence names them. Permissions and APK excavation
+        // are rescanned by every background check, so their dates are left out: they would make each check a change.
+        for (id in DATED_SOURCES) {
             val day = input.sources[id]?.takenAt?.atZone(zone)?.toLocalDate()
             out += Observation(CrossKeys.TUNNEL_ID, CrossKeys.SUMMARY, CrossKeys.sourceKey(id), day?.toString() ?: CrossKeys.NONE)
         }
@@ -159,7 +164,7 @@ object CrossJoin {
     private fun openFindings(findings: List<Finding>, tunnelId: String, kind: String): Map<String, Finding> =
         findings.filter { it.tunnelId == tunnelId && it.kind == kind }.associateBy { it.subject }
 
-    /** Source tunnel ids for the summary, with their data dates; for display. */
+    /** [DATED_SOURCES] with the day their joined data was taken, or [CrossKeys.NONE]. */
     fun sourceDates(observations: List<Observation>): Map<String, String> =
         observations.filter { it.subject == CrossKeys.SUMMARY && it.key.startsWith(CrossKeys.SOURCE_PREFIX) }
             .associate { it.key.removePrefix(CrossKeys.SOURCE_PREFIX) to it.value }

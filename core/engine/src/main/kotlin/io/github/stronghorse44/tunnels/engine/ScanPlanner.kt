@@ -13,7 +13,10 @@ import java.time.Instant
 data class ScanPlan(
     /** Observations for the new snapshot: every scanned tunnel's, then every derived tunnel's. */
     val observations: List<Observation>,
-    /** True when some tunnel's observations differ from its newest stored snapshot (or it had none stored yet). */
+    /**
+     * True when some tunnel's observations differ from its newest stored snapshot (or it had none stored yet) in a key
+     * other than its [TunnelModule.volatileKeys].
+     */
     val observationsChanged: Boolean,
     /** Findings to insert or refresh. */
     val upserts: List<Finding>,
@@ -64,7 +67,8 @@ object ScanPlanner {
         fun apply(module: TunnelModule, current: List<Observation>) {
             val prev = previous[module.id]
             val diff = DiffEngine.diff(prev?.observations.orEmpty(), current)
-            if (diff.isNotEmpty()) changed = true
+            // A tunnel's first stored data always counts, so its baseline exists for the next scan to diff against.
+            if ((prev == null && current.isNotEmpty()) || diff.any { it.key.key !in module.volatileKeys }) changed = true
             val context = RuleContext(module.id, current, diff, isFirstScan = prev == null)
             val update = FindingsEngine.derive(context, module.rules, module::actionsFor, existing.filter { it.tunnelId == module.id }, now)
             upserts += update.upserts

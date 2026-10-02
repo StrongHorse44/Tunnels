@@ -47,12 +47,28 @@ class CrossJoinTest {
     }
 
     @Test
-    fun theSummaryDatesEverySource() {
-        val joined = join(mapOf(Sources.PERMISSIONS to permissions("a.b", "CAMERA")))
+    fun theSummaryDatesOnlyTheActivitySources() {
+        val joined = join(mapOf(Sources.PERMISSIONS to permissions("a.b", "CAMERA"), Sources.DEEP to deep("a.b", mic = "today")))
         val dates = CrossJoin.sourceDates(joined)
-        assertEquals("2026-09-30", dates[Sources.PERMISSIONS])
+        assertEquals(setOf(Sources.TIMELINE, Sources.DEEP), dates.keys)
         assertEquals(CrossKeys.NONE, dates[Sources.TIMELINE])
-        assertEquals(Sources.ALL, dates.keys)
+        assertEquals("2026-09-30", dates[Sources.DEEP])
+    }
+
+    @Test
+    fun aDayLaterTheSameDataJoinsTheSame() {
+        // Background checks rescan Permissions daily: the join must not change just because the scan is newer.
+        val sources = mapOf(Sources.PERMISSIONS to permissions("x.y", "READ_SMS"), Sources.APK to apk("x.y", "unknown"))
+        val today = join(sources)
+        val tomorrow = CrossJoin.observe(
+            io.github.stronghorse44.tunnels.model.DerivedInput(
+                sources.mapValues { (_, obs) -> io.github.stronghorse44.tunnels.model.SourceData(obs, NOW.plus(Duration.ofDays(1))) },
+                emptyList(),
+                NOW.plus(Duration.ofDays(1)),
+            ),
+            Fixtures.UTC,
+        )
+        assertEquals(today, tomorrow)
     }
 
     @Test

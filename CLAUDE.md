@@ -51,6 +51,9 @@ everything, so uninstall wipes all data and nothing goes to cloud backup.
 - `tunnels:installer`, `tunnels:unzip` one module per tunnel group; each declares its own permissions
 - `core:metro` home map geometry and label placement (plain Kotlin, unit-tested)
 - `core:updates` + `tunnels:updater` in-app updates from GitHub releases (user-started; INTERNET allowed)
+- `core:crossrules` + `tunnels:crossroads` Crossroads, a derived tunnel (joins other tunnels' data; Central on the map)
+- `core:watchrules` + `tunnels:watch` findings inbox and opt-in background checks (JobScheduler, offline tunnels only)
+- `core:devicecheck` + `tunnels:devicecheck` device checks: confirms on the phone the readings Tunnels relies on
 - `app` metro home (console readout + glass metro map); `verifyPermissions` runs before every assemble
 
 Keep Android-free logic in the plain Kotlin modules so it can be tested without an emulator.

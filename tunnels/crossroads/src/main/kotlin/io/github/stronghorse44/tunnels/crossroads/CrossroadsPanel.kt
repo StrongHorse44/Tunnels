@@ -9,6 +9,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,7 +29,12 @@ import io.github.stronghorse44.tunnels.model.MetroLine
 import io.github.stronghorse44.tunnels.model.TunnelCatalog
 import io.github.stronghorse44.tunnels.runtime.TunnelActivity
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenState
+import io.github.stronghorse44.tunnels.runtime.TunnelsRuntime
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.format.DateTimeParseException
 import java.time.temporal.ChronoUnit
 
@@ -35,8 +42,19 @@ import java.time.temporal.ChronoUnit
 @Composable
 fun CrossroadsPanel(state: TunnelScreenState) {
     val context = LocalContext.current
-    val dates = remember(state.observations) { CrossJoin.sourceDates(state.observations) }
     val today = remember { LocalDate.now() }
+    // When each source tunnel's newest data was taken, straight from the store (rescanned sources move often).
+    val dates by produceState<Map<String, String>>(emptyMap(), state.lastScan) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val dao = TunnelsRuntime.get(context).store.dao
+                CrossKeys.Sources.ALL.associateWith { id ->
+                    dao.latestSnapshotIdFor(id)?.let { dao.snapshot(it) }?.takenAt
+                        ?.let { Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toLocalDate().toString() } ?: CrossKeys.NONE
+                }
+            }.getOrDefault(emptyMap())
+        }
+    }
     GlassPanel(Modifier.fillMaxWidth(), tint = LineColors.of(MetroLine.INSPECT)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Where the tunnels meet", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -47,7 +65,7 @@ fun CrossroadsPanel(state: TunnelScreenState) {
                 style = MaterialTheme.typography.bodySmall,
                 color = GlassColors.dim,
             )
-            if (dates.isEmpty()) {
+            if (state.lastScan == null) {
                 Text("Scan to join what the other tunnels have found so far.", style = MaterialTheme.typography.bodyMedium)
             }
             CrossKeys.Sources.ALL.sortedBy { order.indexOf(it) }.forEach { id ->
@@ -61,7 +79,7 @@ fun CrossroadsPanel(state: TunnelScreenState) {
                         Text(title, style = MaterialTheme.typography.bodyLarge)
                         Text(
                             when {
-                                dates.isEmpty() -> "not joined yet"
+                                dates.isEmpty() -> "reading…"
                                 day == null -> "never scanned: its facts are missing here"
                                 stale -> "data from $day: too old to join, scan it again"
                                 else -> "data from $day"

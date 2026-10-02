@@ -24,10 +24,22 @@ network and the updater), used only during sessions you start. The built APK is 
 | System | Deep mode | Via Shizuku: app-ops history (camera, mic, location, clipboard), hidden settings, direct revoke/disable |
 | Activity | Timeline | Usage and data per app over 30 days (Usage access), unused apps, background data |
 | Activity | Notifications | Counts and flags per app from a notification listener (never contents), noise and lock-screen exposure |
-| Network | Traffic | DNS-only VPN sessions you start: registrable domains per app, tracker domains; refuses while another VPN is up |
+| Network | Traffic | DNS-only VPN sessions you start: registrable domains per app, tracker domains, optional blocking of tracker lookups (answered "no such domain" on the phone); refuses while another VPN is up |
 | Network | Surroundings | BLE trackers (AirTag, SmartTag, Tile, FMDN) judged per identity, including whether one travelled with you between places (a move counter, never a position); Wi-Fi security and evil twins, cell downgrade; optional background monitor |
 | Network | Home network | Own-network gate, mDNS/SSDP discovery, TCP port scan, UPnP IGD and DNS-hijack checks |
 | Explore | Sensors, Cameras, Satellites, Radio | Curiosity only: hardware facts, no findings |
+| Central | Crossroads | Findings that take two tunnels to see: an accessibility service in an app from a file, ad or location SDKs in an app holding your location or contacts, a microphone used while the app sat unopened, a new signing key plus new permissions |
+
+**Findings** (home → findings ›): every open finding from every tunnel in one list, most severe first, each with
+its actions, new ones marked since your last visit. It also holds the opt-in **background checks**: a scheduled,
+offline re-check of Permissions, Trust store, System packages and Silicon (plus APK excavation, Doors and Hardening
+when apps changed, after a restart, or once a day) that stores a snapshot only when something changed and can notify
+you about new findings. The notification names tunnels and kinds, never apps; the lock screen shows only "New
+findings to review".
+
+**Device checks** (home → checks ›): confirms on the phone the readings Tunnels relies on (the GrapheneOS Network and
+Sensors toggles, verified boot, the store key, package visibility, background-check health, Private DNS and VPN state
+for Traffic, every special access), with the checks only a person with a tracker tag can make.
 
 Plus a **Snapshots** screen: on-demand full snapshot of every tunnel, history with pinning, a diff viewer
 between any two snapshots, encrypted export/import (PBKDF2 + AES-GCM), and the optional app lock.
