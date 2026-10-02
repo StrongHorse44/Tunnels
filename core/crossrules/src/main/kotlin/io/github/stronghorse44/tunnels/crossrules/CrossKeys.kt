@@ -41,6 +41,8 @@ object CrossKeys {
     const val CAMERA_USED = "ops:cameraLastUsed"
     /** ISO date of the last microphone use (Deep mode). */
     const val MIC_USED = "ops:micLastUsed"
+    /** "true" for Google Play services, GSF or the Play Store signed by Google (APK excavation); their SDK facts are left out. */
+    const val GOOGLE_PLAY = "app:googlePlay"
     /** "true" while APK excavation holds an open finding that the signing key changed. */
     const val SIGNER_CHANGED = "signer:changed"
     /** What Permissions says the app newly gained, while that finding is open. */

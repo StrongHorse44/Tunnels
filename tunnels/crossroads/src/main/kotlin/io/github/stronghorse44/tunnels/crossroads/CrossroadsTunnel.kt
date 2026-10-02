@@ -43,7 +43,7 @@ class CrossroadsTunnel(private val context: Context) : DerivedTunnel, TunnelUi {
             actions += FindingAction.OpenSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS, "Accessibility settings")
         }
         actions += FindingAction.OpenAppDetails(pkg) // permissions, the GrapheneOS Network toggle, "pause if unused"
-        if (!isSystem(pkg)) actions += FindingAction.RequestUninstall(pkg)
+        if (draft.kind !in CrossRules.NO_UNINSTALL_KINDS && !isSystem(pkg)) actions += FindingAction.RequestUninstall(pkg)
         return actions
     }
 

@@ -15,6 +15,7 @@ import io.github.stronghorse44.tunnels.model.Observation
 import io.github.stronghorse44.tunnels.model.Severity
 import io.github.stronghorse44.tunnels.permrules.PermissionRules
 import io.github.stronghorse44.tunnels.trackers.ApkRules
+import io.github.stronghorse44.tunnels.trackers.GooglePlay
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -162,6 +163,48 @@ class CrossRulesTest {
             findings = listOf(finding(Sources.APK, pkg, ApkRules.CERT_CHANGED, "changed")),
         )
         assertTrue(CrossRules.NEW_SIGNER_NEW_ACCESS !in kinds(one))
+    }
+
+    private val gmsSdks = mapOf("firebase_analytics" to "analytics", "google_admob" to "ads")
+
+    @Test
+    fun googlePlayServicesHoldingSmsAndContactsIsItsOwnFindingWithoutTrackers() {
+        val pkg = "com.google.android.gms"
+        val joined = join(
+            mapOf(
+                Sources.PERMISSIONS to permissions(pkg, "READ_SMS", "READ_CONTACTS"),
+                Sources.APK to apk(pkg, "app.grapheneos.apps", gmsSdks, cert = GooglePlay.CERT_SHA256),
+            ),
+        )
+        assertEquals("true", Fixtures.facts(joined, pkg)[CrossKeys.GOOGLE_PLAY])
+        assertTrue(CrossKeys.SDK_COUNT !in Fixtures.facts(joined, pkg))
+        assertEquals(setOf(CrossRules.GOOGLE_HOLDS_PERSONAL_DATA), kinds(joined))
+        val d = only(joined, CrossRules.GOOGLE_HOLDS_PERSONAL_DATA)
+        assertEquals(Severity.WARN, d.severity)
+        assertTrue(d.evidence, d.evidence.startsWith("Google Play services holds SMS and contacts (Permissions), is signed by Google"))
+        assertTrue(CrossRules.GOOGLE_HOLDS_PERSONAL_DATA in CrossRules.NO_UNINSTALL_KINDS)
+    }
+
+    @Test
+    fun googlePlayWithoutPersonalAccessOrNetworkIsQuiet() {
+        val pkg = "com.google.android.gms"
+        val apk = apk(pkg, "app.grapheneos.apps", gmsSdks, cert = GooglePlay.CERT_SHA256)
+        assertTrue(drafts(join(mapOf(Sources.PERMISSIONS to permissions(pkg, "CAMERA"), Sources.APK to apk))).isEmpty())
+        assertTrue(drafts(join(mapOf(Sources.PERMISSIONS to permissions(pkg, "READ_SMS", network = "off"), Sources.APK to apk))).isEmpty())
+    }
+
+    @Test
+    fun aLookAlikeGooglePackageWithAnotherSignerIsJudgedLikeAnyApp() {
+        val pkg = "com.google.android.gms"
+        val joined = join(
+            mapOf(
+                Sources.PERMISSIONS to permissions(pkg, "READ_SMS", "READ_CONTACTS"),
+                Sources.APK to apk(pkg, "com.android.packageinstaller", gmsSdks, cert = "AB".repeat(32)),
+            ),
+        )
+        val kinds = kinds(joined)
+        assertTrue(kinds.toString(), CrossRules.TRACKERS_WITH_PERSONAL_DATA in kinds && CrossRules.SIDELOADED_MESSAGES in kinds)
+        assertTrue(CrossRules.GOOGLE_HOLDS_PERSONAL_DATA !in kinds)
     }
 
     @Test

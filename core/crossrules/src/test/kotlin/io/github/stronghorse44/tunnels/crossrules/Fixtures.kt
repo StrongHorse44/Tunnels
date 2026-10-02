@@ -27,8 +27,9 @@ object Fixtures {
     }
 
     /** [sdks] maps tracker ids to their category labels as the APK tunnel writes them ("ads", "analytics,location"). */
-    fun apk(pkg: String, installer: String, sdks: Map<String, String> = emptyMap(), system: Boolean = false) = buildList {
+    fun apk(pkg: String, installer: String, sdks: Map<String, String> = emptyMap(), system: Boolean = false, cert: String? = null) = buildList {
         add(Observation(Sources.APK, pkg, ApkKeys.SYSTEM, system.toString()))
+        cert?.let { add(Observation(Sources.APK, pkg, ApkKeys.CERT_SHA256, it)) }
         add(Observation(Sources.APK, pkg, ApkKeys.INSTALLER, installer))
         sdks.forEach { (id, categories) -> add(Observation(Sources.APK, pkg, ApkKeys.sdkKey(id), categories)) }
         add(Observation(Sources.APK, pkg, ApkKeys.SDK_COUNT, sdks.size.toString()))

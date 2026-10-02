@@ -13,6 +13,7 @@ import io.github.stronghorse44.tunnels.permrules.PermissionKeys
 import io.github.stronghorse44.tunnels.permrules.PermissionRules
 import io.github.stronghorse44.tunnels.trackers.ApkKeys
 import io.github.stronghorse44.tunnels.trackers.ApkRules
+import io.github.stronghorse44.tunnels.trackers.GooglePlay
 import io.github.stronghorse44.tunnels.trackers.TrackerCatalog
 import io.github.stronghorse44.tunnels.trackers.TrackerCategory
 import java.time.Duration
@@ -80,7 +81,10 @@ object CrossJoin {
                 if (installer != null && installer != InstallSources.UNKNOWN_INSTALLER && source != InstallSource.SYSTEM) {
                     facts[CrossKeys.INSTALLED_BY] = installer
                 }
-                val sdks = a.mapNotNull { o -> ApkKeys.trackerId(o.key)?.let { id -> id to ApkKeys.categoriesOf(o.value) } }
+                // Google's Play apps match tracker signatures because they are the service behind them: no SDK facts.
+                val googlePlay = GooglePlay.isGooglePlay(pkg, a)
+                if (googlePlay) facts[CrossKeys.GOOGLE_PLAY] = "true"
+                val sdks = if (googlePlay) emptyList() else a.mapNotNull { o -> ApkKeys.trackerId(o.key)?.let { id -> id to ApkKeys.categoriesOf(o.value) } }
                 if (sdks.isNotEmpty()) {
                     val names = sdks.map { (id, _) -> TrackerCatalog.byId(id)?.name ?: id }.distinct().sorted()
                     val categories = sdks.flatMapTo(HashSet()) { it.second }
@@ -134,7 +138,8 @@ object CrossJoin {
         val outside = InstallSource.of(facts[CrossKeys.INSTALL_SOURCE])?.outsideStore == true
         return CrossKeys.ACCESSIBILITY in facts || CrossKeys.SDK_COUNT in facts || CrossKeys.DNS_TRACKERS in facts ||
             CrossKeys.IDLE_DAYS in facts || CrossKeys.CAMERA_USED in facts || CrossKeys.MIC_USED in facts ||
-            CrossKeys.SIGNER_CHANGED in facts || CrossKeys.GAINED in facts || (outside && CrossKeys.HELD in facts)
+            CrossKeys.SIGNER_CHANGED in facts || CrossKeys.GAINED in facts || (outside && CrossKeys.HELD in facts) ||
+            (CrossKeys.GOOGLE_PLAY in facts && CrossKeys.HELD in facts)
     }
 
     /** Days without use up to [asOf]: from the last use, or from the install when it was never opened. */

@@ -22,11 +22,14 @@ object ApkRules {
     const val MANY_TRACKERS = 3
     private const val LIST_MAX = 6
 
-    /** State rule: the app embeds known SDKs. NOTICE, or WARN when there are many or ads meet location. */
+    /**
+     * State rule: the app embeds known SDKs. NOTICE, or WARN when there are many or ads meet location. Google's own Play
+     * apps ([GooglePlay]) are the service those SDKs talk to, not apps embedding them, so they are left out.
+     */
     val trackerSdk: FindingRule = FindingRule { ctx ->
         ctx.bySubject().mapNotNull { (subject, obs) ->
             val trackers = trackerEntries(obs)
-            if (trackers.isEmpty()) return@mapNotNull null
+            if (trackers.isEmpty() || GooglePlay.isGooglePlay(subject, obs)) return@mapNotNull null
             val categories = trackers.flatMapTo(HashSet()) { it.second }
             val severity = if (
                 trackers.size >= MANY_TRACKERS ||
@@ -84,11 +87,12 @@ object ApkRules {
         if (updated.isEmpty()) return@FindingRule emptyList()
         val newApps = ctx.diff.filter { it is DiffEntry.Added && it.key.key == ApkKeys.LABEL }.map { it.key.subject }.toSet()
         val wasSkipped = ctx.diff.filter { it is DiffEntry.Removed && it.key.key == ApkKeys.SDK_SKIPPED }.map { it.key.subject }.toSet()
+        val googlePlay = ctx.bySubject().filter { (subject, obs) -> GooglePlay.isGooglePlay(subject, obs) }.keys
         ctx.diff.asSequence()
             .filterIsInstance<DiffEntry.Added>()
             .filter {
                 ApkKeys.isTrackerKey(it.key.key) && it.key.subject in updated &&
-                    it.key.subject !in newApps && it.key.subject !in wasSkipped
+                    it.key.subject !in newApps && it.key.subject !in wasSkipped && it.key.subject !in googlePlay
             }
             .groupBy { it.key.subject }
             .map { (subject, added) ->

@@ -6,6 +6,7 @@ import io.github.stronghorse44.tunnels.model.Observation
 import io.github.stronghorse44.tunnels.model.RuleContext
 import io.github.stronghorse44.tunnels.model.Severity
 import io.github.stronghorse44.tunnels.permrules.PermissionGroup
+import io.github.stronghorse44.tunnels.trackers.GooglePlay
 import io.github.stronghorse44.tunnels.trackers.TrackerCategory
 import java.time.LocalDate
 import java.time.format.DateTimeParseException
@@ -22,9 +23,13 @@ object CrossRules {
     const val IDLE_WITH_ACCESS = "IDLE_WITH_ACCESS"
     const val SENSOR_USE_UNOPENED = "SENSOR_USE_UNOPENED"
     const val NEW_SIGNER_NEW_ACCESS = "NEW_SIGNER_NEW_ACCESS"
+    const val GOOGLE_HOLDS_PERSONAL_DATA = "GOOGLE_HOLDS_PERSONAL_DATA"
 
     /** Kinds whose first action is Android's accessibility settings. */
     val ACCESSIBILITY_KINDS: Set<String> = setOf(SIDELOADED_ACCESSIBILITY, ACCESSIBILITY_WITH_TRACKERS)
+
+    /** Kinds about Google's Play apps: revoking is the action, uninstalling would break every app that relies on them. */
+    val NO_UNINSTALL_KINDS: Set<String> = setOf(GOOGLE_HOLDS_PERSONAL_DATA)
 
     /** SDK categories whose business is collecting data about the user, as opposed to crashes or app performance. */
     private val HARVESTING = setOf(TrackerCategory.ADS, TrackerCategory.ATTRIBUTION, TrackerCategory.LOCATION, TrackerCategory.IDENTIFICATION).map { it.label }.toSet()
@@ -55,6 +60,7 @@ object CrossRules {
         val micUsed = byKey[CrossKeys.MIC_USED]
         val signerChanged = byKey[CrossKeys.SIGNER_CHANGED] == "true"
         val gained = byKey[CrossKeys.GAINED]
+        val googlePlay = byKey[CrossKeys.GOOGLE_PLAY] == "true"
 
         /** "Firebase Analytics, AppLovin MAX and 2 more" from the listed names and the true count. */
         fun sdks(): String {
@@ -121,6 +127,27 @@ object CrossRules {
                 ctx, app, TRACKERS_WITH_PERSONAL_DATA, severity,
                 "Holds ${join(personal)} (Permissions) and embeds ${app.sdks()} for ${join(categories)} (APK excavation). " +
                     "Embedded SDKs run with the app's permissions, so they can read what it holds, and its Network toggle is on.$traffic",
+            )
+        }
+    }
+
+    /**
+     * Google Play services, GSF or the Play Store holding location, contacts or messages, with the network on. They get
+     * no tracker finding (they are the service trackers report to), but what they hold reaches Google under your account.
+     */
+    val googleHoldsPersonalData = FindingRule { ctx ->
+        apps(ctx).mapNotNull { app ->
+            if (!app.googlePlay || app.system || !app.networkOn) return@mapNotNull null
+            val personal = app.held.filter { it in PERSONAL }
+            if (personal.isEmpty()) return@mapNotNull null
+            val severity = if (personal.any { it in PERSONAL_WARN }) Severity.WARN else Severity.NOTICE
+            val name = GooglePlay.PACKAGES[app.pkg] ?: app.pkg
+            draft(
+                ctx, app, GOOGLE_HOLDS_PERSONAL_DATA, severity,
+                "$name holds ${join(personal)} (Permissions), is signed by Google (APK excavation) and its Network toggle is on, " +
+                    "so Google can read what those permissions cover under your account. It does not need them to run: without " +
+                    "them, features that use them through it stop (contact sync with your Google account, reading sign-in codes " +
+                    "from texts for some apps). Revoke the ones you do not use those features for.",
             )
         }
     }
@@ -196,7 +223,7 @@ object CrossRules {
 
     val all: List<FindingRule> = listOf(
         newSignerNewAccess, sideloadedAccessibility, sideloadedMessages, sensorUseUnopened,
-        trackersWithPersonalData, accessibilityWithTrackers, idleWithAccess,
+        trackersWithPersonalData, googleHoldsPersonalData, accessibilityWithTrackers, idleWithAccess,
     )
 
     private fun date(iso: String): LocalDate? = try {
