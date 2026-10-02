@@ -19,7 +19,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -67,6 +66,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -344,17 +344,8 @@ private fun FindingDetail(
                     TextButton(onClick = { onStep(1) }) { Text("›", color = GlassColors.text) }
                 }
             }
-            WellView(Modifier.fillMaxWidth(0.6f)) {
-                Box(
-                    Modifier.fillMaxSize(0.62f).clip(RoundedCornerShape(30)).background(color),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        f.subject.substringAfterLast('.').take(1).uppercase().ifBlank { "?" },
-                        fontWeight = FontWeight.Black, fontSize = 20.sp, color = GlassColors.void,
-                    )
-                }
-            }
+            // The oculus floor takes the finding's colour at its edge; nothing is written in it.
+            WellView(Modifier.fillMaxWidth(0.6f), tint = lerp(Color.White, color, 0.6f))
             Spacer(Modifier.height(10.dp))
             Text(
                 "${f.severity.name} · ${kindLabel(f.kind).uppercase()}",

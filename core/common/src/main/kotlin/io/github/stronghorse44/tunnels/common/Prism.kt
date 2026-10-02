@@ -84,6 +84,7 @@ fun DrawScope.drawWell(
     tickTurn: (Int) -> Float = { 0f },
     lit: (Stratum?) -> Color = StratumColors::of,
     ink: Color = GlassColors.void,
+    oculusTint: Color = Color(0xFFEFEAFF),
 ) {
     val s = size.minDimension
     val u = s / 260f
@@ -114,7 +115,7 @@ fun DrawScope.drawWell(
     }
     val oc = Offset(Well.oculus.cx * s, Well.oculus.cy * s)
     val or = Well.oculus.r * s
-    drawCircle(Brush.radialGradient(0.55f to Color.White, 1f to Color(0xFFEFEAFF), center = oc, radius = or), or, oc)
+    drawCircle(Brush.radialGradient(0.55f to Color.White, 1f to oculusTint, center = oc, radius = or), or, oc)
     drawCircle(ink.copy(alpha = 0.7f), or + 1f * u, oc, style = Stroke(1.2f * u))
 }
 
@@ -134,24 +135,25 @@ fun GloryHalo(modifier: Modifier = Modifier, ringFraction: Float = 0.14f, blur: 
 
 /**
  * The well, square, with a glory around the oculus and [oculus] content inside it. [overlay] draws on top of
- * the rings (beads, labels) with the canvas side length in pixels.
+ * the rings and the glory (beads, labels) with the canvas side length in pixels. [tint] colours the oculus
+ * floor's edge.
  */
 @Composable
 fun WellView(
     modifier: Modifier = Modifier,
     tickTurn: (Int) -> Float = { 0f },
+    tint: Color = Color(0xFFEFEAFF),
     overlay: DrawScope.(side: Float) -> Unit = {},
-    oculus: @Composable BoxScope.() -> Unit,
+    oculus: @Composable BoxScope.() -> Unit = {},
 ) {
     BoxWithConstraints(modifier.aspectRatio(1f)) {
         val side = if (maxWidth < maxHeight) maxWidth else maxHeight
-        Canvas(Modifier.size(side)) {
-            drawWell(tickTurn)
-            overlay(size.minDimension)
-        }
+        Canvas(Modifier.size(side)) { drawWell(tickTurn, oculusTint = tint) }
         val o = Well.oculus
-        val halo = side * (o.r * 2f * 1.8f)
-        GloryHalo(Modifier.offset(side * o.cx - halo / 2, side * o.cy - halo / 2).size(halo))
+        // The glory hugs the oculus rim and stays inside the innermost ring, so that ring and its label stay readable.
+        val halo = side * (o.r * 2f * GLORY_SPAN)
+        GloryHalo(Modifier.offset(side * o.cx - halo / 2, side * o.cy - halo / 2).size(halo), ringFraction = 0.10f, blur = 3.dp, alpha = 0.85f)
+        Canvas(Modifier.size(side)) { overlay(size.minDimension) }
         Box(
             Modifier.offset(side * (o.cx - o.r), side * (o.cy - o.r)).size(side * (o.r * 2f)).clip(CircleShape),
             contentAlignment = Alignment.Center,
@@ -159,6 +161,9 @@ fun WellView(
         )
     }
 }
+
+/** The glory's outer diameter as a multiple of the oculus diameter. */
+private const val GLORY_SPAN = 1.32f
 
 /** Where [RingArc] draws its band in a box of [size]: the ring's centre and radius, in pixels. */
 private class ArcGeometry(size: Size, bandFromBottomPx: Float) {

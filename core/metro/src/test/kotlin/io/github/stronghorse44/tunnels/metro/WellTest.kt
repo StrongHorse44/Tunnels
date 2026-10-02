@@ -6,6 +6,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.hypot
 
 class WellTest {
@@ -38,6 +40,34 @@ class WellTest {
         for (i in beads.indices) for (j in i + 1 until beads.size) {
             val d = hypot(beads[i].x - beads[j].x, beads[i].y - beads[j].y)
             assertTrue("${beads[i].tunnel.id} / ${beads[j].tunnel.id}", d > 4 * Well.BEAD_RADIUS)
+        }
+    }
+
+    /** A bead's angle on its ring in degrees, 0 = east, 90 = bottom, in -180..180. */
+    private fun angle(b: Well.Bead) = Math.toDegrees(atan2((b.y - b.ring.cy).toDouble(), (b.x - b.ring.cx).toDouble()))
+
+    @Test
+    fun beadsKeepClearOfTheLabelAtTheBottom() {
+        Well.beads(TunnelCatalog.all).forEach { b ->
+            assertTrue("${b.tunnel.id} sits in its ring's label gap", abs(angle(b) - 90.0) >= Well.LABEL_GAP / 2)
+        }
+    }
+
+    @Test
+    fun beadsSpreadAroundTheirRingAndDoNotLineUpWithTheRingOutside() {
+        val beads = Well.beads(TunnelCatalog.all)
+        val byRing = Well.rings.map { r -> beads.filter { it.ring == r }.map(::angle) }
+        byRing.filter { it.size > 1 }.forEach { a ->
+            // Even slots: neighbours on a ring are the same angle apart, the whole ring minus the gap divided evenly.
+            val gaps = a.sorted().let { s -> s.zipWithNext { x, y -> y - x } + (s.first() + 360 - s.last()) }
+            val step = (360.0 - Well.LABEL_GAP) / a.size
+            assertTrue("$a are crowded", gaps.all { it >= step - 0.01 })
+        }
+        byRing.zipWithNext().forEach { (outer, inner) ->
+            for (o in outer) for (i in inner) {
+                val d = abs(((o - i) % 360 + 540) % 360 - 180)
+                assertTrue("beads at $o° and $i° line up across rings", d >= 6.0)
+            }
         }
     }
 

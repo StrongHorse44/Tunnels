@@ -41,14 +41,16 @@ object Well {
     const val BEAD_RADIUS = 4f / U
 
     /**
-     * Beads fan across each ring's upper arc (degrees, 0 = east, negative = up) so the lower arc stays free for
-     * labels. The inner rings use narrower fans so their beads never line up with the ring outside them.
+     * Beads spread around each whole ring except a gap of [LABEL_GAP] degrees centred at the bottom, where the
+     * ring's label sits. Each bead takes the middle of an equal slot, and each ring is turned by its [TURN]
+     * (degrees, clockwise) so its beads stay clear of those on the neighbouring rings.
      */
-    private val ARCS = mapOf(
-        Stratum.SURFACE to (-160.0 to 140.0),
-        Stratum.TOPSOIL to (-165.0 to 150.0),
-        Stratum.BEDROCK to (-150.0 to 120.0),
-        Stratum.CORE to (-125.0 to 70.0),
+    const val LABEL_GAP = 56.0
+    private val TURN = mapOf(
+        Stratum.SURFACE to 0.0,
+        Stratum.TOPSOIL to 0.0,
+        Stratum.BEDROCK to -25.0,
+        Stratum.CORE to 30.0,
     )
 
     fun ringOf(stratum: Stratum): Ring? = rings.firstOrNull { it.stratum == stratum }
@@ -57,9 +59,11 @@ object Well {
     fun beads(tunnels: List<TunnelInfo>): List<Bead> = rings.flatMap { ring ->
         val on = tunnels.filter { it.stratum == ring.stratum }
         val br = ring.r - BEAD_INSET
-        val (start, span) = ARCS.getValue(ring.stratum!!)
+        val step = (360.0 - LABEL_GAP) / on.size
+        // A lone bead sits at the top; otherwise slots start after the label gap (0 = east, 90 = bottom).
+        val turn = if (on.size == 1) 0.0 else TURN.getValue(ring.stratum!!)
         on.mapIndexed { i, t ->
-            val deg = if (on.size == 1) start + span / 2 else start + i * span / (on.size - 1)
+            val deg = if (on.size == 1) -90.0 else 90.0 + LABEL_GAP / 2 + step * (i + 0.5) + turn
             val a = Math.toRadians(deg)
             Bead(t, ring, ring.cx + br * cos(a).toFloat(), ring.cy + br * sin(a).toFloat())
         }
