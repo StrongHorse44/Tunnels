@@ -98,6 +98,16 @@ class DeviceChecksTest {
     }
 
     @Test
+    fun aSecondPhoneCheckPointsToAuditor() {
+        val missing = DeviceChecks.secondPhone(auditorInstalled = false, appStoreInstalled = true)
+        assertEquals(CheckStatus.TODO, missing.status)
+        assertEquals(CheckAction.OpenApp(DeviceChecks.GRAPHENE_APPS, "Open App Store"), missing.action)
+        assertEquals(null, DeviceChecks.secondPhone(auditorInstalled = false, appStoreInstalled = false).action)
+        val present = DeviceChecks.secondPhone(auditorInstalled = true, appStoreInstalled = true)
+        assertEquals(CheckAction.OpenApp(DeviceChecks.AUDITOR, "Open Auditor"), present.action)
+    }
+
+    @Test
     fun smallerChecks() {
         assertEquals(CheckStatus.PASS, DeviceChecks.storeKey("StrongBox").status)
         assertEquals(CheckStatus.WARN, DeviceChecks.storeKey("software").status)

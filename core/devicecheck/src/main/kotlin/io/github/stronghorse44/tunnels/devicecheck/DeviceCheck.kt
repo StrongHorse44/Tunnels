@@ -29,6 +29,9 @@ sealed interface CheckAction {
     /** A screen of this app reached by its same-package action (the findings inbox, snapshots). */
     data class OpenScreen(val action: String, override val label: String) : CheckAction
 
+    /** Another app's launcher screen. */
+    data class OpenApp(val packageName: String, override val label: String) : CheckAction
+
     /** The special access [accessId] of [tunnelId], opened the way the tunnel's own gate opens it. */
     data class GrantAccess(val tunnelId: String, val accessId: String, override val label: String) : CheckAction
 }

@@ -64,6 +64,7 @@ object DeviceCheckRunner {
                     DeviceChecks.networkToggle(toggles.network, grapheneOs),
                     DeviceChecks.sensorsToggle(toggles.sensors, grapheneOs),
                     DeviceChecks.verifiedBoot(silicon?.first, silicon?.second, now),
+                    DeviceChecks.secondPhone(installed(app, DeviceChecks.AUDITOR), installed(app, DeviceChecks.GRAPHENE_APPS)),
                 ),
             ),
             CheckGroup(
@@ -129,6 +130,11 @@ object DeviceCheckRunner {
         val flags = info.requestedPermissionsFlags ?: return false
         return i < flags.size && flags[i] and PackageInfo.REQUESTED_PERMISSION_GRANTED != 0
     }
+
+    private fun installed(context: Context, packageName: String): Boolean = runCatching {
+        context.packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
+        true
+    }.getOrDefault(false)
 
     private fun permissionDefined(context: Context, permission: String): Boolean =
         runCatching { context.packageManager.getPermissionInfo(permission, 0) }.isSuccess

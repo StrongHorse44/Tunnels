@@ -155,6 +155,8 @@ private suspend fun open(context: Context, action: CheckAction) {
         )
         is CheckAction.OpenTunnel -> start(TunnelActivity.intent(context, action.tunnelId))
         is CheckAction.OpenScreen -> start(Intent(action.action).setPackage(context.packageName))
+        is CheckAction.OpenApp -> context.packageManager.getLaunchIntentForPackage(action.packageName)?.let(::start)
+            ?: Toast.makeText(context, "That app is not installed.", Toast.LENGTH_SHORT).show()
         is CheckAction.GrantAccess -> {
             val access = TunnelsRuntime.get(context).registry[action.tunnelId]?.specialAccess?.firstOrNull { it.id == action.accessId }
             if (access == null || !RestrictedSettings.open(context, access)) {

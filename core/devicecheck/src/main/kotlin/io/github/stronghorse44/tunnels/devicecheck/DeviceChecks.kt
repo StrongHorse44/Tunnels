@@ -240,6 +240,33 @@ object DeviceChecks {
         }
     }
 
+    const val AUDITOR = "app.attestation.auditor"
+    const val GRAPHENE_APPS = "app.grapheneos.apps"
+
+    /**
+     * Whether a check from outside this phone is possible. Silicon reads attestation from the phone itself, which a
+     * compromised OS could fake; Auditor (or Tunnels' own pairing) verifies it from a second phone.
+     */
+    fun secondPhone(auditorInstalled: Boolean, appStoreInstalled: Boolean): CheckResult {
+        val id = "second_phone"
+        val title = "Verified from a second phone"
+        return if (auditorInstalled) {
+            CheckResult(
+                id, title, CheckStatus.NOTE,
+                "Auditor is installed. Pair it with Auditor on a second phone you trust: each audit checks this phone's hardware " +
+                    "attestation from outside it, which nothing on a compromised phone can fake, Tunnels included.",
+                CheckAction.OpenApp(AUDITOR, "Open Auditor"),
+            )
+        } else {
+            CheckResult(
+                id, title, CheckStatus.TODO,
+                "Silicon reads this phone's attestation on this phone, and a compromised OS could fake what an app here sees. " +
+                    "GrapheneOS's Auditor app verifies it from a second phone you trust. Install Auditor from the App Store on both.",
+                if (appStoreInstalled) CheckAction.OpenApp(GRAPHENE_APPS, "Open App Store") else null,
+            )
+        }
+    }
+
     fun appLock(available: Boolean, enabled: Boolean): CheckResult {
         val id = "app_lock"
         val title = "App lock"
