@@ -72,7 +72,8 @@ object DeviceCheckRunner {
                     DeviceChecks.storeKey(TunnelsStore.keySecurityLevel()),
                     DeviceChecks.packageVisibility(toggles.visible),
                     DeviceChecks.backgroundChecks(settings, status, scheduled, notifications, unrestricted, now),
-                    DeviceChecks.appLock(AppLock.canLock(app), AppLock.isEnabled(app)),
+                    // Asking the biometric service needs USE_BIOMETRIC (declared by the app); never let a probe throw.
+                    DeviceChecks.appLock(runCatching { AppLock.canLock(app) }.getOrDefault(false), runCatching { AppLock.isEnabled(app) }.getOrDefault(false)),
                 ),
             ),
             CheckGroup("Traffic sessions", listOf(DeviceChecks.vpn(vpnConnected, vpnOurs), DeviceChecks.privateDns(privateDns(app)))),
