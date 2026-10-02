@@ -9,6 +9,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalContext
 import io.github.stronghorse44.tunnels.common.PrismButton
 import io.github.stronghorse44.tunnels.common.drawBeadDrop
 import io.github.stronghorse44.tunnels.common.rememberReducedMotion
@@ -293,6 +294,8 @@ private fun FindingDetail(
     onStep: (Int) -> Unit,
     onBack: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val appPage = remember(f.subject) { AppPage.isApp(f.subject) && AppPage.available(context) }
     val color = severityColor(f.severity)
     val fmt = remember { DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT) }
     DepthBackground(depth) {
@@ -351,6 +354,11 @@ private fun FindingDetail(
                             border = BorderStroke(1.dp, StatusColors.blocker.copy(alpha = 0.7f)),
                         ) { Text(a.label, color = Color(0xFFFFB3C0)) }
                         else -> PrismButton(a.label, { onAction(a) }, Modifier.fillMaxWidth())
+                    }
+                }
+                if (appPage) {
+                    TextButton(onClick = { AppPage.open(context, f.subject) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Everything about this app ›", color = GlassColors.text)
                     }
                 }
                 if (f.sticky) TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Dismiss", color = GlassColors.dim) }

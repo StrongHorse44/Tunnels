@@ -51,6 +51,7 @@ import io.github.stronghorse44.tunnels.dns.TrafficKeys
 import io.github.stronghorse44.tunnels.dns.Upstream
 import io.github.stronghorse44.tunnels.model.MetroLine
 import io.github.stronghorse44.tunnels.model.Observation
+import io.github.stronghorse44.tunnels.runtime.AppPage
 import io.github.stronghorse44.tunnels.runtime.Choice
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenActions
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenState
@@ -367,6 +368,7 @@ private fun AppList(observations: List<Observation>, policy: BlockPolicy, onChan
     val summary = remember(observations) { observations.filter { it.subject == TrafficKeys.SUMMARY } }
     val sessions = TrafficKeys.intValue(summary, TrafficKeys.SESSIONS_COUNT30) ?: 0
     val labels = remember(rows) { mutableMapOf<String, String>() }
+    val appPage = remember { AppPage.available(context) }
     val pm = context.packageManager
     fun label(subject: String): String = labels.getOrPut(subject) {
         if (!TrafficKeys.isPackageSubject(subject)) TrafficKeys.systemUidLabel(subject) ?: subject
@@ -395,7 +397,14 @@ private fun AppList(observations: List<Observation>, policy: BlockPolicy, onChan
                         }
                         Text("${row.queries}", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = LineColors.of(MetroLine.NETWORK))
                     }
-                    if (label(row.subject) != row.subject) Text(row.subject, style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)
+                    if (label(row.subject) != row.subject) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(row.subject, style = MaterialTheme.typography.labelSmall, color = GlassColors.dim, modifier = Modifier.weight(1f))
+                            if (appPage && AppPage.isApp(row.subject)) {
+                                TextButton(onClick = { AppPage.open(context, row.subject) }) { Text("About ›", style = MaterialTheme.typography.labelSmall) }
+                            }
+                        }
+                    }
                     Text(
                         buildString {
                             append("${row.domains} domains")

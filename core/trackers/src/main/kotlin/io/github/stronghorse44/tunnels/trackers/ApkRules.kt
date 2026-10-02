@@ -15,6 +15,7 @@ object ApkRules {
     const val LOW_TARGET_SDK = "LOW_TARGET_SDK"
     const val ABI_32_ONLY = "ABI_32_ONLY"
     const val NEW_TRACKER = "NEW_TRACKER"
+    const val DEBUGGABLE = "DEBUGGABLE"
 
     /** Apps targeting below this API level predate scoped storage and the modern permission model. */
     const val MIN_TARGET_SDK = 29
@@ -68,6 +69,13 @@ object ApkRules {
         "Targets Android API $target (below $MIN_TARGET_SDK): it runs under older storage and permission rules than current apps."
     }
 
+    /** State WARN: a user-installed app built debuggable, which no store build is. */
+    val debuggable: FindingRule = Rules.perSubject(DEBUGGABLE, Severity.WARN) { _, obs ->
+        if (ApkKeys.isSystem(obs) || ApkKeys.value(obs, ApkKeys.DEBUGGABLE) != "true") return@perSubject null
+        "Built as a debug build: whenever USB or wireless debugging is on, a connected computer can attach a debugger and " +
+            "read everything the app holds. Store builds never are. Install the developer's release build, or uninstall it."
+    }
+
     /** State INFO: native code without a 64-bit build. */
     val abi32Only: FindingRule = Rules.perSubject(ABI_32_ONLY, Severity.INFO) { _, obs ->
         val abis = ApkKeys.value(obs, ApkKeys.NATIVE_ABIS) ?: return@perSubject null
@@ -102,7 +110,7 @@ object ApkRules {
     }
 
     /** Every rule of the tunnel, in display order. Declared last so the rule values above exist first. */
-    val all: List<FindingRule> = listOf(trackerSdk, certChanged, installerChanged, lowTargetSdk, abi32Only, newTracker)
+    val all: List<FindingRule> = listOf(trackerSdk, certChanged, installerChanged, lowTargetSdk, debuggable, abi32Only, newTracker)
 
     private fun trackerEntries(obs: List<Observation>): List<Pair<String, Set<TrackerCategory>>> =
         obs.filter { ApkKeys.isTrackerKey(it.key) }.map(::trackerEntry).sortedBy { TrackerCatalog.nameOf(it.first).lowercase() }

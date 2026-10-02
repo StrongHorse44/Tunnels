@@ -65,3 +65,19 @@ class CrossroadsTunnelTest {
         assertTrue(systemActions.none { it is FindingAction.RequestUninstall })
     }
 }
+
+/** The per-app page is reachable by its action, and only offered for package-like subjects. */
+@RunWith(AndroidJUnit4::class)
+class AppPageTest {
+    @Test
+    fun theAppPageResolvesAndOpensForAnInstalledApp() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        assertTrue(io.github.stronghorse44.tunnels.runtime.AppPage.available(context))
+        assertTrue(io.github.stronghorse44.tunnels.runtime.AppPage.isApp(context.packageName))
+        assertTrue(!io.github.stronghorse44.tunnels.runtime.AppPage.isApp("uid:1000"))
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val activity = instrumentation.startActivitySync(AppActivity.intent(context, context.packageName).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        instrumentation.waitForIdleSync()
+        activity.finish()
+    }
+}

@@ -2,4 +2,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Declare only what permissions.allow lists. Crossroads reads the encrypted store, never the network. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
+    <application>
+        <!-- One app across every tunnel. Reached by its same-package action from findings and app lists. -->
+        <activity
+            android:name=".AppActivity"
+            android:exported="false"
+            android:label="App"
+            android:theme="@style/Theme.Tunnels">
+            <intent-filter>
+                <action android:name="io.github.stronghorse44.tunnels.action.APP" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+    </application>
 </manifest>
