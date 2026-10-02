@@ -31,6 +31,9 @@ object TunnelCatalog {
     const val INSTALLER = "installer"
     const val UNZIP = "unzip"
 
+    /** The derived tunnel that joins the others ([DerivedTunnel]); on the home map it is Central, where the lines meet. */
+    const val CROSSROADS = "crossroads"
+
     val all: List<TunnelInfo> = listOf(
         TunnelInfo(INSTALLER, "Installer", Stratum.TOPSOIL, MetroLine.FILES, "Inspect and install APKs and app bundles", null),
         TunnelInfo(UNZIP, "Unzip", Stratum.TOPSOIL, MetroLine.FILES, "Open zip, 7z, tar, gz, xz and bz2 archives", null),
@@ -39,6 +42,7 @@ object TunnelCatalog {
         TunnelInfo("apk_excavation", "APK excavation", Stratum.TOPSOIL, MetroLine.INSPECT, "Trackers, certs and native libs inside apps", null),
         TunnelInfo("doors", "Doors", Stratum.TOPSOIL, MetroLine.INSPECT, "Exported components and link handlers", null),
         TunnelInfo("hardening", "Hardening audit", Stratum.BEDROCK, MetroLine.INSPECT, "Exploit mitigations in native code", null),
+        TunnelInfo(CROSSROADS, "Crossroads", Stratum.TOPSOIL, MetroLine.INSPECT, "Findings that take two tunnels to see", null),
 
         TunnelInfo("system_packages", "System packages", Stratum.BEDROCK, MetroLine.SYSTEM, "Every system package and what it does", null),
         TunnelInfo("trust_store", "Trust store", Stratum.BEDROCK, MetroLine.SYSTEM, "System and user certificate authorities", null),

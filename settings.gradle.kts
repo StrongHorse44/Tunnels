@@ -38,6 +38,7 @@ include(
     ":core:ble",
     ":core:lan",
     ":core:updates",
+    ":core:crossrules",
     ":tunnels:installer",
     ":tunnels:unzip",
     ":tunnels:permissions",
@@ -56,4 +57,5 @@ include(
     ":tunnels:homenet",
     ":tunnels:deepmode",
     ":tunnels:updater",
+    ":tunnels:crossroads",
 )

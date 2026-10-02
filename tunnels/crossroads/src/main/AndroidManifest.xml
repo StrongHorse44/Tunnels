@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Declare only what permissions.allow lists. Crossroads reads the encrypted store, never the network. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+</manifest>

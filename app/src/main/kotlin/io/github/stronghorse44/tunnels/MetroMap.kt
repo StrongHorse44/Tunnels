@@ -33,6 +33,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -80,6 +82,11 @@ fun MetroMap(
     onStation: (TunnelInfo) -> Unit,
     modifier: Modifier = Modifier,
     onLaidOut: ((MetroScene, MetroScene.Solution) -> Unit)? = null,
+    /** Tapping Central, where the lines meet, opens Crossroads; null keeps Central a plain hub. */
+    onCentral: (() -> Unit)? = null,
+    /** Short text on Central, such as Crossroads' open finding count, in [centralColor]. */
+    centralText: String? = null,
+    centralColor: Color = GlassColors.void,
 ) {
     val stations = MetroLayout.stations.map { (l, s) -> Triple(l, s, TunnelCatalog.byId(s.tunnelId) ?: error("No catalog entry for ${s.tunnelId}")) }
 
@@ -101,6 +108,8 @@ fun MetroMap(
                 }
                 stations.forEach { (_, _, t) -> Box(Modifier.size(44.dp).clip(CircleShape).clickable { onStation(t) }) }
                 MetroLayout.lines.forEach { LineBadge(it.line) }
+                // Last, so every index above stays as it was.
+                if (onCentral != null) CentralTarget(centralText, centralColor, onCentral)
             },
             modifier = Modifier.fillMaxWidth(),
         ) { measurables, constraints ->
@@ -129,12 +138,32 @@ fun MetroMap(
                 solution.badges.forEachIndexed { j, p ->
                     placeables[n * variants + n + j].place(p.box.left.roundToInt(), p.box.top.roundToInt())
                 }
+                if (onCentral != null) {
+                    val target = placeables.last()
+                    val c = scene.px(MetroLayout.central)
+                    target.place((c.x - target.width / 2f).roundToInt(), (c.y - target.height / 2f).roundToInt())
+                }
             }
         }
     }
 }
 
 private fun Pt.toOffset() = Offset(x, y)
+
+/** Central's tap target, the size of the pill drawn under it. */
+@Composable
+private fun CentralTarget(text: String?, color: Color, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(MetroScene.CENTRAL_WIDTH_DP.dp, MetroScene.CENTRAL_HEIGHT_DP.dp)
+            .clip(RoundedCornerShape(50))
+            .clickable(onClickLabel = "Open Crossroads", onClick = onClick)
+            .semantics { contentDescription = if (text == null) "Crossroads" else "Crossroads, $text open findings" },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (text != null) Text(text, color = color, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+    }
+}
 
 @Composable
 private fun StationLabel(t: TunnelInfo, live: Boolean, side: Side, color: Color, status: String?, variant: LabelVariant, onClick: () -> Unit) {

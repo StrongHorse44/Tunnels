@@ -114,4 +114,18 @@ abstract class TunnelsDao {
     /** Drops one stream's rows older than [before]: for a stream that keeps only its latest row and no history. */
     @Query("DELETE FROM events WHERE tunnel_id = :tunnelId AND at < :before")
     abstract suspend fun deleteEventsBefore(tunnelId: String, before: Long)
+
+    // Settings
+
+    @Query("SELECT `value` FROM settings WHERE `key` = :key")
+    abstract suspend fun setting(key: String): String?
+
+    @Query("SELECT `value` FROM settings WHERE `key` = :key")
+    abstract fun settingFlow(key: String): Flow<String?>
+
+    @Upsert
+    abstract suspend fun putSetting(setting: SettingEntity)
+
+    @Query("DELETE FROM settings WHERE `key` = :key")
+    abstract suspend fun deleteSetting(key: String)
 }

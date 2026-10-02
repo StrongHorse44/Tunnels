@@ -112,6 +112,8 @@ fun MetroHome(onOpenTunnel: (String) -> Unit, onOpenUpdates: () -> Unit = {}) {
                     isLive = ::live,
                     onStation = { t -> if (live(t)) onOpenTunnel(t.id) else placeholder = t },
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 20.dp),
+                    onCentral = { onOpenTunnel(TunnelCatalog.CROSSROADS) },
+                    centralText = summaries[TunnelCatalog.CROSSROADS]?.total?.takeIf { it > 0 }?.toString(),
                 )
             }
             Spacer(Modifier.navigationBarsPadding().height(12.dp))

@@ -13,7 +13,8 @@ class MetroLayoutTest {
     fun everyTunnelHasExactlyOneStation() {
         val ids = MetroLayout.stations.map { it.second.tunnelId }
         assertEquals("no station twice", ids.size, ids.toSet().size)
-        assertEquals(TunnelCatalog.all.map { it.id }.toSet(), ids.toSet())
+        // Crossroads joins the other tunnels: on the map it is Central itself, where the lines meet, not a station.
+        assertEquals(TunnelCatalog.all.map { it.id }.toSet() - TunnelCatalog.CROSSROADS, ids.toSet())
         MetroLayout.stations.forEach { (line, s) ->
             assertEquals("${s.tunnelId} sits on its catalog line", TunnelCatalog.byId(s.tunnelId)!!.line, line.line)
         }
