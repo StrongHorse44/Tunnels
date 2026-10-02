@@ -10,6 +10,16 @@
 > **console readout**. Tunnels are stations grouped into metro lines (Files, Inspect, System, Activity,
 > Network, Explore), each line drawn as a colored liquid in its own glass tube; live stations glow,
 > unbuilt ones are hollow on a dashed segment. Explore stays a separate curiosity-only line.
+> **Design update (2026-10-02): Prism well.** The metro map is replaced. Home looks down a spiral stairwell:
+> one ring per stratum (Surface magenta, Topsoil orange, Bedrock amber, Core green), each tunnel a bead on its
+> ring, the open-findings count in a glory at the bottom; Explore is a dashed side shaft. The UI darkens with
+> depth: home is dusk violet, a tunnel is a step darker (deeper strata darker still), a finding is darker again
+> (`core:metro` `Depth`). A tunnel's header is its stratum's ring; a finding opens full screen with its subject
+> in the glory; a running scan shows the glory and ripples on the water, counting the tunnel's items. New launcher
+> icon to match. Home lists the groups as a depth gauge (plain names: Network, Apps, System, Deep checks, Explore;
+> the strata stay internal to the code). Panels are Prism edge glass (deep violet, iridescent rim); Scan and
+> other actions are dark buttons with a spectrum rim. Starting a scan drops the tunnel's bead from the header band
+> into the panel, where the glory blooms and counts the tunnel's items.
 > **Build decisions (2026-10-01, phases 1–6):** all six phases built straight through, each with its own
 > CI (unit + emulator tests); tracker signatures from an own curated list; `main` created from Phase 0 and
 > the single PR targets it; Traffic refuses to start while another VPN is active; Deep mode built fully
@@ -18,6 +28,12 @@
 > **Status (2026-10-01):** phases 0-6 are built and merged; see README for the tunnel list and
 > docs/BUILD_PLAN.md for follow-ups and device checks.
 > RAR is not supported (no good open-source RAR5 decoder; unrar's licence is restrictive).
+> **Hardening build-out (2026-10-02):** a findings inbox across tunnels; opt-in background checks (JobScheduler,
+> offline tunnels only, a snapshot only when something changed, a notification that names tunnels and kinds, never
+> apps); Crossroads, a derived tunnel for findings that need two tunnels (sideloaded accessibility service, data SDKs
+> beside location or contacts, microphone use while unopened, new signer plus new permissions); a device checks
+> screen for the "verify on device" items; and tracker blocking in Traffic sessions (NXDOMAIN answered on the
+> phone, by category, per-app exemptions, off by default). No new permission outside the module allowlists; no INTERNET.
 > **Update (2026-10-01):** in-app updates from this repository's GitHub releases (`tunnels/updater`, INTERNET
 > approved for user-started checks and downloads only); Surroundings judges following by whether a tag was seen
 > on both sides of a move (a move counter and a keyed hash of a ~250 m grid cell, never a position); the

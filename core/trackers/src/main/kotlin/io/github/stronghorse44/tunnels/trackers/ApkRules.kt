@@ -15,6 +15,7 @@ object ApkRules {
     const val LOW_TARGET_SDK = "LOW_TARGET_SDK"
     const val ABI_32_ONLY = "ABI_32_ONLY"
     const val NEW_TRACKER = "NEW_TRACKER"
+    const val DEBUGGABLE = "DEBUGGABLE"
 
     /** Apps targeting below this API level predate scoped storage and the modern permission model. */
     const val MIN_TARGET_SDK = 29
@@ -22,11 +23,14 @@ object ApkRules {
     const val MANY_TRACKERS = 3
     private const val LIST_MAX = 6
 
-    /** State rule: the app embeds known SDKs. NOTICE, or WARN when there are many or ads meet location. */
+    /**
+     * State rule: the app embeds known SDKs. NOTICE, or WARN when there are many or ads meet location. Google's own Play
+     * apps ([GooglePlay]) are the service those SDKs talk to, not apps embedding them, so they are left out.
+     */
     val trackerSdk: FindingRule = FindingRule { ctx ->
         ctx.bySubject().mapNotNull { (subject, obs) ->
             val trackers = trackerEntries(obs)
-            if (trackers.isEmpty()) return@mapNotNull null
+            if (trackers.isEmpty() || GooglePlay.isGooglePlay(subject, obs)) return@mapNotNull null
             val categories = trackers.flatMapTo(HashSet()) { it.second }
             val severity = if (
                 trackers.size >= MANY_TRACKERS ||
@@ -65,6 +69,13 @@ object ApkRules {
         "Targets Android API $target (below $MIN_TARGET_SDK): it runs under older storage and permission rules than current apps."
     }
 
+    /** State WARN: a user-installed app built debuggable, which no store build is. */
+    val debuggable: FindingRule = Rules.perSubject(DEBUGGABLE, Severity.WARN) { _, obs ->
+        if (ApkKeys.isSystem(obs) || ApkKeys.value(obs, ApkKeys.DEBUGGABLE) != "true") return@perSubject null
+        "Built as a debug build: whenever USB or wireless debugging is on, a connected computer can attach a debugger and " +
+            "read everything the app holds. Store builds never are. Install the developer's release build, or uninstall it."
+    }
+
     /** State INFO: native code without a 64-bit build. */
     val abi32Only: FindingRule = Rules.perSubject(ABI_32_ONLY, Severity.INFO) { _, obs ->
         val abis = ApkKeys.value(obs, ApkKeys.NATIVE_ABIS) ?: return@perSubject null
@@ -84,11 +95,12 @@ object ApkRules {
         if (updated.isEmpty()) return@FindingRule emptyList()
         val newApps = ctx.diff.filter { it is DiffEntry.Added && it.key.key == ApkKeys.LABEL }.map { it.key.subject }.toSet()
         val wasSkipped = ctx.diff.filter { it is DiffEntry.Removed && it.key.key == ApkKeys.SDK_SKIPPED }.map { it.key.subject }.toSet()
+        val googlePlay = ctx.bySubject().filter { (subject, obs) -> GooglePlay.isGooglePlay(subject, obs) }.keys
         ctx.diff.asSequence()
             .filterIsInstance<DiffEntry.Added>()
             .filter {
                 ApkKeys.isTrackerKey(it.key.key) && it.key.subject in updated &&
-                    it.key.subject !in newApps && it.key.subject !in wasSkipped
+                    it.key.subject !in newApps && it.key.subject !in wasSkipped && it.key.subject !in googlePlay
             }
             .groupBy { it.key.subject }
             .map { (subject, added) ->
@@ -98,7 +110,7 @@ object ApkRules {
     }
 
     /** Every rule of the tunnel, in display order. Declared last so the rule values above exist first. */
-    val all: List<FindingRule> = listOf(trackerSdk, certChanged, installerChanged, lowTargetSdk, abi32Only, newTracker)
+    val all: List<FindingRule> = listOf(trackerSdk, certChanged, installerChanged, lowTargetSdk, debuggable, abi32Only, newTracker)
 
     private fun trackerEntries(obs: List<Observation>): List<Pair<String, Set<TrackerCategory>>> =
         obs.filter { ApkKeys.isTrackerKey(it.key) }.map(::trackerEntry).sortedBy { TrackerCatalog.nameOf(it.first).lowercase() }

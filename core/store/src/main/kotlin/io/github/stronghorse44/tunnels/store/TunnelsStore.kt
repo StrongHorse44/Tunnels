@@ -30,6 +30,16 @@ class TunnelsStore private constructor(private val db: TunnelsDatabase) {
 
     fun events(tunnelId: String, limit: Int = 50): Flow<List<EventEntity>> = dao.events(tunnelId, limit)
 
+    /** A setting's value, or null when it was never set. Keys are namespaced by module, e.g. `traffic.block`. */
+    suspend fun setting(key: String): String? = dao.setting(key)
+
+    fun settingFlow(key: String): Flow<String?> = dao.settingFlow(key)
+
+    /** Stores [value] under [key]; null removes it. */
+    suspend fun putSetting(key: String, value: String?) {
+        if (value == null) dao.deleteSetting(key) else dao.putSetting(SettingEntity(key, value))
+    }
+
     /** Enforces retention: 30-day events and change findings, newest 12 unpinned snapshots. */
     suspend fun maintain(now: Instant = Instant.now()) {
         lastMaintain = now.toEpochMilli()
@@ -56,7 +66,8 @@ class TunnelsStore private constructor(private val db: TunnelsDatabase) {
             val passphrase = DatabaseKey.passphrase(context) { context.deleteDatabase(DB_NAME) }
             val db = Room.databaseBuilder(context, TunnelsDatabase::class.java, DB_NAME)
                 .openHelperFactory(SupportOpenHelperFactory(passphrase))
-                // Pre-release: schema changes rebuild the store. Snapshots are short-lived by rule #4 anyway.
+                .addMigrations(*TunnelsMigrations.ALL)
+                // Pre-release: a schema change without a migration step rebuilds the store. Snapshots are short-lived by rule #4 anyway.
                 .fallbackToDestructiveMigration(dropAllTables = true)
                 .build()
             return TunnelsStore(db)

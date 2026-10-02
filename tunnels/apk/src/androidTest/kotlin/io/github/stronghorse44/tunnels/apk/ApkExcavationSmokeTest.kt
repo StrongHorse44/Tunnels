@@ -8,6 +8,7 @@ import io.github.stronghorse44.tunnels.model.ScanProgress
 import io.github.stronghorse44.tunnels.model.Severity
 import io.github.stronghorse44.tunnels.trackers.ApkKeys
 import io.github.stronghorse44.tunnels.trackers.ApkRules
+import io.github.stronghorse44.tunnels.trackers.ExportedCounts
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -19,7 +20,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class ApkExcavationSmokeTest {
     private val keyPattern = Regex(
-        "app:label|app:system|version|sdk:[a-z0-9_]+|cert:sha256|cert:count|cert:lineage|installer|targetSdk|minSdk|native:abis|native:libs|size:mb|scan:error",
+        "app:label|app:system|version|sdk:[a-z0-9_]+|cert:sha256|cert:count|cert:lineage|installer|targetSdk|minSdk|native:abis|native:libs|size:mb|scan:error|app:debuggable|net:cleartext|exported:open|exported:providers",
     )
 
     @Test
@@ -50,6 +51,10 @@ class ApkExcavationSmokeTest {
             assertTrue(pkg, ApkKeys.value(list, ApkKeys.SYSTEM) in setOf("true", "false"))
             assertTrue(pkg, ApkKeys.value(list, ApkKeys.TARGET_SDK)!!.toInt() >= 0)
             assertTrue(pkg, ApkKeys.value(list, ApkKeys.SIZE_MB)!!.toInt() >= 0)
+            assertTrue(pkg, ApkKeys.value(list, ApkKeys.CLEARTEXT) in setOf("true", "false"))
+            assertTrue(pkg, ApkKeys.value(list, ApkKeys.DEBUGGABLE) in setOf(null, "true"))
+            ApkKeys.value(list, ApkKeys.EXPORTED_OPEN)?.let { assertTrue("$pkg exported $it", ExportedCounts.parse(it) != null) }
+            if (ApkKeys.value(list, ApkKeys.SYSTEM) == "true") assertTrue("$pkg: system apps skip exported", ApkKeys.EXPORTED_OPEN !in keys)
             val cert = ApkKeys.value(list, ApkKeys.CERT_SHA256)!!
             assertTrue("$pkg cert $cert", cert == "none" || Regex("[0-9A-F]{64}").matches(cert))
         }

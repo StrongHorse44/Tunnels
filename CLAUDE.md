@@ -49,9 +49,13 @@ everything, so uninstall wipes all data and nothing goes to cloud backup.
 - `core:store` Room + SQLCipher, Keystore-wrapped key
 - `core:common` theme, shared composables, private staging area for incoming files
 - `tunnels:installer`, `tunnels:unzip` one module per tunnel group; each declares its own permissions
-- `core:metro` home map geometry and label placement (plain Kotlin, unit-tested)
+- `core:metro` home well geometry, depth palette, and the older metro map layout (plain Kotlin, unit-tested)
 - `core:updates` + `tunnels:updater` in-app updates from GitHub releases (user-started; INTERNET allowed)
-- `app` metro home (console readout + glass metro map); `verifyPermissions` runs before every assemble
+- `core:crossrules` + `tunnels:crossroads` Crossroads, a derived tunnel (joins other tunnels' data; a bead in the well)
+- `core:watchrules` + `tunnels:watch` findings inbox and opt-in background checks (JobScheduler, offline tunnels only)
+- `core:devicecheck` + `tunnels:devicecheck` device checks: confirms on the phone the readings Tunnels relies on
+- `core:pairing` + `tunnels:pairing` Second phone: one phone verifies another's hardware attestation through two QR codes (CAMERA, no network)
+- `app` well home (the strata as rings of a stairwell, Prism well design); `verifyPermissions` runs before every assemble
 
 Keep Android-free logic in the plain Kotlin modules so it can be tested without an emulator.
 Google's Maven is not reachable from the cloud dev container: Android modules only compile in CI.
@@ -88,6 +92,10 @@ Google's Maven is not reachable from the cloud dev container: Android modules on
 - Every module ships unit tests (JVM) and at least one instrumented smoke test under
   `src/androidTest` that runs its `scan()` on the emulator.
 - Observations are summaries (counts, names, hashes, booleans), never raw payloads.
+- Every change that reaches the app ships to Releases. After the final push of a piece of work, start the
+  `ci.yml` workflow on your branch (GitHub tools: run workflow `ci.yml`, ref = your branch; pushes to the
+  integration branch publish on their own). That run publishes a "Debug build #N" prerelease with a plain
+  APK; wait for it to go green and give the user the release link. Never publish from `main`.
 
 ## Workflow
 

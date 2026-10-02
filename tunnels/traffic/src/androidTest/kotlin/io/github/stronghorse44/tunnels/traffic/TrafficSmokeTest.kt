@@ -24,7 +24,7 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class TrafficSmokeTest {
-    private val keyPattern = Regex("dns:(domains30|queries30|top|trackerDomains30|trackerTop|encrypted30)|sessions:count30|session:active|vpn:otherActive")
+    private val keyPattern = Regex("dns:(domains30|queries30|top|trackerDomains30|trackerTop|encrypted30|blocked30)|sessions:count30|session:active|vpn:otherActive")
 
     @Test
     fun scansWithoutASession() = runBlocking {
@@ -87,5 +87,7 @@ class TrafficSmokeTest {
         val resolvers = VpnStatus.resolversOf(cm, VpnStatus.underlyingNetwork(cm))
         assertTrue(resolvers.isNotEmpty())
         assertEquals(listOf(VpnStatus.FALLBACK_RESOLVER), VpnStatus.resolversOf(cm, null))
+        VpnStatus.privateDnsHost(context) // strict mode or not, it must not throw
+        assertFalse("blocking is off until the user turns it on", DnsVpnService.policy.value.enabled)
     }
 }

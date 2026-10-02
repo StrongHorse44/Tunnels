@@ -43,6 +43,9 @@ class SiliconTunnel(private val context: Context) : TunnelModule, TunnelUi {
 
     override val rules: List<FindingRule> = SiliconRules.all
 
+    /** The patch age grows by a day every day: on its own it is no reason for a background check to store a snapshot. */
+    override val volatileKeys: Set<String> = setOf(SiliconKeys.OS_PATCH_AGE_DAYS)
+
     override suspend fun scan(progress: ScanProgress): List<Observation> {
         val obs = ArrayList<Observation>(32)
         fun add(key: String, value: String) = obs.add(Observation(id, SiliconKeys.SUBJECT, key, value))

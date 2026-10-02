@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -17,30 +18,31 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
+import io.github.stronghorse44.tunnels.metro.Depth
+
+/** How far down the current screen sits; [DepthBackground] darkens with it. Home provides [Depth.HOME]. */
+val LocalDepth = compositionLocalOf { Depth.TUNNEL }
+
+@Composable
+fun ProvideDepth(depth: Float, content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalDepth provides depth, content = content)
+}
 
 /**
- * Frosted glass: a faint tinted fill, a bright top edge fading down the rim, and a specular sheen
- * across the upper third. Reads as glass over [GlassBackground]'s colored light.
+ * Prism edge glass: deep violet glass over the water with a thin iridescent rim, as if light caught the
+ * edge of a prism. [tint] washes the fill faintly with the panel's colour.
  */
-fun Modifier.glass(shape: Shape = RoundedCornerShape(22.dp), tint: Color = Color.White): Modifier = this
+fun Modifier.glass(shape: Shape = RoundedCornerShape(18.dp), tint: Color = Color.White): Modifier = this
     .clip(shape)
-    .background(
-        Brush.verticalGradient(
-            listOf(Color.White.copy(alpha = 0.09f), tint.copy(alpha = 0.07f), Color.White.copy(alpha = 0.025f)),
-        ),
-    )
-    .drawBehind {
-        drawRect(
-            Brush.verticalGradient(
-                listOf(Color.White.copy(alpha = 0.09f), Color.Transparent),
-                endY = size.height * 0.4f,
-            ),
-        )
-    }
+    .background(Color(0xFF170D50).copy(alpha = 0.55f))
+    .background(tint.copy(alpha = if (tint == Color.White) 0f else 0.04f))
     .border(
         1.dp,
-        Brush.verticalGradient(
-            listOf(Color.White.copy(alpha = 0.38f), tint.copy(alpha = 0.22f), Color.White.copy(alpha = 0.05f)),
+        Brush.linearGradient(
+            listOf(
+                Color(0xFFFF3FA4).copy(alpha = 0.55f), Color(0xFFFFC83D).copy(alpha = 0.35f),
+                Color(0xFF4FD8FF).copy(alpha = 0.40f), Color(0xFFCBB8FF).copy(alpha = 0.55f),
+            ),
         ),
         shape,
     )
@@ -49,19 +51,30 @@ fun Modifier.glass(shape: Shape = RoundedCornerShape(22.dp), tint: Color = Color
 fun GlassPanel(
     modifier: Modifier = Modifier,
     tint: Color = Color.White,
-    shape: Shape = RoundedCornerShape(22.dp),
+    shape: Shape = RoundedCornerShape(18.dp),
     content: @Composable BoxScope.() -> Unit,
 ) {
     Box(modifier.glass(shape, tint), content = content)
 }
 
-/** Deep background with soft pools of colored light for the glass to sit over. */
+/** The water at [LocalDepth]. Kept for screens that predate depth; new screens call [DepthBackground]. */
 @Composable
 fun GlassBackground(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+    DepthBackground(LocalDepth.current, modifier, content)
+}
+
+/**
+ * The water at [depth]: violet light from the surface pooled at the top, sinking to black at the bottom, with
+ * a faint glow of the corridor's spectrum underneath. Every step down the app is darker than the one above.
+ */
+@Composable
+fun DepthBackground(depth: Float, modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+    val water = Depth.water(depth)
+    val light = Depth.surfaceLight(depth)
     Box(
         modifier
             .fillMaxSize()
-            .background(GlassColors.void)
+            .background(Brush.verticalGradient(listOf(Color(water.top), Color(water.mid), Color(water.bottom))))
             .drawBehind {
                 fun glow(color: Color, x: Float, y: Float, r: Float, a: Float) = drawCircle(
                     Brush.radialGradient(
@@ -72,12 +85,12 @@ fun GlassBackground(modifier: Modifier = Modifier, content: @Composable BoxScope
                     radius = size.width * r,
                     center = Offset(size.width * x, size.height * y),
                 )
-                glow(Color(0xFF2BC4D6), 0.1f, 0.08f, 0.85f, 0.22f)
-                glow(Color(0xFF8B5CF6), 0.95f, 0.42f, 0.8f, 0.18f)
-                glow(Color(0xFFF59E0B), 0.15f, 0.88f, 0.75f, 0.10f)
+                glow(Color(0xFFB9A8FF), 0.5f, -0.05f, 1.1f, 0.35f * light)
+                glow(Color(0xFFFF3FA4), 0.05f, 0.55f, 0.7f, 0.10f)
+                glow(Color(0xFFFF7A2E), 0.95f, 0.85f, 0.7f, 0.07f)
             },
     ) {
-        // Glass screens have no Surface, so give text a light default instead of black.
-        CompositionLocalProvider(LocalContentColor provides GlassColors.text) { content() }
+        // These screens have no Surface, so give text a light default instead of black.
+        CompositionLocalProvider(LocalContentColor provides GlassColors.text, LocalDepth provides depth) { content() }
     }
 }

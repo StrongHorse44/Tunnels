@@ -29,6 +29,15 @@ object ApkKeys {
     const val NATIVE_ABIS = "native:abis"
     const val NATIVE_LIBS = "native:libs"
     const val SIZE_MB = "size:mb"
+    /** "true" when the app is built debuggable; absent otherwise. */
+    const val DEBUGGABLE = "app:debuggable"
+    /** "true" when the manifest lets the app use unencrypted HTTP (usesCleartextTraffic), "false" otherwise. */
+    const val CLEARTEXT = "net:cleartext"
+    /** Exported components no permission guards, [ExportedCounts.encode]d. User apps only. */
+    const val EXPORTED_OPEN = "exported:open"
+    /** Up to [OPEN_PROVIDERS_MAX] authorities of exported providers no permission guards, comma-separated. */
+    const val OPEN_PROVIDERS = "exported:providers"
+    const val OPEN_PROVIDERS_MAX = 3
 
     const val UNKNOWN_INSTALLER = "unknown"
     const val NO_ABIS = "none"
@@ -52,6 +61,8 @@ object ApkKeys {
 
     fun value(obs: List<Observation>, key: String): String? = obs.firstOrNull { it.key == key }?.value
 
+    fun list(value: String?): List<String> = value.orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }
+
     /** "AB:CD:EF:01…" for a hex fingerprint. */
     fun shortFingerprint(hex: String): String {
         val clean = hex.trim()
@@ -64,5 +75,29 @@ object ApkKeys {
         if (abis.isBlank() || abis == NO_ABIS) return false
         val list = abis.split(',').map { it.trim() }.filter { it.isNotEmpty() }
         return list.isNotEmpty() && list.none { it in ABIS_64 }
+    }
+}
+
+/**
+ * Components another app can start or query without holding any permission. A launcher activity is always among the
+ * activities; providers are the ones that matter, since an unguarded provider can hand its data to any app.
+ */
+data class ExportedCounts(val activities: Int, val services: Int, val receivers: Int, val providers: Int) {
+    fun encode(): String = "activities=$activities,services=$services,receivers=$receivers,providers=$providers"
+
+    companion object {
+        fun parse(value: String?): ExportedCounts? {
+            if (value.isNullOrBlank()) return null
+            val f = value.split(',').mapNotNull { part ->
+                val eq = part.indexOf('=')
+                if (eq <= 0) null else part.substring(0, eq).trim() to part.substring(eq + 1).trim().toIntOrNull()
+            }.toMap()
+            return ExportedCounts(
+                f["activities"] ?: return null,
+                f["services"] ?: return null,
+                f["receivers"] ?: return null,
+                f["providers"] ?: return null,
+            )
+        }
     }
 }

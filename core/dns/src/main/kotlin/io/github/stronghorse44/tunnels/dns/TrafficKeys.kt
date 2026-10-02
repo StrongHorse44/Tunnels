@@ -31,6 +31,8 @@ object TrafficKeys {
     const val TRACKER_TOP = "dns:trackerTop"
     /** Encrypted DNS (port 853) attempts seen in the last 30 days; present only when non-zero. */
     const val ENCRYPTED30 = "dns:encrypted30"
+    /** Tracker lookups a session blocked in the last 30 days; present only when non-zero. */
+    const val BLOCKED30 = "dns:blocked30"
 
     const val SESSIONS_COUNT30 = "sessions:count30"
     const val SESSION_ACTIVE = "session:active"

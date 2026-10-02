@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Declare only what permissions.allow lists. -->
+    <!-- Asked for when background checks are switched on: a new finding raises a notification. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- A persisted JobScheduler job needs it to survive a restart. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <application>
+        <!-- The scheduled check. Only the system's job scheduler can bind it; it runs offline tunnels only. -->
+        <service
+            android:name=".WatchJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <!-- Findings from every tunnel. Not exported: home and the check's notification reach it within this app. -->
+        <activity
+            android:name=".InboxActivity"
+            android:exported="false"
+            android:label="Findings"
+            android:theme="@style/Theme.Tunnels">
+            <intent-filter>
+                <action android:name="io.github.stronghorse44.tunnels.action.INBOX" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

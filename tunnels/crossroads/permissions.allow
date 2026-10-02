@@ -1,0 +1,3 @@
+# Permissions the crossroads module may declare, one per line. CI fails on anything else.
+# Look up any installed app's system flag, so a finding offers Uninstall only where Android allows it (install-time, no dialog).
+android.permission.QUERY_ALL_PACKAGES
