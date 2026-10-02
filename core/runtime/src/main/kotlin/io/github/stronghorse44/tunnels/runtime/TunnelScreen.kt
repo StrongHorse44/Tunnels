@@ -15,7 +15,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import io.github.stronghorse44.tunnels.common.DepthBackground
-import io.github.stronghorse44.tunnels.common.HorizonScan
+import io.github.stronghorse44.tunnels.common.GloryScan
 import io.github.stronghorse44.tunnels.common.SpectrumButton
 import io.github.stronghorse44.tunnels.common.StratumColors
 import io.github.stronghorse44.tunnels.common.WellView
@@ -151,7 +151,14 @@ fun TunnelScreen(vm: TunnelViewModel, tunnelId: String, onBack: () -> Unit) {
 @Composable
 private fun ScanPanel(state: TunnelScreenState, title: String, stratum: Stratum?, line: MetroLine, onScan: () -> Unit) {
     if (state.scan.running) {
-        HorizonScan("Looking over ${title.lowercase()}", state.scan.done, state.scan.total, state.scan.label)
+        val sc = state.scan
+        // Counts are the tunnel's own items (apps, libraries), not tunnels; once all are read the scan is still saving.
+        val now = when {
+            sc.itemsTotal > 0 && sc.itemsDone >= sc.itemsTotal -> "saving"
+            sc.item.isNotBlank() -> sc.item
+            else -> "starting"
+        }
+        GloryScan(sc.itemsDone, sc.itemsTotal, "${title.lowercase()} · $now")
         return
     }
     val fmt = remember { DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT) }

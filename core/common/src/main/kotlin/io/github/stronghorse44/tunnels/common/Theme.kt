@@ -37,10 +37,13 @@ object StratumColors {
         null -> rim
     }
 
-    /** "L2 TOPSOIL"; Explore has no level. */
+    /** What the user sees for a stratum: a plain name for what its tunnels look at, not the geology. */
     fun label(s: Stratum): String = when (s) {
-        Stratum.EXPLORE -> "EXPLORE"
-        else -> "L${s.ordinal + 1} ${s.name}"
+        Stratum.SURFACE -> "Network"
+        Stratum.TOPSOIL -> "Apps"
+        Stratum.BEDROCK -> "System"
+        Stratum.CORE -> "Deep checks"
+        Stratum.EXPLORE -> "Explore"
     }
 }
 

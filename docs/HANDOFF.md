@@ -15,7 +15,9 @@
 > ring, the open-findings count in a glory at the bottom; Explore is a dashed side shaft. The UI darkens with
 > depth: home is dusk violet, a tunnel is a step darker (deeper strata darker still), a finding is darker again
 > (`core:metro` `Depth`). A tunnel's header is its stratum's ring; a finding opens full screen with its subject
-> in the glory; a running scan shows the glory over the sea with ripples. New launcher icon to match.
+> in the glory; a running scan shows the glory and ripples on the water, counting the tunnel's items. New launcher
+> icon to match. Home lists the groups as a depth gauge (plain names: Network, Apps, System, Deep checks, Explore;
+> the strata stay internal to the code).
 > **Build decisions (2026-10-01, phases 1–6):** all six phases built straight through, each with its own
 > CI (unit + emulator tests); tracker signatures from an own curated list; `main` created from Phase 0 and
 > the single PR targets it; Traffic refuses to start while another VPN is active; Deep mode built fully

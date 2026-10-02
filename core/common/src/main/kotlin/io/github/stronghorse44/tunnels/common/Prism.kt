@@ -33,7 +33,6 @@ import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
@@ -43,7 +42,6 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -186,79 +184,48 @@ fun RingArc(stratum: Stratum?, tunnelId: String?, color: Color, modifier: Modifi
 }
 
 /**
- * The scan in progress, seen from altitude: sky into sea, a glory pulsing in the middle with ripples spreading
- * out from it and clouds drifting past. [done] of [total] sits in the glory; [label] is what is being read now.
+ * The scan in progress: the glory floating on the water with ripples spreading out from it, [done] of
+ * [total] items inside it, and [caption] (tunnel and current item) under it. No frame, so it sits in the
+ * screen like the rest of the well. [total] 0 means the tunnel has not reported a count yet.
  */
 @Composable
-fun HorizonScan(title: String, done: Int, total: Int, label: String, modifier: Modifier = Modifier) {
+fun GloryScan(done: Int, total: Int, caption: String, modifier: Modifier = Modifier) {
     val still = rememberReducedMotion()
-    val t = rememberInfiniteTransition(label = "horizon")
+    val t = rememberInfiniteTransition(label = "glory")
     val ripple by t.animateFloat(0f, 1f, infiniteRepeatable(tween(4_500, easing = LinearEasing)), label = "ripple")
-    val breathe by t.animateFloat(0.65f, 1f, infiniteRepeatable(tween(2_000), RepeatMode.Reverse), label = "breathe")
-    val drift by t.animateFloat(0f, 1f, infiniteRepeatable(tween(18_000), RepeatMode.Reverse), label = "drift")
-    val rip = if (still) 0.3f else ripple
+    val breathe by t.animateFloat(0.6f, 1f, infiniteRepeatable(tween(1_800), RepeatMode.Reverse), label = "breathe")
+    val rip = if (still) 0.35f else ripple
     val glow = if (still) 1f else breathe
-    val dx = if (still) 0f else drift
 
-    Box(
-        modifier
-            .fillMaxWidth()
-            .height(360.dp)
-            .clip(RoundedCornerShape(28.dp))
-            .background(
-                Brush.verticalGradient(
-                    listOf(Color(0xFFE7EFF8), Color(0xFFCFE0EE), Color(0xFF9CC2D6), Color(0xFF4C7F9A), Color(0xFF28566E)),
-                ),
-            ),
-        contentAlignment = Alignment.TopCenter,
-    ) {
-        Canvas(Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-            // Clouds and their shadows on the water.
-            listOf(
-                floatArrayOf(0.06f, 0.10f, 0.20f, 0.03f), floatArrayOf(0.66f, 0.18f, 0.26f, 0.035f),
-                floatArrayOf(0.12f, 0.62f, 0.22f, 0.03f), floatArrayOf(0.70f, 0.70f, 0.18f, 0.025f),
-                floatArrayOf(0.38f, 0.88f, 0.26f, 0.03f),
-            ).forEachIndexed { i, c ->
-                val x = (c[0] + if (i % 2 == 0) dx * 0.07f else -dx * 0.05f) * w
-                if (c[1] > 0.5f) drawOval(Color(0xFF16324A).copy(alpha = 0.16f), Offset(x + 0.05f * w, c[1] * h + 0.03f * h), Size(c[2] * w * 0.8f, c[3] * h))
-                drawOval(Color.White.copy(alpha = 0.85f), Offset(x, c[1] * h), Size(c[2] * w, c[3] * h))
+    Column(modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.size(200.dp), contentAlignment = Alignment.Center) {
+            Canvas(Modifier.fillMaxSize()) {
+                val r0 = size.minDimension * 0.30f
+                for (k in 0 until 2) {
+                    val p = (rip + k / 2f) % 1f
+                    drawCircle(
+                        Color.White.copy(alpha = (1f - p) * 0.6f), r0 * (0.75f + 0.75f * p),
+                        style = Stroke(1.2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(2.dp.toPx(), 4.dp.toPx()))),
+                    )
+                }
             }
-            val center = Offset(w / 2f, h * 0.42f)
-            val r0 = minOf(w, h) * 0.17f
-            for (k in 0 until 3) {
-                val p = (rip + k / 3f) % 1f
-                drawCircle(
-                    Color.White.copy(alpha = (1f - p) * 0.85f), r0 * (0.6f + 2.0f * p), center,
-                    style = Stroke(1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(2.dp.toPx(), 4.dp.toPx()))),
-                )
-            }
-        }
-        Box(Modifier.padding(top = 360.dp * 0.42f - 95.dp).size(190.dp), contentAlignment = Alignment.Center) {
-            GloryHalo(Modifier.fillMaxSize(), ringFraction = 0.17f, blur = 8.dp, alpha = glow)
+            GloryHalo(Modifier.size(150.dp), ringFraction = 0.16f, blur = 4.dp, alpha = glow)
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(if (total > 0) "$done" else "…", fontFamily = FontFamily.Serif, fontSize = 44.sp, color = Color(0xFF16324A))
+                Text(if (total > 0) "$done" else "…", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Light, fontSize = 36.sp, color = GlassColors.text)
                 Text(
                     if (total > 0) "OF $total" else "STARTING",
-                    fontSize = 10.sp, letterSpacing = 1.6.sp, color = Color(0xFF16324A).copy(alpha = 0.75f),
+                    fontFamily = FontFamily.Monospace, fontSize = 9.sp, letterSpacing = 1.4.sp, color = GlassColors.dim,
                 )
             }
         }
-        Column(
-            Modifier.align(Alignment.BottomCenter).padding(horizontal = 28.dp, vertical = 22.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(title, fontFamily = FontFamily.Serif, fontSize = 24.sp, color = Color.White, textAlign = TextAlign.Center)
-            Text(
-                label.ifBlank { " " }, fontFamily = FontFamily.Monospace, fontSize = 11.sp,
-                color = Color.White.copy(alpha = 0.8f), maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(12.dp))
-            Box(Modifier.fillMaxWidth().height(3.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.22f))) {
-                val frac = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else 0f
-                Box(Modifier.fillMaxWidth(frac).height(3.dp).background(Brush.horizontalGradient(Glory.colors)))
-            }
+        Text(
+            caption, fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = GlassColors.dim,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 24.dp),
+        )
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.fillMaxWidth(0.6f).height(2.dp).background(Color.White.copy(alpha = 0.18f))) {
+            val frac = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else 0f
+            Box(Modifier.fillMaxWidth(frac).height(2.dp).background(Brush.horizontalGradient(Glory.colors)))
         }
     }
 }

@@ -11,15 +11,10 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,7 +26,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -44,9 +38,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -62,7 +58,6 @@ import androidx.compose.ui.unit.sp
 import io.github.stronghorse44.tunnels.common.DepthBackground
 import io.github.stronghorse44.tunnels.common.GlassColors
 import io.github.stronghorse44.tunnels.common.GlassPanel
-import io.github.stronghorse44.tunnels.common.StatusColors
 import io.github.stronghorse44.tunnels.common.StratumColors
 import io.github.stronghorse44.tunnels.common.WellView
 import io.github.stronghorse44.tunnels.common.rememberReducedMotion
@@ -133,16 +128,15 @@ fun WellHome(onOpenTunnel: (String) -> Unit, onOpenUpdates: () -> Unit = {}) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("TUNNELS", fontSize = 18.sp, fontWeight = FontWeight.Black, letterSpacing = 5.sp, color = GlassColors.text)
                 Spacer(Modifier.weight(1f))
-                Pill(if (netOn) "NET ON" else "NET OFF", if (netOn) StatusColors.info else StatusColors.ok)
-                Spacer(Modifier.width(6.dp))
-                Pill(keyLevel.uppercase(), null)
+                Text(
+                    (if (netOn) "net on" else "net off") + " · " + keyLevel.lowercase(),
+                    fontFamily = Mono, fontSize = 10.sp, letterSpacing = 0.6.sp, color = GlassColors.dim,
+                )
             }
             Spacer(Modifier.height(10.dp))
             HomeWell(summaries, ::live, ::enter, openFindings)
             Spacer(Modifier.height(6.dp))
-            (Well.STRATA + Stratum.EXPLORE).forEach { s ->
-                StratumRow(s, TunnelCatalog.all.filter { it.stratum == s }, ::count, ::live, ::enter)
-            }
+            DepthGauge(::count, ::live, ::enter)
             Spacer(Modifier.height(12.dp))
             Console(version, netOn, keyLevel, lastInstall, lastUnzip, onOpenUpdates)
             Spacer(Modifier.navigationBarsPadding().height(12.dp))
@@ -189,7 +183,7 @@ private fun HomeWell(summaries: Map<String, TunnelSummary>, live: (TunnelInfo) -
             Well.rings.forEach { ring ->
                 val s = ring.stratum ?: return@forEach
                 val layout = measurer.measure(
-                    StratumColors.label(s),
+                    StratumColors.label(s).uppercase(),
                     TextStyle(fontFamily = Mono, fontSize = (6.5f * u).toSp(), letterSpacing = (1.1f * u).toSp(), fontWeight = FontWeight.Medium, color = ink),
                 )
                 drawText(layout, topLeft = Offset(ring.cx * side - layout.size.width / 2f, (ring.cy + ring.r) * side - 9.5f * u - layout.size.height))
@@ -219,81 +213,83 @@ private fun HomeWell(summaries: Map<String, TunnelSummary>, live: (TunnelInfo) -
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * The groups as a depth gauge: one line down the left, each group's stretch in its own colour shading into the
+ * next, a stop at each group's name, and its stations hanging off the line as plain rows with their counts.
+ */
 @Composable
-private fun StratumRow(
+private fun DepthGauge(count: (TunnelInfo) -> Int, live: (TunnelInfo) -> Boolean, open: (TunnelInfo) -> Unit) {
+    val groups = Well.STRATA + Stratum.EXPLORE
+    Column(Modifier.fillMaxWidth()) {
+        groups.forEachIndexed { i, s ->
+            val next = groups.getOrNull(i + 1)?.let(StratumColors::of) ?: StratumColors.of(s)
+            GaugeGroup(s, next, TunnelCatalog.all.filter { it.stratum == s }, count, live, open, last = i == groups.lastIndex)
+        }
+    }
+}
+
+private val GaugeX = 9.dp
+private val Gutter = 28.dp
+
+@Composable
+private fun GaugeGroup(
     s: Stratum,
+    next: Color,
     tunnels: List<TunnelInfo>,
     count: (TunnelInfo) -> Int,
     live: (TunnelInfo) -> Boolean,
     open: (TunnelInfo) -> Unit,
+    last: Boolean,
 ) {
     val color = StratumColors.of(s)
-    val total = tunnels.sumOf(count)
     val side = s == Stratum.EXPLORE
-    Column(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.12f)))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Canvas(Modifier.size(14.dp)) {
-                val w = 3.dp.toPx()
-                drawCircle(
-                    color, size.minDimension / 2f - w / 2f,
-                    style = Stroke(w, pathEffect = if (side) PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 2.dp.toPx())) else null),
-                )
-            }
-            Spacer(Modifier.width(10.dp))
-            Text(StratumColors.label(s), fontWeight = FontWeight.Black, fontSize = 11.sp, letterSpacing = 1.4.sp, color = color)
-            if (side) Text("  · curiosity only", fontSize = 11.sp, color = GlassColors.dim)
-            Spacer(Modifier.weight(1f))
-            if (total > 0) {
-                Text(
-                    "$total", fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = GlassColors.void,
-                    modifier = Modifier.clip(CircleShape).background(Color.White).padding(horizontal = 8.dp, vertical = 1.dp),
-                )
-            } else {
-                Text("—", fontFamily = Mono, fontSize = 11.sp, color = GlassColors.dim)
-            }
-        }
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            tunnels.forEach { t -> Station(t, count(t), live(t), color, side) { open(t) } }
-        }
-    }
-}
-
-@Composable
-private fun Station(t: TunnelInfo, findings: Int, live: Boolean, color: Color, side: Boolean, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .clip(CircleShape)
-            .background(if (side || !live) Color.Transparent else color.copy(alpha = 0.22f))
-            .border(1.dp, color.copy(alpha = if (live) 0.6f else 0.3f), CircleShape)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 11.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    val total = tunnels.sumOf(count)
+    Column(
+        Modifier.fillMaxWidth().drawBehind {
+            val x = GaugeX.toPx()
+            val top = 12.dp.toPx()
+            val bottom = if (last) size.height - 10.dp.toPx() else size.height + top
+            drawLine(
+                Brush.verticalGradient(listOf(color, next), startY = top, endY = bottom), Offset(x, top), Offset(x, bottom),
+                strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round,
+                pathEffect = if (side) PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())) else null,
+            )
+        },
     ) {
-        Text(t.title, fontSize = 12.sp, color = if (live) GlassColors.text else GlassColors.dim, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        if (findings > 0) {
-            Spacer(Modifier.width(6.dp))
+        Row(Modifier.padding(top = 10.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Canvas(Modifier.width(Gutter).height(16.dp)) {
+                val c = Offset(GaugeX.toPx(), size.height / 2f)
+                drawCircle(color, 5.dp.toPx(), c)
+                drawCircle(Color.White.copy(alpha = 0.85f), 5.dp.toPx(), c, style = Stroke(1.5.dp.toPx()))
+            }
+            Text(StratumColors.label(s).uppercase(), fontWeight = FontWeight.Black, fontSize = 11.sp, letterSpacing = 1.8.sp, color = color)
             Text(
-                "$findings", fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = GlassColors.void,
-                modifier = Modifier.clip(CircleShape).background(color).padding(horizontal = 6.dp),
+                if (side) "  curiosity only" else if (total > 0) "  $total open" else "  clear",
+                fontSize = 11.sp, color = GlassColors.dim,
             )
         }
-    }
-}
-
-@Composable
-private fun Pill(text: String, dot: Color?) {
-    Row(
-        Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.12f)).border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-            .padding(horizontal = 8.dp, vertical = 3.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (dot != null) {
-            Box(Modifier.size(6.dp).clip(CircleShape).background(dot))
-            Spacer(Modifier.width(5.dp))
+        tunnels.forEach { t ->
+            val n = count(t)
+            val on = live(t)
+            Row(
+                Modifier.fillMaxWidth().clickable { open(t) }.padding(vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Canvas(Modifier.width(Gutter).height(12.dp)) {
+                    val y = size.height / 2f
+                    drawLine(Color.White.copy(alpha = 0.35f), Offset(GaugeX.toPx() + 4.dp.toPx(), y), Offset(size.width - 6.dp.toPx(), y), 1.dp.toPx())
+                }
+                Text(
+                    t.title, fontSize = 14.sp, color = if (on) GlassColors.text else GlassColors.dim,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                )
+                Text(
+                    if (n > 0) "$n" else "—", fontFamily = Mono, fontSize = 13.sp,
+                    color = if (n > 0) GlassColors.text else GlassColors.dim.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(start = 12.dp),
+                )
+            }
         }
-        Text(text, fontFamily = Mono, fontSize = 9.sp, letterSpacing = 0.8.sp, color = GlassColors.text)
     }
 }
 

@@ -56,7 +56,7 @@ fun TunnelScaffold(
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = GlassColors.text)
                             }
                             Text(
-                                listOfNotNull(s?.let(StratumColors::label), "${line.label.uppercase()} LINE").joinToString(" · "),
+                                (s?.let(StratumColors::label) ?: line.label).uppercase(),
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 10.sp,
                                 letterSpacing = 1.4.sp,
