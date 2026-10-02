@@ -1,8 +1,12 @@
 package io.github.stronghorse44.tunnels.unzip
 
 import android.app.Application
+import android.content.ContentValues
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.provider.MediaStore
+import android.webkit.MimeTypeMap
+import androidx.core.content.FileProvider
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
@@ -49,12 +53,15 @@ sealed interface UnzipState {
     data class Extracting(val name: String, val bytesDone: Long, val bytesTotal: Long, val current: String) : UnzipState
     /** [location] is a readable path like "Download/pusher"; [folderUri] opens it in Files. */
     data class Done(val name: String, val location: String, val folderUri: Uri, val result: ExtractResult) : UnzipState
-    data class Failed(val title: String, val detail: String) : UnzipState
+    /** [keepable]: the file itself is still at hand, so it can be saved or shared whole. */
+    data class Failed(val title: String, val detail: String, val keepable: Boolean = false) : UnzipState
 }
 
 /** One-shot request to open another screen, consumed by the UI. */
 sealed interface UnzipNav {
     data class Install(val file: File) : UnzipNav
+    data class Share(val uri: Uri, val mimeType: String, val name: String) : UnzipNav
+    data class Message(val text: String) : UnzipNav
 }
 
 /**
@@ -245,6 +252,52 @@ class UnzipViewModel(private val app: Application, private val saved: SavedState
         }
     }
 
+    /** Copies the file as it arrived, unextracted, into Download/. MediaStore needs no permission for this. */
+    fun saveToDownloads() {
+        val file = staged ?: return
+        if (_state.value is UnzipState.Working) return
+        val previous = _state.value
+        job?.cancel()
+        job = viewModelScope.launch {
+            _state.value = UnzipState.Working("Saving ${file.displayName} to Downloads…")
+            val saved = runCatching { withContext(Dispatchers.IO) { copyToDownloads(file) } }
+            _state.value = previous
+            _nav.value = UnzipNav.Message(
+                saved.fold({ "Saved to Download/$it" }, { "Couldn't save to Downloads: ${it.message ?: it.javaClass.simpleName}" }),
+            )
+        }
+    }
+
+    private fun copyToDownloads(file: StagedFile): String {
+        val resolver = app.contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, file.displayName)
+            put(MediaStore.Downloads.MIME_TYPE, mimeType(file.displayName))
+            put(MediaStore.Downloads.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: throw java.io.IOException("Downloads refused the file")
+        try {
+            val out = resolver.openOutputStream(uri) ?: throw java.io.IOException("Can't write to Downloads")
+            out.use { o -> file.file.inputStream().use { it.copyTo(o, 64 * 1024) } }
+            resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
+        } catch (e: Exception) {
+            resolver.delete(uri, null, null)
+            throw e
+        }
+        // MediaStore renames on a clash ("map (1).pmtiles"); report the name it actually used.
+        return resolver.query(uri, arrayOf(MediaStore.Downloads.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        } ?: file.displayName
+    }
+
+    /** Hands the file as it arrived, unextracted, to another app through the share sheet. */
+    fun share() {
+        val file = staged ?: return
+        val uri = FileProvider.getUriForFile(app, "${app.packageName}.unzip.files", file.file, file.displayName)
+        _nav.value = UnzipNav.Share(uri, mimeType(file.displayName), file.displayName)
+    }
+
     /** Sends the whole archive to the installer as an app bundle. */
     fun installBundle() {
         staged?.let { _nav.value = UnzipNav.Install(it.file) }
@@ -267,9 +320,9 @@ class UnzipViewModel(private val app: Application, private val saved: SavedState
         _state.value = when (error) {
             ArchiveError.PasswordRequired -> UnzipState.NeedsPassword(name, wrong = false)
             ArchiveError.WrongPassword -> UnzipState.NeedsPassword(name, wrong = true).also { password = null }
-            is ArchiveError.Unsupported -> UnzipState.Failed("Can't open ${error.what}", "Supported: zip (incl. password), 7z, tar, tar.gz, tar.xz, tar.bz2, gz, xz, bz2, pmtiles.")
-            is ArchiveError.Corrupt -> UnzipState.Failed("Archive looks damaged", error.detail)
-            is ArchiveError.LimitExceeded -> UnzipState.Failed("Stopped for safety", error.detail)
+            is ArchiveError.Unsupported -> UnzipState.Failed("Can't open ${error.what}", "Supported: zip (incl. password), 7z, tar, tar.gz, tar.xz, tar.bz2, gz, xz, bz2, pmtiles.", staged != null)
+            is ArchiveError.Corrupt -> UnzipState.Failed("Archive looks damaged", error.detail, staged != null)
+            is ArchiveError.LimitExceeded -> UnzipState.Failed("Stopped for safety", error.detail, staged != null)
             ArchiveError.Cancelled -> UnzipState.Failed("Cancelled", "Files extracted so far were kept.")
         }
     }
@@ -296,6 +349,12 @@ class UnzipViewModel(private val app: Application, private val saved: SavedState
         }
 
         private val suffixes = listOf(".tar.gz", ".tar.xz", ".tar.bz2", ".tgz", ".txz", ".tbz2", ".zip", ".7z", ".tar", ".gz", ".xz", ".bz2", ".pmtiles", ".apks", ".xapk", ".apkm")
+
+        fun mimeType(name: String): String {
+            val ext = name.substringAfterLast('.', "").lowercase()
+            if (ext == "pmtiles") return "application/vnd.pmtiles"
+            return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "application/octet-stream"
+        }
 
         fun baseName(name: String): String {
             val lower = name.lowercase()

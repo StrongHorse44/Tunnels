@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Unzip tunnel. No permissions: files arrive by intent grant, output goes to a folder you pick. -->
+    <!-- Unzip tunnel. No permissions: files arrive by intent grant, output goes to a folder you pick or to
+         Download/ through MediaStore, which needs no permission. -->
     <application>
         <activity
             android:name=".UnzipActivity"
@@ -39,5 +40,15 @@
                 <data android:mimeType="application/octet-stream" />
             </intent-filter>
         </activity>
+        <!-- Shares the incoming file unextracted. Not exported: other apps only get the one URI we grant. -->
+        <provider
+            android:name=".UnzipFileProvider"
+            android:authorities="${applicationId}.unzip.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/unzip_file_paths" />
+        </provider>
     </application>
 </manifest>

@@ -1,10 +1,11 @@
 name: CI
 
-# Full build of the integration branch and main: everything compiles, every unit test passes,
-# permissions are allowed, the app launches on an emulator, and a numbered debug build is published.
+# Full build of dev (the integration branch) and main: everything compiles, every unit test passes,
+# permissions are allowed, the app launches on an emulator. Debug builds are published from dev only,
+# so every numbered build carries all merged work. Session branches reach dev through a pull request.
 on:
   push:
-    branches: ["ccr-dff99af5-ij1rle", "main"]
+    branches: ["dev", "main"]
   pull_request:
   workflow_dispatch:
 
@@ -20,6 +21,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # A manual run on a session branch that lacks work already on dev would test an old app.
+      - name: Branch contains dev
+        if: github.event_name == 'workflow_dispatch' && github.ref_name != 'dev'
+        run: |
+          git fetch --no-tags --unshallow origin "+refs/heads/dev:refs/remotes/origin/dev"
+          if ! git merge-base --is-ancestor origin/dev HEAD; then
+            echo "::error::$GITHUB_REF_NAME is missing work that is already on dev. Run 'git merge origin/dev', push, and start again."
+            exit 1
+          fi
 
       - uses: actions/setup-java@v4
         with:
@@ -44,10 +55,10 @@ jobs:
           retention-days: 14
 
       # One prerelease per build, newest first, with a plain .apk you can tap on the phone
-      # (Actions artifacts always arrive zipped). Keeps the newest 10. A manual run publishes too,
-      # so any branch can be put on the phone by starting this workflow on it.
+      # (Actions artifacts always arrive zipped). Keeps the newest 10. Only dev publishes, so a build
+      # can never be missing work another session already merged.
       - name: Publish debug build
-        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name != 'main'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name == 'dev'
         env:
           GH_TOKEN: ${{ github.token }}
           N: ${{ github.run_number }}

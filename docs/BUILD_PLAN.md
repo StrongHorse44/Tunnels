@@ -1,14 +1,15 @@
 # Build plan: phases 1–6
 
 Lead: the main session. Builders: one agent per module, each on a phase branch, CI as the compile
-oracle. Integration branch: `ccr-dff99af5-ij1rle`. Final PR: integration → `main`.
+oracle. Integration branch: `dev` (replaced `ccr-dff99af5-ij1rle` on 2026-10-02). Final PR: `dev` → `main`.
 
 ## Branch model
 
 | Branch | Purpose | CI |
 | --- | --- | --- |
 | `phase/<n>-<module>` | one agent's work on one module | `compile-check` (build + unit tests + permission checks, ~4 min) and that phase's `ci-phase-<n>` |
-| integration | merged phases | full `ci` incl. emulator smoke, publishes numbered debug builds |
+| `dev` | integration: every session's finished work, merged by auto-merging PRs | full `ci` incl. emulator smoke; the only branch that publishes numbered debug builds |
+| session branches | one Claude session's work; start from `dev`, end in a PR into `dev` | `ci` on the PR; manual runs build but never publish |
 | `main` | Phase 0 now; receives the single PR | full `ci` |
 
 ## Modules
@@ -81,15 +82,16 @@ tests; Maven Central rate-limits (HTTP 429) are transient, retry.
 ## CI
 
 - `compile-check.yml`: `phase/**` pushes. Fast.
-- `ci-phase-<n>.yml`: that phase's branches, integration and main, path-filtered to its modules; unit
-  tests always, emulator (`connectedDebugAndroidTest`) on integration/main and on a phase branch only
+- `ci-phase-<n>.yml`: that phase's branches, `dev` and main, path-filtered to its modules; unit
+  tests always, emulator (`connectedDebugAndroidTest`) on dev/main and on a phase branch only
   when the commit message contains `[emulator]` (tag your final commit so the smoke test runs once).
   The repo is private, so Actions minutes are limited: do not tag every push. The phase workflows are
   path-filtered, so the `[emulator]` commit must change a file under your module (an empty commit
   does not trigger a run).
-- `ci.yml`: integration, `main`, PRs, and manual runs (`workflow_dispatch`) on any branch. Full build,
-  all unit tests, permission checks, app emulator smoke test, and a numbered debug release on integration
-  pushes and on every manual run outside `main`.
+- `ci.yml`: `dev`, `main`, PRs, and manual runs (`workflow_dispatch`) on any branch. Full build,
+  all unit tests, permission checks, app emulator smoke test. Publishes a numbered debug release only
+  from `dev`. A manual run on any other branch first checks that the branch contains `dev` and fails
+  if it does not, so nobody tests an app that is missing merged work.
 
 ## Status (2026-10-01)
 
