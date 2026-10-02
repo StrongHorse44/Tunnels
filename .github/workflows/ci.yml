@@ -44,9 +44,10 @@ jobs:
           retention-days: 14
 
       # One prerelease per build, newest first, with a plain .apk you can tap on the phone
-      # (Actions artifacts always arrive zipped). Keeps the newest 10.
+      # (Actions artifacts always arrive zipped). Keeps the newest 10. A manual run publishes too,
+      # so any branch can be put on the phone by starting this workflow on it.
       - name: Publish debug build
-        if: github.event_name == 'push' && github.ref_name != 'main'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name != 'main'
         env:
           GH_TOKEN: ${{ github.token }}
           N: ${{ github.run_number }}
