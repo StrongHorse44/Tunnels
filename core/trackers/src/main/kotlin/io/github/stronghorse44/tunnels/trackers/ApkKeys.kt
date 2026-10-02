@@ -21,6 +21,11 @@ object ApkKeys {
     const val CERT_COUNT = "cert:count"
     /** Number of earlier certificates in the signing lineage (0 when the key never rotated). */
     const val CERT_LINEAGE = "cert:lineage"
+    /**
+     * Uppercase hex SHA-256 of each earlier certificate in the signing lineage, comma-separated, oldest first.
+     * Present only when the key rotated. Android verified each hand-over when it installed the update.
+     */
+    const val CERT_HISTORY = "cert:history"
     /** Installing package name or "unknown". */
     const val INSTALLER = "installer"
     const val TARGET_SDK = "targetSdk"

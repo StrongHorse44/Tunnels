@@ -20,7 +20,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class ApkExcavationSmokeTest {
     private val keyPattern = Regex(
-        "app:label|app:system|version|sdk:[a-z0-9_]+|cert:sha256|cert:count|cert:lineage|installer|targetSdk|minSdk|native:abis|native:libs|size:mb|scan:error|app:debuggable|net:cleartext|exported:open|exported:providers",
+        "app:label|app:system|version|sdk:[a-z0-9_]+|cert:sha256|cert:count|cert:lineage|cert:history|installer|targetSdk|minSdk|native:abis|native:libs|size:mb|scan:error|app:debuggable|net:cleartext|exported:open|exported:providers",
     )
 
     @Test
