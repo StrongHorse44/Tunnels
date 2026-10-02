@@ -1,7 +1,15 @@
 package io.github.stronghorse44.tunnels.dns
 
 /** Live totals of a running session, for the notification and the panel. Cumulative since start. */
-data class SessionTotals(val queries: Int = 0, val apps: Int = 0, val domains: Int = 0, val encrypted: Int = 0, val trackers: Int = 0)
+data class SessionTotals(
+    val queries: Int = 0,
+    val apps: Int = 0,
+    val domains: Int = 0,
+    val encrypted: Int = 0,
+    val trackers: Int = 0,
+    /** Lookups the session answered itself because [BlockPolicy] blocks them. */
+    val blocked: Int = 0,
+)
 
 /**
  * Counts DNS queries per app during one session and turns them into [SessionRecord] rows at each flush.
@@ -20,6 +28,7 @@ class SessionCounter(
         var overflowDomains = 0
         var queries = 0
         var encrypted = 0
+        var blocked = 0
         val perTracker = HashMap<String, Int>()
     }
 
@@ -29,10 +38,11 @@ class SessionCounter(
     private val allTrackers = HashSet<String>()
     private var totalQueries = 0
     private var totalEncrypted = 0
+    private var totalBlocked = 0
     private var overflowDomainsTotal = 0
 
     val totals: SessionTotals
-        @Synchronized get() = SessionTotals(totalQueries, allApps.size, allDomains.size + overflowDomainsTotal, totalEncrypted, allTrackers.size)
+        @Synchronized get() = SessionTotals(totalQueries, allApps.size, allDomains.size + overflowDomainsTotal, totalEncrypted, allTrackers.size, totalBlocked)
 
     /** A query by [subject] for [host] (the DNS question name). */
     @Synchronized
@@ -52,6 +62,13 @@ class SessionCounter(
             app.perTracker[t.domain] = (app.perTracker[t.domain] ?: 0) + 1
             allTrackers += t.domain
         }
+    }
+
+    /** A lookup by [subject] that the session answered itself (already counted by [query]). */
+    @Synchronized
+    fun blocked(subject: String) {
+        counts(subject).blocked++
+        totalBlocked++
     }
 
     /** An attempt at encrypted DNS (port 853) by [subject]; nothing about it can be read. */
@@ -86,6 +103,7 @@ class SessionCounter(
                 top = topOf(app.perDomain, SessionRecord.TOP_MAX),
                 trackers = app.perTracker.size,
                 trackerTop = topOf(app.perTracker, SessionRecord.TRACKER_TOP_MAX),
+                blocked = app.blocked,
             )
             rows += subject to record.encode()
         }

@@ -33,5 +33,9 @@ class SessionFormatTest {
             "231 queries · 7 apps · 14 domains · 2 trackers · 1 encrypted attempt",
             SessionFormat.counters(SessionTotals(queries = 231, apps = 7, domains = 14, encrypted = 1, trackers = 2)),
         )
+        assertEquals(
+            "300 queries · 9 apps · 20 domains · 4 trackers · 40 blocked",
+            SessionFormat.counters(SessionTotals(queries = 300, apps = 9, domains = 20, trackers = 4, blocked = 40)),
+        )
     }
 }

@@ -14,6 +14,7 @@ import android.net.Network
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import io.github.stronghorse44.tunnels.dns.BlockPolicy
 import io.github.stronghorse44.tunnels.dns.SessionCounter
 import io.github.stronghorse44.tunnels.dns.SessionTotals
 import io.github.stronghorse44.tunnels.dns.TrafficKeys
@@ -52,7 +53,8 @@ data class SessionState(
 /**
  * A DNS-only VPN session. The tunnel gets one address and a route for a single fake resolver address,
  * so only DNS queries enter it and every other packet flows as usual. Each query is counted against
- * the owning app and forwarded to the real resolver. Foreground service (specialUse, subtype
+ * the owning app and forwarded to the real resolver, unless [policy] blocks it: then it is answered
+ * "no such domain" from here and nothing leaves the phone. Foreground service (specialUse, subtype
  * dns-logging), started and stopped by the user, auto-stops after [MAX_DURATION_MS]. Never restarted
  * by the system: an unexpected start without [ACTION_START] just stops.
  *
@@ -104,6 +106,9 @@ class DnsVpnService : VpnService() {
         // The foreground notification must be up quickly after startForegroundService().
         startForeground(NOTIFICATION_ID, notification(SessionTotals()), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         scope.launch {
+            // The user's blocking choices, read before the tunnel opens so the first lookup already follows them.
+            withContext(Dispatchers.IO) { runCatching { TunnelsStore.get(this@DnsVpnService).setting(BlockPolicy.KEY) }.getOrNull() }
+                ?.let { _policy.value = BlockPolicy.decode(it) }
             // Sockets and binder calls stay off the main thread.
             val failure = withContext(Dispatchers.IO) { openTunnel() }
             starting = false
@@ -196,6 +201,8 @@ class DnsVpnService : VpnService() {
                 Log.w(TAG, "forwarder failure: $why")
                 scope.launch { stopSession(FORWARDER_FAILED_MESSAGE) }
             },
+            // Read per lookup, so a change in the panel applies to the running session at once.
+            blocks = { subject, host -> _policy.value.blocks(subject, host) != null },
         )
         try {
             fwd.start()
@@ -372,6 +379,15 @@ class DnsVpnService : VpnService() {
 
         private val _state = MutableStateFlow(SessionState())
         val state: StateFlow<SessionState> = _state.asStateFlow()
+
+        private val _policy = MutableStateFlow(BlockPolicy())
+        /** What sessions block. The panel loads it from the encrypted store and saves changes there too. */
+        val policy: StateFlow<BlockPolicy> = _policy.asStateFlow()
+
+        /** Applies [policy] to the running session (if any) and to the next ones. The caller stores it. */
+        fun setPolicy(policy: BlockPolicy) {
+            _policy.value = policy
+        }
         /** True until the session's last rows are stored, so a scan started on the flip sees them all. */
         val isRunning: Boolean get() = _state.value.running
 

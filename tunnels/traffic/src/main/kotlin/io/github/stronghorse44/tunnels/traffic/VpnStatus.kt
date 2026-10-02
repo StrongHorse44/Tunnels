@@ -104,6 +104,16 @@ object VpnStatus {
         return servers.ifEmpty { listOf(FALLBACK_RESOLVER) }
     }
 
+    /**
+     * The host Private DNS is set to on the underlying network, or null when it is off or automatic. When set, apps'
+     * lookups go there encrypted and never reach a session, so nothing is counted or blocked.
+     */
+    fun privateDnsHost(context: Context): String? = runCatching {
+        val cm = context.getSystemService(ConnectivityManager::class.java) ?: return null
+        val network = underlyingNetwork(cm) ?: return null
+        cm.getLinkProperties(network)?.privateDnsServerName
+    }.getOrNull()
+
     @Suppress("DEPRECATION")
     private fun networks(cm: ConnectivityManager): List<Network> = cm.allNetworks.toList()
 }

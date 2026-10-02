@@ -10,6 +10,8 @@ data class AppDnsStats(
     val top: List<Pair<String, Int>>,
     val trackerDomains: Int,
     val trackerTop: List<Pair<String, Int>>,
+    /** Lookups sessions blocked. */
+    val blocked: Int = 0,
 )
 
 data class DnsAggregate(val perApp: Map<String, AppDnsStats>, val sessions: Int) {
@@ -46,11 +48,13 @@ object DnsAggregator {
         val trackerTop = HashMap<String, Int>()
         var queries = 0
         var encrypted = 0
+        var blocked = 0
         var maxDomains = 0
         var maxTrackers = 0
         for (r in records) {
             queries += r.queries
             encrypted += r.encrypted
+            blocked += r.blocked
             maxDomains = maxOf(maxDomains, r.domains)
             maxTrackers = maxOf(maxTrackers, r.trackers)
             r.top.forEach { (d, n) -> top[d] = (top[d] ?: 0) + n }
@@ -63,6 +67,7 @@ object DnsAggregator {
             top = SessionCounter.topOf(top, TrafficKeys.TOP_MAX),
             trackerDomains = maxOf(maxTrackers, trackerTop.size),
             trackerTop = SessionCounter.topOf(trackerTop, TrafficKeys.TOP_MAX),
+            blocked = blocked,
         )
     }
 
@@ -76,6 +81,7 @@ object DnsAggregator {
             out += Observation(t, subject, TrafficKeys.TRACKER_DOMAINS30, s.trackerDomains.toString())
             if (s.trackerTop.isNotEmpty()) out += Observation(t, subject, TrafficKeys.TRACKER_TOP, s.trackerTop.joinToString(",") { it.first })
             if (s.encrypted > 0) out += Observation(t, subject, TrafficKeys.ENCRYPTED30, s.encrypted.toString())
+            if (s.blocked > 0) out += Observation(t, subject, TrafficKeys.BLOCKED30, s.blocked.toString())
         }
         out += Observation(t, TrafficKeys.SUMMARY, TrafficKeys.SESSIONS_COUNT30, aggregate.sessions.toString())
         out += Observation(t, TrafficKeys.SUMMARY, TrafficKeys.SESSION_ACTIVE, sessionActive.toString())

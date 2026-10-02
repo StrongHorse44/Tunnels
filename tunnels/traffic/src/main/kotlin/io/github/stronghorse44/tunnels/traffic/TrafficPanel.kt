@@ -4,6 +4,8 @@ import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,13 +16,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,23 +39,104 @@ import io.github.stronghorse44.tunnels.common.GlassColors
 import io.github.stronghorse44.tunnels.common.GlassPanel
 import io.github.stronghorse44.tunnels.common.LineColors
 import io.github.stronghorse44.tunnels.common.StatusColors
+import io.github.stronghorse44.tunnels.dns.BlockPolicy
+import io.github.stronghorse44.tunnels.dns.TrackerKind
 import io.github.stronghorse44.tunnels.dns.TrafficKeys
 import io.github.stronghorse44.tunnels.model.MetroLine
 import io.github.stronghorse44.tunnels.model.Observation
+import io.github.stronghorse44.tunnels.runtime.Choice
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenActions
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenState
+import io.github.stronghorse44.tunnels.store.TunnelsStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val LIST_MAX = 60
 
-/** Session card (START/STOP, live counters, plain-language refusals) and the per-app list of the last scan. */
+/** Session card (START/STOP, live counters, plain-language refusals), blocking, and the per-app list of the last scan. */
 @Composable
 fun TrafficPanel(state: TunnelScreenState, actions: TunnelScreenActions) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val session by DnsVpnService.state.collectAsStateWithLifecycle()
+    val policy by DnsVpnService.policy.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) {
+        // The stored choice, read once; a running session loaded the same value when it started.
+        withContext(Dispatchers.IO) { runCatching { TunnelsStore.get(context).setting(BlockPolicy.KEY) }.getOrNull() }
+            ?.let { DnsVpnService.setPolicy(BlockPolicy.decode(it)) }
+    }
+    fun save(p: BlockPolicy) {
+        DnsVpnService.setPolicy(p)
+        scope.launch(Dispatchers.IO) { runCatching { TunnelsStore.get(context).putSetting(BlockPolicy.KEY, p.encode()) } }
+    }
     SessionCard(session, actions)
     Spacer(Modifier.height(10.dp))
-    AppList(state.observations)
+    BlockingCard(session, policy, ::save)
+    Spacer(Modifier.height(10.dp))
+    AppList(state.observations, policy) { subject ->
+        save(policy.copy(exempt = if (subject in policy.exempt) policy.exempt - subject else policy.exempt + subject))
+    }
 }
+
+/** Whether sessions block tracker lookups, which kinds, which apps are let through, and what can stop it working. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BlockingCard(session: SessionState, policy: BlockPolicy, onChange: (BlockPolicy) -> Unit) {
+    val context = LocalContext.current
+    val line = LineColors.of(MetroLine.NETWORK)
+    val privateDns = remember(session.running) { VpnStatus.privateDnsHost(context) }
+    GlassPanel(Modifier.fillMaxWidth(), tint = line) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Block tracker lookups", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        if (!policy.enabled) "Off"
+                        else "On during sessions: " + TrackerKind.entries.filter { it in policy.kinds }.joinToString(", ") { it.label },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (policy.enabled) StatusColors.ok else GlassColors.dim,
+                    )
+                }
+                Switch(checked = policy.enabled, onCheckedChange = { onChange(policy.copy(enabled = it)) })
+            }
+            Text(
+                "During a session, a lookup of a known tracking domain gets a \"no such domain\" answer from Tunnels instead of " +
+                    "going out, so the app's ads, analytics or crash reports fail while the app itself keeps working. Only " +
+                    "during sessions you start; outside one, nothing is blocked.",
+                style = MaterialTheme.typography.bodySmall,
+                color = GlassColors.dim,
+            )
+            if (policy.enabled) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TrackerKind.entries.forEach { kind ->
+                        val on = kind in policy.kinds
+                        Choice(kind.label, on, line, { onChange(policy.copy(kinds = if (on) policy.kinds - kind else policy.kinds + kind)) })
+                    }
+                }
+                BlockPolicy.CAVEATS.filterKeys { it in policy.kinds }.forEach { (kind, caveat) ->
+                    Text("Blocking ${kind.label} $caveat.", style = MaterialTheme.typography.bodySmall, color = StatusColors.warn)
+                }
+                if (policy.exempt.isNotEmpty()) {
+                    Text("Let through: " + policy.exempt.sorted().joinToString(", ") { appLabel(context, it) }, style = MaterialTheme.typography.bodySmall, color = GlassColors.dim)
+                }
+            }
+            privateDns?.let { host ->
+                Text(
+                    "Private DNS is set to $host: lookups go there encrypted and skip the session, so nothing is counted or " +
+                        "blocked. Set Private DNS to Automatic in Network settings before a session.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = StatusColors.warn,
+                )
+            }
+        }
+    }
+}
+
+private fun appLabel(context: android.content.Context, subject: String): String =
+    if (!TrafficKeys.isPackageSubject(subject)) TrafficKeys.systemUidLabel(subject) ?: subject
+    else runCatching { context.packageManager.getApplicationInfo(subject, 0).loadLabel(context.packageManager).toString() }.getOrNull()?.takeIf { it.isNotBlank() } ?: subject
 
 @Composable
 private fun SessionCard(session: SessionState, actions: TunnelScreenActions) {
@@ -135,10 +221,10 @@ private fun SessionCard(session: SessionState, actions: TunnelScreenActions) {
     }
 }
 
-private class AppRow(val subject: String, val domains: Int, val queries: Int, val trackers: Int, val top: List<String>, val trackerTop: List<String>, val encrypted: Int)
+private class AppRow(val subject: String, val domains: Int, val queries: Int, val trackers: Int, val top: List<String>, val trackerTop: List<String>, val encrypted: Int, val blocked: Int)
 
 @Composable
-private fun AppList(observations: List<Observation>) {
+private fun AppList(observations: List<Observation>, policy: BlockPolicy, onToggleExempt: (String) -> Unit) {
     val context = LocalContext.current
     val rows = remember(observations) {
         observations.groupBy { it.subject }
@@ -152,6 +238,7 @@ private fun AppList(observations: List<Observation>) {
                     top = TrafficKeys.list(TrafficKeys.value(obs, TrafficKeys.TOP)),
                     trackerTop = TrafficKeys.list(TrafficKeys.value(obs, TrafficKeys.TRACKER_TOP)),
                     encrypted = TrafficKeys.intValue(obs, TrafficKeys.ENCRYPTED30) ?: 0,
+                    blocked = TrafficKeys.intValue(obs, TrafficKeys.BLOCKED30) ?: 0,
                 )
             }
             .sortedWith(compareByDescending<AppRow> { it.trackers }.thenByDescending { it.queries })
@@ -197,7 +284,17 @@ private fun AppList(observations: List<Observation>) {
                         style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
                     )
                     if (row.trackerTop.isNotEmpty()) {
-                        Text("Trackers: ${row.trackerTop.joinToString(", ")}", style = MaterialTheme.typography.bodySmall, color = StatusColors.warn)
+                        Text(
+                            "Trackers: ${row.trackerTop.joinToString(", ")}" + if (row.blocked > 0) " · ${row.blocked} lookups blocked" else "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = StatusColors.warn,
+                        )
+                    }
+                    if (policy.enabled && row.trackers > 0) {
+                        val exempt = row.subject in policy.exempt
+                        TextButton(onClick = { onToggleExempt(row.subject) }) {
+                            Text(if (exempt) "Block its trackers again" else "Let its trackers through (if it breaks)")
+                        }
                     }
                 }
             }

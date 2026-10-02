@@ -22,8 +22,8 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * The packet loop of a session. Reads IP packets from the TUN, keeps the UDP port-53 ones, counts each
- * query against the app that owns the socket, forwards it through one protected upstream socket and
- * writes the answer back with fresh IP/UDP headers. Everything else is dropped (TCP 853 is counted as
+ * query against the app that owns the socket, answers it here when the session blocks it, otherwise
+ * forwards it through one protected upstream socket and writes the answer back with fresh IP/UDP headers. Everything else is dropped (TCP 853 is counted as
  * encrypted DNS first). Two plain threads; nothing here touches the UI or the store.
  *
  * While the TUN is established the phone's DNS depends on these threads, so neither may die quietly: a
@@ -41,6 +41,8 @@ class DnsForwarder(
     private val subjectOf: (uid: Int) -> String,
     /** Called once, from a forwarder thread, when a loop ends while the session should still be running. */
     private val onFailure: (String) -> Unit = {},
+    /** Whether a lookup of host by subject is blocked ([io.github.stronghorse44.tunnels.dns.BlockPolicy]): it then gets NXDOMAIN from here. */
+    private val blocks: (subject: String, host: String) -> Boolean = { _, _ -> false },
 ) {
     private class Pending(val src: InetAddress, val dst: InetAddress, val srcPort: Int, val question: String?, val at: Long)
 
@@ -64,6 +66,8 @@ class DnsForwarder(
 
     val dropped = AtomicInteger(0)
     val answered = AtomicInteger(0)
+    /** Lookups answered here with NXDOMAIN instead of being forwarded. */
+    val blockedCount = AtomicInteger(0)
 
     private val reader = Thread(::readLoop, "tunnels-dns-tun")
     private val responder = Thread(::responseLoop, "tunnels-dns-upstream")
@@ -175,7 +179,9 @@ class DnsForwarder(
             -1
         }
         val subject = subjectOf(uid)
-        message.queryName?.let { counter.query(subject, it) }
+        val name = message.queryName
+        name?.let { counter.query(subject, it) }
+        if (name != null && blocks(subject, name) && answerBlocked(p, subject)) return
 
         val key = pendingKey(message.id, message.queryName)
         synchronized(pending) {
@@ -195,6 +201,24 @@ class DnsForwarder(
             synchronized(pending) { pending.remove(key) }
             dropped.incrementAndGet()
             Log.w(TAG, "upstream send failed: ${e.javaClass.simpleName}")
+        }
+    }
+
+    /**
+     * Writes a "no such domain" answer to [p] straight back into the tunnel. Nothing leaves the phone for a blocked
+     * lookup. False when no answer could be built or written; the lookup is then forwarded as usual.
+     */
+    private fun answerBlocked(p: IpPacket.Udp, subject: String): Boolean {
+        val reply = DnsMessage.nxdomain(p.payload) ?: return false
+        return try {
+            val packet = IpPackets.buildUdp(p.dst, p.src, DnsMessage.PORT, p.srcPort, reply)
+            synchronized(output) { output.write(packet) }
+            counter.blocked(subject)
+            blockedCount.incrementAndGet()
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "blocked answer not written: ${e.javaClass.simpleName}")
+            false
         }
     }
 

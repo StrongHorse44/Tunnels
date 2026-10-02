@@ -164,6 +164,33 @@ data class DnsMessage(
             return out.toString() to (if (next >= 0) next else p)
         }
 
+        /** RCODE of a name that does not exist. */
+        const val RCODE_NXDOMAIN = 3
+
+        /**
+         * A "no such domain" answer to [length] bytes of [query] from [offset]: same id and first question, the response
+         * and recursion-available bits set, recursion-desired copied, no records. Null for anything that is not a
+         * standard query with a question. Used for lookups a session blocks; nothing else is synthesised.
+         */
+        fun nxdomain(query: ByteArray, offset: Int = 0, length: Int = query.size - offset): ByteArray? {
+            val message = parseOrNull(query, offset, length) ?: return null
+            if (message.isResponse || message.opcode != 0 || message.questions.isEmpty()) return null
+            val end = offset + length
+            val questionEnd = try {
+                readName(query, offset + HEADER_LENGTH, offset, end).second + 4
+            } catch (_: DnsFormatException) {
+                return null
+            }
+            if (questionEnd > end) return null
+            val out = query.copyOfRange(offset, questionEnd)
+            val recursionDesired = out[2].toInt() and 0x01
+            out[2] = (0x80 or recursionDesired).toByte() // QR=1, opcode 0, AA 0, TC 0, RD as asked
+            out[3] = (0x80 or RCODE_NXDOMAIN).toByte() // RA=1, Z 0, RCODE 3
+            out[4] = 0; out[5] = 1 // one question
+            for (i in 6 until HEADER_LENGTH) out[i] = 0 // no answer, authority or additional records
+            return out
+        }
+
         /** Builds a standard recursive query for [name]: used by tests and by nothing on the wire. */
         fun query(id: Int, name: String, type: Int = TYPE_A): ByteArray {
             val labels = name.trimEnd('.').split('.').filter { it.isNotEmpty() }
