@@ -1,7 +1,9 @@
 # Releasing Tunnels
 
-Every push builds a **debug** APK (`io.github.stronghorse44.tunnels.debug`). It is labelled "Tunnels" like the
-release build; the version name ends in `-debug` and the package name tells them apart.
+Every push to the integration branch, and every manual run of the **CI** workflow on any other branch
+(Actions → CI → Run workflow, pick the branch), builds a **debug** APK (`io.github.stronghorse44.tunnels.debug`)
+and publishes it to Releases. Work on another branch reaches the phone the same way: start CI on it. It is
+labelled "Tunnels" like the release build; the version name ends in `-debug` and the package name tells them apart.
 Each one is published as its own prerelease, **Debug build #N**, with a plain `tunnels-debug-N.apk`
 you can tap on the phone. The newest is at the top of the Releases page and the last 10 are kept.
 Debug builds install alongside release builds, use the build number as their version code, and are

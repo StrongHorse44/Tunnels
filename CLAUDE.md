@@ -88,6 +88,10 @@ Google's Maven is not reachable from the cloud dev container: Android modules on
 - Every module ships unit tests (JVM) and at least one instrumented smoke test under
   `src/androidTest` that runs its `scan()` on the emulator.
 - Observations are summaries (counts, names, hashes, booleans), never raw payloads.
+- Every change that reaches the app ships to Releases. After the final push of a piece of work, start the
+  `ci.yml` workflow on your branch (GitHub tools: run workflow `ci.yml`, ref = your branch; pushes to the
+  integration branch publish on their own). That run publishes a "Debug build #N" prerelease with a plain
+  APK; wait for it to go green and give the user the release link. Never publish from `main`.
 
 ## Workflow
 
