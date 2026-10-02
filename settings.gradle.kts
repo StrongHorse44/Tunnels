@@ -39,6 +39,8 @@ include(
     ":core:lan",
     ":core:updates",
     ":core:crossrules",
+    ":core:watchrules",
+    ":core:devicecheck",
     ":tunnels:installer",
     ":tunnels:unzip",
     ":tunnels:permissions",
@@ -58,4 +60,6 @@ include(
     ":tunnels:deepmode",
     ":tunnels:updater",
     ":tunnels:crossroads",
+    ":tunnels:watch",
+    ":tunnels:devicecheck",
 )

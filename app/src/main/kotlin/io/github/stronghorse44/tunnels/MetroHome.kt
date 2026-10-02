@@ -64,7 +64,12 @@ const val SNAPSHOTS_ACTION = "io.github.stronghorse44.tunnels.action.SNAPSHOTS"
 
 /** Home: a console readout above a clickable glass metro map. */
 @Composable
-fun MetroHome(onOpenTunnel: (String) -> Unit, onOpenUpdates: () -> Unit = {}) {
+fun MetroHome(
+    onOpenTunnel: (String) -> Unit,
+    onOpenUpdates: () -> Unit = {},
+    onOpenFindings: () -> Unit = {},
+    onOpenChecks: () -> Unit = {},
+) {
     val context = LocalContext.current
     var placeholder by remember { mutableStateOf<TunnelInfo?>(null) }
     val netOn = networkAllowed(context)
@@ -105,6 +110,8 @@ fun MetroHome(onOpenTunnel: (String) -> Unit, onOpenUpdates: () -> Unit = {}) {
                 .padding(horizontal = 14.dp, vertical = 8.dp),
         ) {
             ConsoleHeader(version, netOn, keyLevel, TunnelCatalog.all.count(::live), TunnelCatalog.all.count { !live(it) }, onOpenUpdates)
+            Spacer(Modifier.height(10.dp))
+            FindingsConsole(summaries.values, onOpenFindings, onOpenChecks)
             Spacer(Modifier.height(14.dp))
             GlassPanel(Modifier.fillMaxWidth()) {
                 MetroMap(

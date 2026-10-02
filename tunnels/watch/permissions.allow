@@ -1,0 +1,8 @@
+# Permissions the watch module may declare, one per line. CI fails on anything else.
+# Background checks are offline: they scan the phone with the same tunnels you open by hand. Nothing is sent.
+# Runtime permission, requested only when you switch background checks on: tells you when a check finds something new.
+android.permission.POST_NOTIFICATIONS
+# Normal permission: keeps the scheduled check (a JobScheduler job) across restarts. No code runs at boot.
+android.permission.RECEIVE_BOOT_COMPLETED
+# Service attribute, not a uses-permission: only the system's job scheduler may bind the check's JobService.
+android.permission.BIND_JOB_SERVICE

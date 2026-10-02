@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Declare only what permissions.allow lists. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <application>
+        <!-- Not exported: the home screen reaches it with an implicit intent limited to this package. -->
+        <activity
+            android:name=".DeviceChecksActivity"
+            android:exported="false"
+            android:label="Device checks"
+            android:theme="@style/Theme.Tunnels">
+            <intent-filter>
+                <action android:name="io.github.stronghorse44.tunnels.action.DEVICE_CHECKS" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
