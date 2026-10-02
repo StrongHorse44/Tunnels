@@ -66,6 +66,8 @@ fun UnzipScreen(vm: UnzipViewModel, onBack: () -> Unit) {
     LaunchedEffect(nav) {
         when (val n = nav) {
             is UnzipNav.Install -> context.startActivity(InstallActivity.stagedIntent(context, n.file))
+            is UnzipNav.Share -> shareFile(context, n)
+            is UnzipNav.Message -> Toast.makeText(context, n.text, Toast.LENGTH_LONG).show()
             null -> Unit
         }
         if (nav != null) vm.navHandled()
@@ -101,6 +103,8 @@ fun UnzipScreen(vm: UnzipViewModel, onBack: () -> Unit) {
                     onExtract = { folderPicker.launch(null) },
                     onInstallEntry = vm::installEntry,
                     onInstallBundle = vm::installBundle,
+                    onSave = vm::saveToDownloads,
+                    onShare = vm::share,
                 )
                 is UnzipState.Extracting -> {
                     Spacer(Modifier.height(24.dp))
@@ -141,6 +145,12 @@ fun UnzipScreen(vm: UnzipViewModel, onBack: () -> Unit) {
                     Spacer(Modifier.height(24.dp))
                     Text(s.title, style = MaterialTheme.typography.titleLarge, color = StatusColors.blocker)
                     Text(s.detail)
+                    if (s.keepable) {
+                        Spacer(Modifier.height(12.dp))
+                        Text("You can still keep the file as it is:", style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.height(4.dp))
+                        KeepWholeButtons(onSave = vm::saveToDownloads, onShare = vm::share)
+                    }
                     Spacer(Modifier.height(12.dp))
                     Button(onClick = { picker.launch(arrayOf("*/*")) }) { Text("Pick another archive") }
                 }
@@ -157,6 +167,8 @@ private fun ListingContent(
     onExtract: () -> Unit,
     onInstallEntry: (ArchiveEntry) -> Unit,
     onInstallBundle: () -> Unit,
+    onSave: () -> Unit,
+    onShare: () -> Unit,
 ) {
     val files = s.entries.filterNot { it.isDirectory }
     val totalSize = files.sumOf { it.size.coerceAtLeast(0) }
@@ -167,6 +179,8 @@ private fun ListingContent(
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+    Spacer(Modifier.height(8.dp))
+    KeepWholeButtons(onSave, onShare)
     if (s.shape != PackageShape.NOT_AN_APP) {
         Spacer(Modifier.height(8.dp))
         GlassPanel(Modifier.fillMaxWidth(), tint = LineColors.of(MetroLine.FILES)) {
@@ -216,6 +230,29 @@ private fun ListingContent(
                 }
             }
         }
+    }
+}
+
+/** Acts on the file as it arrived, without extracting anything. */
+@Composable
+private fun KeepWholeButtons(onSave: () -> Unit, onShare: () -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = onSave) { Text("Save to Downloads") }
+        OutlinedButton(onClick = onShare) { Text("Share") }
+    }
+}
+
+private fun shareFile(context: Context, n: UnzipNav.Share) {
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = n.mimeType
+        putExtra(Intent.EXTRA_STREAM, n.uri)
+        clipData = android.content.ClipData.newRawUri(n.name, n.uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    try {
+        context.startActivity(Intent.createChooser(send, "Share ${n.name}"))
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(context, "No app can take this file", Toast.LENGTH_LONG).show()
     }
 }
 

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only the private staging area, where an opened file sits until the screen closes. -->
+<paths>
+    <cache-path name="staging" path="staging/" />
+</paths>
