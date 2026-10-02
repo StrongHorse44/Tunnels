@@ -267,7 +267,7 @@ class UnzipViewModel(private val app: Application, private val saved: SavedState
         _state.value = when (error) {
             ArchiveError.PasswordRequired -> UnzipState.NeedsPassword(name, wrong = false)
             ArchiveError.WrongPassword -> UnzipState.NeedsPassword(name, wrong = true).also { password = null }
-            is ArchiveError.Unsupported -> UnzipState.Failed("Can't open ${error.what}", "Supported: zip (incl. password), 7z, tar, tar.gz, tar.xz, tar.bz2, gz, xz, bz2.")
+            is ArchiveError.Unsupported -> UnzipState.Failed("Can't open ${error.what}", "Supported: zip (incl. password), 7z, tar, tar.gz, tar.xz, tar.bz2, gz, xz, bz2, pmtiles.")
             is ArchiveError.Corrupt -> UnzipState.Failed("Archive looks damaged", error.detail)
             is ArchiveError.LimitExceeded -> UnzipState.Failed("Stopped for safety", error.detail)
             ArchiveError.Cancelled -> UnzipState.Failed("Cancelled", "Files extracted so far were kept.")
@@ -295,7 +295,7 @@ class UnzipViewModel(private val app: Application, private val saved: SavedState
             return if (base.isEmpty()) folder else "$base/$folder"
         }
 
-        private val suffixes = listOf(".tar.gz", ".tar.xz", ".tar.bz2", ".tgz", ".txz", ".tbz2", ".zip", ".7z", ".tar", ".gz", ".xz", ".bz2", ".apks", ".xapk", ".apkm")
+        private val suffixes = listOf(".tar.gz", ".tar.xz", ".tar.bz2", ".tgz", ".txz", ".tbz2", ".zip", ".7z", ".tar", ".gz", ".xz", ".bz2", ".pmtiles", ".apks", ".xapk", ".apkm")
 
         fun baseName(name: String): String {
             val lower = name.lowercase()

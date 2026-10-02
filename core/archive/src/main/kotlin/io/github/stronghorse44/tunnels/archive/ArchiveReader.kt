@@ -30,6 +30,7 @@ object Archives {
             ArchiveFormat.SEVEN_Z -> SevenZReader(file, password)
             ArchiveFormat.TAR, ArchiveFormat.TAR_GZ, ArchiveFormat.TAR_XZ, ArchiveFormat.TAR_BZ2 -> TarReader(file, format)
             ArchiveFormat.GZ, ArchiveFormat.XZ, ArchiveFormat.BZ2 -> SingleStreamReader(file, format, displayName)
+            ArchiveFormat.PMTILES -> PmTilesReader(file)
             ArchiveFormat.RAR -> throw ArchiveException(ArchiveError.Unsupported("RAR archives"))
             ArchiveFormat.UNKNOWN -> throw ArchiveException(ArchiveError.Unsupported("this file type"))
         }

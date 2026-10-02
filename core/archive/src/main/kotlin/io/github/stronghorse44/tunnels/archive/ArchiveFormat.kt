@@ -18,6 +18,7 @@ enum class ArchiveFormat(val label: String, val supported: Boolean = true) {
     GZ("gzip"),
     XZ("xz"),
     BZ2("bzip2"),
+    PMTILES("PMTiles"),
     RAR("RAR", supported = false),
     UNKNOWN("unknown", supported = false);
 
@@ -31,6 +32,7 @@ enum class ArchiveFormat(val label: String, val supported: Boolean = true) {
             return when {
                 at(0, 0x50, 0x4b, 0x03, 0x04) || at(0, 0x50, 0x4b, 0x05, 0x06) || at(0, 0x50, 0x4b, 0x07, 0x08) -> ZIP
                 at(0, 0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c) -> SEVEN_Z
+                at(0, 0x50, 0x4d, 0x54, 0x69, 0x6c, 0x65, 0x73) -> PMTILES
                 at(0, 0x52, 0x61, 0x72, 0x21, 0x1a, 0x07) -> RAR
                 at(0, 0x1f, 0x8b) -> if (innerIsTar(file, ::gzip)) TAR_GZ else GZ
                 at(0, 0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00) -> if (innerIsTar(file, ::xz)) TAR_XZ else XZ
