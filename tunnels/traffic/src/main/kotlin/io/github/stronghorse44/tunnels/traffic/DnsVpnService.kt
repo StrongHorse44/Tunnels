@@ -35,6 +35,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.SocketException
 import java.util.concurrent.ConcurrentHashMap
 
 /** What the panel and the notification show about the session. */
@@ -160,6 +161,8 @@ class DnsVpnService : VpnService() {
         // VpnStatus), so the other-VPN refusal comes first and prepare() runs only on a VPN-free phone.
         if (VpnStatus.anyVpnActive(this)) return VpnStatus.otherVpnMessage(this)
         if (prepare(this) != null) return "Android has not given Tunnels VPN consent yet. Open the tunnel and allow it."
+        // Checked before establish(): a tunnel with no forwarder behind it would swallow every lookup.
+        if (!VpnStatus.networkAllowed(this)) return VpnStatus.NETWORK_OFF_MESSAGE
         val cm = getSystemService(ConnectivityManager::class.java) ?: return "No connectivity service."
         val resolvers = VpnStatus.resolversOf(cm, VpnStatus.underlyingNetwork(cm))
 
@@ -188,22 +191,28 @@ class DnsVpnService : VpnService() {
         } ?: return "Could not open the tunnel: another VPN is set as always-on, or consent was withdrawn. Check VPN settings."
 
         val sessionCounter = SessionCounter(SessionCounter.newToken())
-        val fwd = DnsForwarder(
-            tun = pfd,
-            counter = sessionCounter,
-            resolvers = resolvers,
-            // protect() alone: a socket bound to the start-time Network would die with it on a Wi-Fi to
-            // cellular hand-over, while a protected unbound one follows the current default network.
-            prepareSocket = { socket -> protect(socket) },
-            ownerUid = { protocol, src, srcPort, dst, dstPort -> ownerUid(cm, protocol, src, srcPort, dst, dstPort) },
-            subjectOf = ::subjectOf,
-            onFailure = { why ->
-                Log.w(TAG, "forwarder failure: $why")
-                scope.launch { stopSession(FORWARDER_FAILED_MESSAGE) }
-            },
-            // Read per lookup, so a change in the panel applies to the running session at once.
-            blocks = { subject, host -> _policy.value.blocks(subject, host) != null },
-        )
+        val fwd = try {
+            DnsForwarder(
+                tun = pfd,
+                counter = sessionCounter,
+                resolvers = resolvers,
+                // protect() alone: a socket bound to the start-time Network would die with it on a Wi-Fi to
+                // cellular hand-over, while a protected unbound one follows the current default network.
+                prepareSocket = { socket -> protect(socket) },
+                ownerUid = { protocol, src, srcPort, dst, dstPort -> ownerUid(cm, protocol, src, srcPort, dst, dstPort) },
+                subjectOf = ::subjectOf,
+                onFailure = { why ->
+                    Log.w(TAG, "forwarder failure: $why")
+                    scope.launch { stopSession(FORWARDER_FAILED_MESSAGE) }
+                },
+                // Read per lookup, so a change in the panel applies to the running session at once.
+                blocks = { subject, host -> _policy.value.blocks(subject, host) != null },
+            )
+        } catch (e: Exception) {
+            // The forwarder opens its upstream socket as it is built; EPERM there means the Network toggle went off.
+            runCatching { pfd.close() }
+            return if (e is SocketException) VpnStatus.NETWORK_OFF_MESSAGE else "Could not start the forwarder: ${e.javaClass.simpleName}."
+        }
         try {
             fwd.start()
         } catch (e: Exception) {

@@ -1,6 +1,9 @@
 package io.github.stronghorse44.tunnels.traffic
 
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -164,6 +167,10 @@ private fun SessionCard(session: SessionState, actions: TunnelScreenActions) {
     }
     fun startSession() {
         refusal = null
+        if (!VpnStatus.networkAllowed(context)) {
+            refusal = VpnStatus.NETWORK_OFF_MESSAGE
+            return
+        }
         // The other-VPN check comes first: asking the system for consent while another VPN is connected
         // would disconnect it (VpnStatus.consentIntent refuses to ask in that case as a second guard).
         if (VpnStatus.anyVpnActive(context)) {
@@ -214,8 +221,19 @@ private fun SessionCard(session: SessionState, actions: TunnelScreenActions) {
                 }
             }
             (refusal ?: session.message)?.let { msg ->
-                val warn = refusal != null || msg.contains("Could not") || msg.contains("revoked") || msg == DnsVpnService.FORWARDER_FAILED_MESSAGE
+                val networkOff = msg == VpnStatus.NETWORK_OFF_MESSAGE
+                val warn = refusal != null || networkOff || msg.contains("Could not") || msg.contains("revoked") || msg == DnsVpnService.FORWARDER_FAILED_MESSAGE
                 Text(msg, style = MaterialTheme.typography.bodySmall, color = if (warn) StatusColors.warn else GlassColors.dim)
+                if (networkOff) {
+                    TextButton(onClick = {
+                        runCatching {
+                            context.startActivity(
+                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        }
+                    }) { Text("Open Tunnels' app info") }
+                }
             }
         }
     }

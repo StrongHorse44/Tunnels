@@ -1,5 +1,6 @@
 package io.github.stronghorse44.tunnels.traffic
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -7,6 +8,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.VpnService
+import java.net.DatagramSocket
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -23,6 +25,19 @@ import java.net.InetAddress
 object VpnStatus {
     const val OTHER_VPN_MESSAGE = "Another VPN is connected. Disconnect it in VPN settings first; an Always-on VPN restarts " +
         "the moment it drops, so turn Always-on off (gear icon) before disconnecting. Tunnels never disconnects it for you."
+
+    const val NETWORK_OFF_MESSAGE = "Tunnels' Network permission is off, so it cannot pass lookups on. In Tunnels' app info, " +
+        "Permissions, allow Network for the session, and turn it off again when the session ends."
+
+    /**
+     * Whether Tunnels itself may open sockets. GrapheneOS's Network toggle revokes INTERNET at runtime, and a
+     * socket then fails with EPERM; the probe catches the case where the permission reads granted anyway.
+     */
+    fun networkAllowed(context: Context): Boolean {
+        val granted = runCatching { context.checkSelfPermission(Manifest.permission.INTERNET) == PackageManager.PERMISSION_GRANTED }
+            .getOrDefault(false)
+        return granted && runCatching { DatagramSocket().close() }.isSuccess
+    }
 
     /**
      * [OTHER_VPN_MESSAGE] naming the installed VPN apps (other than Tunnels), since Android does not tell
