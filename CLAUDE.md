@@ -92,10 +92,14 @@ Google's Maven is not reachable from the cloud dev container: Android modules on
 - Every module ships unit tests (JVM) and at least one instrumented smoke test under
   `src/androidTest` that runs its `scan()` on the emulator.
 - Observations are summaries (counts, names, hashes, booleans), never raw payloads.
-- Every change that reaches the app ships to Releases. After the final push of a piece of work, start the
-  `ci.yml` workflow on your branch (GitHub tools: run workflow `ci.yml`, ref = your branch; pushes to the
-  integration branch publish on their own). That run publishes a "Debug build #N" prerelease with a plain
-  APK; wait for it to go green and give the user the release link. Never publish from `main`.
+- Every change goes up as a pull request from its own branch. Never push to the integration branch or
+  `main` directly, and never start the `ci.yml` workflow yourself: a manual run on any branch publishes a
+  "Debug build #N" prerelease that the in-app updater offers to the owner's phone, so only the program
+  overseer starts it, and only for a branch that has passed an independent review. Builder and reviewer
+  agents never merge. The overseer may merge a PR only when review passed, CI is green and the PR has no
+  gate change (no new or changed permission, network host, runtime dependency, native library, build
+  type, signing config or release workflow); a PR with a gate change waits for the owner to merge. Never
+  publish from `main`.
 
 ## Workflow
 
