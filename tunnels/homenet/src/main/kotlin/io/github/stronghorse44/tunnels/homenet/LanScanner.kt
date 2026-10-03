@@ -10,6 +10,7 @@ import io.github.stronghorse44.tunnels.lan.DnsVerdict
 import io.github.stronghorse44.tunnels.lan.HttpLite
 import io.github.stronghorse44.tunnels.lan.LanAddresses
 import io.github.stronghorse44.tunnels.lan.LanKeys
+import io.github.stronghorse44.tunnels.lan.LanScope
 import io.github.stronghorse44.tunnels.lan.MdnsTypes
 import io.github.stronghorse44.tunnels.lan.PortCatalog
 import io.github.stronghorse44.tunnels.lan.ResolverScope
@@ -80,6 +81,8 @@ data class LanScanOutput(
     val router: RouterFacts,
     /** Stages that hit their time budget, or lost requests to a system limit, and returned partial results. */
     val partial: List<String>,
+    /** Discovered addresses dropped before any probe because they lay outside the confirmed network. Count only. */
+    val droppedOutOfScope: Int = 0,
 )
 
 /**
@@ -92,12 +95,33 @@ class LanScanner(private val context: Context) {
     suspend fun scan(state: WifiState, progress: ScanProgress): LanScanOutput = withContext(Dispatchers.IO) {
         val hosts = ConcurrentHashMap<String, LanHostRecord>()
         val partial = ArrayList<String>()
-        val own = state.ownAddresses
         val gateway = state.gateway?.hostAddress
-        fun record(ip: String): LanHostRecord? = if (ip in own || hosts.size >= MAX_HOSTS && !hosts.containsKey(ip)) null else hosts.getOrPut(ip) { LanHostRecord(ip) }
+
+        // Every connect and probe below stays inside the prefixes the gate confirmed (see LanScope). With no
+        // prefixes there is nothing to stay inside, so nothing is sent at all, not even the multicast queries.
+        val prefixes = state.prefixes
+        if (prefixes.isEmpty()) {
+            return@withContext LanScanOutput(hosts, RouterFacts(null, LanKeys.UNKNOWN, null, null, null, null, null), listOf(PARTIAL_SCOPE))
+        }
+        val own = prefixes.map { it.first }
+        val dropped = AtomicInteger()
+        fun record(ip: String): LanHostRecord? {
+            val address = LanScope.parseLiteral(ip)
+            if (address == null) {
+                dropped.incrementAndGet()
+                return null
+            }
+            if (LanScope.isOwn(address, own)) return null
+            if (!LanScope.accepts(address, prefixes, own)) {
+                dropped.incrementAndGet()
+                return null
+            }
+            if (hosts.size >= MAX_HOSTS && !hosts.containsKey(ip)) return null
+            return hosts.getOrPut(ip) { LanHostRecord(ip) }
+        }
 
         progress.report(0, STAGES, STAGE_DISCOVERY)
-        val mdnsFailures = withTimeoutOrNull(DISCOVERY_BUDGET_MS) { discoverMdns(state.network, ::record) }
+        val mdnsFailures = withTimeoutOrNull(DISCOVERY_BUDGET_MS) { discoverMdns(state.network, prefixes, own, ::record) }
         if (mdnsFailures == null || mdnsFailures > 0) partial += "mdns"
         val ssdp = withTimeoutOrNull(SSDP_BUDGET_MS) { ssdpSearch(state.network) } ?: run { partial += "ssdp"; emptyList() }
         val ssdpResponded = ssdp.isNotEmpty() && "ssdp" !in partial
@@ -111,7 +135,7 @@ class LanScanner(private val context: Context) {
 
         progress.report(1, STAGES, STAGE_PORTS)
         val targets = hosts.keys.sortedWith(compareBy({ it != gateway }, { it })).take(MAX_PORT_SCAN_HOSTS)
-        val portsDone = withTimeoutOrNull(PORTS_BUDGET_MS) { portScan(state.network, targets, hosts); true }
+        val portsDone = withTimeoutOrNull(PORTS_BUDGET_MS) { portScan(state.network, targets, hosts, prefixes, own, dropped); true }
         if (portsDone == null) partial += "ports"
 
         progress.report(2, STAGES, STAGE_ROUTER)
@@ -121,7 +145,7 @@ class LanScanner(private val context: Context) {
                 RouterFacts(gateway, LanKeys.UNKNOWN, null, null, null, resolverScope(state), state.linkProperties?.isPrivateDnsActive)
             }
         progress.report(STAGES, STAGES, "done")
-        LanScanOutput(hosts, router, partial)
+        LanScanOutput(hosts, router, partial, dropped.get())
     }
 
     // ---- mDNS -------------------------------------------------------------------------------------
@@ -132,7 +156,12 @@ class LanScanner(private val context: Context) {
      * (FAILURE_MAX_LIMIT beyond that), so browses plus resolves stay at 8. Returns how many browse starts or
      * resolve registrations the system refused even after a retry; the caller marks the stage partial then.
      */
-    private suspend fun discoverMdns(network: Network?, record: (String) -> LanHostRecord?): Int {
+    private suspend fun discoverMdns(
+        network: Network?,
+        prefixes: List<Pair<InetAddress, Int>>,
+        own: List<InetAddress>,
+        record: (String) -> LanHostRecord?,
+    ): Int {
         val nsd = context.getSystemService(NsdManager::class.java) ?: return 0
         val found = Channel<NsdServiceInfo>(Channel.UNLIMITED)
         val seen = ConcurrentHashMap.newKeySet<String>()
@@ -157,7 +186,7 @@ class LanScanner(private val context: Context) {
                             if (outcome.registrationRefused) failures.incrementAndGet()
                         }
                         val resolved = outcome.info ?: return@withPermit
-                        val address = pickAddress(resolved.hostAddresses) ?: return@withPermit
+                        val address = pickAddress(resolved.hostAddresses) { LanScope.accepts(it, prefixes, own) } ?: return@withPermit
                         val rec = record(address) ?: return@withPermit
                         resolved.serviceName?.trim()?.takeIf { it.isNotEmpty() }?.let { if (rec.names.size < 4) rec.names += it.take(MAX_NAME) }
                         resolved.serviceType?.let { rec.mdnsTypes += MdnsTypes.normalize(it) }
@@ -255,8 +284,12 @@ class LanScanner(private val context: Context) {
         }
     }
 
-    /** Prefers a routable IPv4 address; falls back to a non-link-local IPv6 one; never loopback. */
-    private fun pickAddress(addresses: List<InetAddress>): String? {
+    /**
+     * Prefers an address inside the confirmed network ([inScope]); only when the service offers none is an
+     * outside one returned, so [record] counts the drop. IPv4 before IPv6, a non-link-local IPv6 one; never loopback.
+     */
+    private fun pickAddress(all: List<InetAddress>, inScope: (InetAddress) -> Boolean): String? {
+        val addresses = all.filter(inScope).ifEmpty { all }
         val v4 = addresses.filterIsInstance<Inet4Address>().firstOrNull { !it.isLoopbackAddress && !it.isAnyLocalAddress }
         if (v4 != null) return v4.hostAddress
         val v6 = addresses.filterIsInstance<Inet6Address>().firstOrNull { !it.isLoopbackAddress && !it.isLinkLocalAddress && !it.isAnyLocalAddress }
@@ -308,10 +341,22 @@ class LanScanner(private val context: Context) {
 
     // ---- TCP connect scan ---------------------------------------------------------------------------
 
-    private suspend fun portScan(network: Network?, targets: List<String>, hosts: Map<String, LanHostRecord>) = coroutineScope {
+    private suspend fun portScan(
+        network: Network?,
+        targets: List<String>,
+        hosts: Map<String, LanHostRecord>,
+        prefixes: List<Pair<InetAddress, Int>>,
+        own: List<InetAddress>,
+        dropped: AtomicInteger,
+    ) = coroutineScope {
         val inFlight = Semaphore(PORT_CONCURRENCY)
         for (ip in targets) {
-            val address = runCatching { InetAddress.getByName(ip) }.getOrNull() ?: continue
+            // Second guard: the targets were already scoped when recorded, and are checked again right before connecting.
+            val address = LanScope.parseLiteral(ip)?.takeIf { LanScope.accepts(it, prefixes, own) }
+            if (address == null) {
+                dropped.incrementAndGet()
+                continue
+            }
             for (port in PortCatalog.ports) {
                 launch(Dispatchers.IO) {
                     inFlight.withPermit {
@@ -440,6 +485,8 @@ class LanScanner(private val context: Context) {
         const val STAGE_DISCOVERY = "discovery"
         const val STAGE_PORTS = "ports"
         const val STAGE_ROUTER = "router"
+        /** Reported in [LanScanOutput.partial] when the link has no address prefix, so nothing was scanned. */
+        const val PARTIAL_SCOPE = "scope"
 
         const val MAX_HOSTS = 50
         const val MAX_PORT_SCAN_HOSTS = 32

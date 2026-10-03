@@ -54,10 +54,15 @@ object LanKeys {
     const val SCAN_DURATION = "scan:durationSec"
     /** [GATE_CONFIRMED] when the own-network gate let the scan run, else [GATE_UNCONFIRMED]. */
     const val SCAN_GATE = "scan:gate"
-    /** Why the gate refused: "no-wifi", "network-unknown", "not-confirmed", "no-permission". */
+    /** Why the gate refused: "no-wifi", "network-unknown", "not-confirmed" ("no-permission" in older builds). */
     const val SCAN_GATE_REASON = "scan:gateReason"
     /** Comma list of stages that hit their time budget and returned partial results. */
     const val SCAN_PARTIAL = "scan:partial"
+    /**
+     * How many discovered addresses were dropped before any probe because they lay outside the confirmed
+     * network (see [LanScope]). Only the count is kept, never the addresses. Absent when zero.
+     */
+    const val SCAN_DROPPED_OUT_OF_SCOPE = "scan:droppedOutOfScope"
 
     const val GATE_CONFIRMED = "confirmed"
     const val GATE_UNCONFIRMED = "unconfirmed"
@@ -65,6 +70,7 @@ object LanKeys {
     /** On Wi-Fi, but neither a gateway nor an address prefix was readable, so the network cannot be told apart. */
     const val REASON_NETWORK_UNKNOWN = "network-unknown"
     const val REASON_NOT_CONFIRMED = "not-confirmed"
+    /** No longer produced (the gate needs no permission); kept so observations stored by older builds still read. */
     const val REASON_NO_PERMISSION = "no-permission"
 
     const val TRUE = "true"

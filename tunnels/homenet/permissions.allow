@@ -7,5 +7,5 @@ android.permission.ACCESS_NETWORK_STATE
 android.permission.ACCESS_WIFI_STATE
 # MulticastLock so SSDP answers are not filtered by the Wi-Fi chip.
 android.permission.CHANGE_WIFI_MULTICAST_STATE
-# Runtime permission, requested when the tunnel opens, declared neverForLocation. Lets the card show the Wi-Fi name
-# when Android shares it; the gate itself keys on LinkProperties, which needs no location permission.
+# No NEARBY_WIFI_DEVICES: the own-network gate keys on LinkProperties and DhcpInfo, which need no runtime permission
+# (rule 6), and neverForLocation would not unlock the Wi-Fi name anyway (see NetworkFingerprint).
