@@ -228,7 +228,16 @@ private fun RouterCard(router: RouterInfo) {
                 },
                 if (router.privateDns == LanKeys.TRUE) StatusColors.ok else GlassColors.text,
             )
-            FactRow("Open ports", if (router.openPorts.isEmpty()) "none of the ${PortCatalog.ports.size} checked" else router.openPorts.joinToString(", "), GlassColors.text)
+            val routerPorts = router.openPorts
+            FactRow(
+                "Open ports",
+                when {
+                    routerPorts == null -> "not checked"
+                    routerPorts.isEmpty() -> "none of the ${PortCatalog.ports.size} checked"
+                    else -> routerPorts.joinToString(", ")
+                },
+                GlassColors.text,
+            )
         }
     }
 }
@@ -249,6 +258,7 @@ private fun HostsCard(summary: LanSummary) {
             val tail = buildList {
                 summary.durationSec?.let { add("${it}s") }
                 if (summary.partialStages.isNotEmpty()) add("cut short: ${summary.partialStages.joinToString(", ")}")
+                if (summary.droppedOutOfScope > 0) add("${summary.droppedOutOfScope} outside this network ignored")
             }
             Text(
                 "${summary.totalHosts} found · ${summary.riskyHosts} with risky services" + tail.joinToString("") { " · $it" },

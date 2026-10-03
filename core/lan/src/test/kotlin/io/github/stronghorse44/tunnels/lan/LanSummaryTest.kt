@@ -38,9 +38,11 @@ class LanSummaryTest {
             Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_DURATION, "37"),
             Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_GATE, "confirmed"),
             Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_PARTIAL, "ports"),
+            Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_DROPPED_OUT_OF_SCOPE, "3"),
             Observation("other_tunnel", "x", "y", "z"),
         )
         val s = LanSummary.from(obs)
+        assertEquals(3, s.droppedOutOfScope)
         assertTrue(s.scanned)
         assertEquals(4, s.totalHosts)
         assertEquals(1, s.riskyHosts)
@@ -91,5 +93,17 @@ class LanSummaryTest {
     fun ipSortKeyOrdersNumerically() {
         val ips = listOf("192.168.1.100", "192.168.1.9", "fe80::1", "10.0.0.1")
         assertEquals(listOf("10.0.0.1", "192.168.1.9", "192.168.1.100", "fe80::1"), ips.sortedBy(LanSummary::ipSortKey))
+    }
+
+    @Test
+    fun routerPortsAreNullWhenTheRouterWasNeverScanned() {
+        val obs = listOf(
+            Observation(t, LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_IP, "192.168.1.1"),
+            Observation(t, LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_UPNP_IGD, "unknown"),
+            Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_GATE, "confirmed"),
+        )
+        val s = LanSummary.from(obs)
+        assertNull("not scanned is not the same as none open", s.router!!.openPorts)
+        assertEquals(0, s.droppedOutOfScope)
     }
 }

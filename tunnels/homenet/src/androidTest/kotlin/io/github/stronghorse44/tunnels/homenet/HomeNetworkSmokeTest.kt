@@ -19,7 +19,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * On a stock emulator nothing is confirmed (and NEARBY_WIFI_DEVICES is not granted), so the gate must
+ * On a stock emulator nothing is confirmed (the gate needs no runtime permission), so the gate must
  * refuse quickly with a well-formed summary and open no sockets.
  */
 @RunWith(AndroidJUnit4::class)
@@ -48,7 +48,7 @@ class HomeNetworkSmokeTest {
         val reason = LanKeys.value(obs, LanKeys.SCAN_GATE_REASON)
         assertTrue(
             "reason $reason",
-            reason in setOf(LanKeys.REASON_NO_PERMISSION, LanKeys.REASON_NO_WIFI, LanKeys.REASON_NETWORK_UNKNOWN, LanKeys.REASON_NOT_CONFIRMED),
+            reason in setOf(LanKeys.REASON_NO_WIFI, LanKeys.REASON_NETWORK_UNKNOWN, LanKeys.REASON_NOT_CONFIRMED),
         )
         assertTrue(obs.none { it.key == LanKeys.SCAN_NETWORK || it.key == LanKeys.HOSTS_TOTAL })
         assertEquals(obs.size, obs.map { it.key }.toSet().size)

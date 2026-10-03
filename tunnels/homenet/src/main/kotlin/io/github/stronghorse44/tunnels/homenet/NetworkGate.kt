@@ -1,15 +1,12 @@
 package io.github.stronghorse44.tunnels.homenet
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
-import androidx.core.content.ContextCompat
 import io.github.stronghorse44.tunnels.lan.LanAddresses
 import io.github.stronghorse44.tunnels.lan.LanKeys
 import io.github.stronghorse44.tunnels.lan.NetworkFingerprint
@@ -48,7 +45,11 @@ data class WifiState(
 
     val ownAddresses: Set<String> get() = linkProperties?.linkAddresses?.mapNotNull { it.address?.hostAddress }.orEmpty().toSet()
 
-    /** The link's address prefixes (address, length), for the on-LAN resolver check. */
+    /**
+     * The phone's own link addresses with their prefix lengths. These define the confirmed network: every
+     * discovered address must lie inside one of them before the scanner probes it (see LanScope), and the
+     * addresses themselves are the phone's own, which are never probed.
+     */
     val prefixes: List<Pair<InetAddress, Int>>
         get() = linkProperties?.linkAddresses?.mapNotNull { la -> la.address?.let { it to la.prefixLength } }.orEmpty()
 
@@ -94,9 +95,6 @@ sealed interface GateDecision {
 class NetworkGate(private val context: Context) {
     private val prefs by lazy { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
 
-    fun hasPermission(): Boolean =
-        ContextCompat.checkSelfPermission(context, Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED
-
     /** Reads the current Wi-Fi network; cheap binder calls, safe from the main thread. */
     fun current(): WifiState {
         val cm = context.getSystemService(ConnectivityManager::class.java) ?: return WifiState.OFFLINE
@@ -105,7 +103,7 @@ class NetworkGate(private val context: Context) {
         val dhcp = runCatching { dhcpInfo() }.getOrNull()
         val dhcpServer = lp?.dhcpServerAddress ?: dhcp?.serverAddress?.takeIf { it != 0 }?.let(::ipv4)
         val dhcpGateway = dhcp?.gateway?.takeIf { it != 0 }?.let(::ipv4)
-        val ssid = if (hasPermission()) displaySsid(cm, network) else null
+        val ssid = displaySsid(cm, network)
         return WifiState(network, lp, dhcpServer, dhcpGateway, ssid)
     }
 
@@ -120,7 +118,8 @@ class NetworkGate(private val context: Context) {
 
     /**
      * Best-effort SSID for the card only. Expected to be redacted ("<unknown ssid>") on API 31+ without
-     * ACCESS_FINE_LOCATION; if a device does share it, the card shows it next to the fingerprint.
+     * ACCESS_FINE_LOCATION (NEARBY_WIFI_DEVICES with neverForLocation would not change that, so the tunnel asks
+     * for neither); if a device does share it, the card shows it next to the fingerprint.
      */
     @Suppress("DEPRECATION")
     private fun displaySsid(cm: ConnectivityManager, network: Network): String? {
@@ -161,10 +160,11 @@ class NetworkGate(private val context: Context) {
 
     /** Decides whether a scan may run right now. Never throws. */
     fun check(): GateDecision {
-        if (!hasPermission()) return GateDecision.Refused(LanKeys.REASON_NO_PERMISSION, WifiState.OFFLINE)
         val state = runCatching { current() }.getOrDefault(WifiState.OFFLINE)
         if (!state.onWifi) return GateDecision.Refused(LanKeys.REASON_NO_WIFI, state)
         val fingerprint = state.fingerprint ?: return GateDecision.Refused(LanKeys.REASON_NETWORK_UNKNOWN, state)
+        // Scanning stays inside the link's prefixes; without any, there is nothing to stay inside.
+        if (state.prefixes.isEmpty()) return GateDecision.Refused(LanKeys.REASON_NETWORK_UNKNOWN, state)
         if (!isConfirmed(fingerprint)) return GateDecision.Refused(LanKeys.REASON_NOT_CONFIRMED, state)
         return GateDecision.Allowed(state, fingerprint)
     }

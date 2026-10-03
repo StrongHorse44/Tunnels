@@ -23,10 +23,12 @@ data class RouterInfo(
     val upnpIgd: String,
     val dnsHijack: String,
     val dnsIsGateway: String,
-    /** "true" when the resolver is on the LAN, "false" when it is outside (hijack probe skipped), else "unknown". */
+    /** "true" when the resolver is on the LAN, "false" when it is outside (hijack probe skipped), else "unknown". The probe
+     * itself runs only for a resolver inside the confirmed network's prefix (see LanScope). */
     val dnsLocal: String,
     val privateDns: String,
-    val openPorts: List<Int>,
+    /** Null when the router was never port-scanned (it lay outside the confirmed network); not the same as none open. */
+    val openPorts: List<Int>?,
 )
 
 /** Everything the home_network panel renders, derived from the latest scan's observations. */
@@ -41,6 +43,8 @@ data class LanSummary(
     val gate: String?,
     val gateReason: String?,
     val partialStages: List<String>,
+    /** Distinct discovered addresses ignored because they lay outside the confirmed network. */
+    val droppedOutOfScope: Int = 0,
 ) {
     val scanned: Boolean get() = gate == LanKeys.GATE_CONFIRMED
 
@@ -76,7 +80,7 @@ data class LanSummary(
                     dnsIsGateway = LanKeys.value(r, LanKeys.ROUTER_DNS_IS_GATEWAY) ?: LanKeys.UNKNOWN,
                     dnsLocal = LanKeys.value(r, LanKeys.ROUTER_DNS_LOCAL) ?: LanKeys.UNKNOWN,
                     privateDns = LanKeys.value(r, LanKeys.ROUTER_PRIVATE_DNS) ?: LanKeys.UNKNOWN,
-                    openPorts = LanKeys.ports(LanKeys.value(r, LanKeys.ROUTER_OPEN_PORTS)),
+                    openPorts = LanKeys.value(r, LanKeys.ROUTER_OPEN_PORTS)?.let(LanKeys::ports),
                 )
             }
             val summary = bySubject[LanKeys.SUBJECT_SUMMARY].orEmpty()
@@ -90,6 +94,7 @@ data class LanSummary(
                 gate = LanKeys.value(summary, LanKeys.SCAN_GATE),
                 gateReason = LanKeys.value(summary, LanKeys.SCAN_GATE_REASON),
                 partialStages = LanKeys.items(LanKeys.value(summary, LanKeys.SCAN_PARTIAL)),
+                droppedOutOfScope = LanKeys.value(summary, LanKeys.SCAN_DROPPED_OUT_OF_SCOPE)?.toIntOrNull() ?: 0,
             )
         }
 
