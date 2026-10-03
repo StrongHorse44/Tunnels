@@ -64,6 +64,13 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
         }
         val allowed = decision as GateDecision.Allowed
         val result = scanner.scan(allowed.state, progress)
+        if (!result.scanned) {
+            // Nothing was sent (no confirmed prefix to stay inside): not a scan, so no snapshot with zero hosts
+            // that would reset the new-device baseline.
+            add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_GATE, LanKeys.GATE_UNCONFIRMED)
+            add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_GATE_REASON, LanKeys.REASON_NETWORK_UNKNOWN)
+            return out
+        }
         val gateway = result.router.gateway
         lastGateway = gateway
 
@@ -109,7 +116,8 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
             add(LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_DNS_IS_GATEWAY, triState(router.dnsIsGateway))
             add(LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_DNS_LOCAL, triState(router.dnsScope?.let { it != ResolverScope.OFF_LAN }))
             add(LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_PRIVATE_DNS, triState(router.privateDns))
-            add(LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_OPEN_PORTS, LanKeys.portList(result.hosts[gateway]?.openPorts.orEmpty()))
+            // No record means the gateway was never probed (outside the scope, or the host cap): say nothing rather than "none".
+            result.hosts[gateway]?.let { add(LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_OPEN_PORTS, LanKeys.portList(it.openPorts)) }
         }
 
         add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_GATE, LanKeys.GATE_CONFIRMED)
@@ -117,6 +125,7 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
         add(LanKeys.SUBJECT_SUMMARY, LanKeys.HOSTS_TOTAL, result.hosts.size.toString())
         add(LanKeys.SUBJECT_SUMMARY, LanKeys.HOSTS_RISKY, risky.toString())
         add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_DURATION, ((System.nanoTime() - started) / 1_000_000_000L).toString())
+        if (result.probesSkipped > 0) add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_PROBES_SKIPPED, result.probesSkipped.toString())
         if (result.droppedOutOfScope > 0) add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_DROPPED_OUT_OF_SCOPE, result.droppedOutOfScope.toString())
         if (result.partial.isNotEmpty()) add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_PARTIAL, LanKeys.list(result.partial))
         return out

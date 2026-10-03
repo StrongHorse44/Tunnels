@@ -45,7 +45,11 @@ data class WifiState(
 
     val ownAddresses: Set<String> get() = linkProperties?.linkAddresses?.mapNotNull { it.address?.hostAddress }.orEmpty().toSet()
 
-    /** The link's address prefixes (address, length), for the on-LAN resolver check. */
+    /**
+     * The phone's own link addresses with their prefix lengths. These define the confirmed network: every
+     * discovered address must lie inside one of them before the scanner probes it (see LanScope), and the
+     * addresses themselves are the phone's own, which are never probed.
+     */
     val prefixes: List<Pair<InetAddress, Int>>
         get() = linkProperties?.linkAddresses?.mapNotNull { la -> la.address?.let { it to la.prefixLength } }.orEmpty()
 
@@ -159,6 +163,8 @@ class NetworkGate(private val context: Context) {
         val state = runCatching { current() }.getOrDefault(WifiState.OFFLINE)
         if (!state.onWifi) return GateDecision.Refused(LanKeys.REASON_NO_WIFI, state)
         val fingerprint = state.fingerprint ?: return GateDecision.Refused(LanKeys.REASON_NETWORK_UNKNOWN, state)
+        // Scanning stays inside the link's prefixes; without any, there is nothing to stay inside.
+        if (state.prefixes.isEmpty()) return GateDecision.Refused(LanKeys.REASON_NETWORK_UNKNOWN, state)
         if (!isConfirmed(fingerprint)) return GateDecision.Refused(LanKeys.REASON_NOT_CONFIRMED, state)
         return GateDecision.Allowed(state, fingerprint)
     }

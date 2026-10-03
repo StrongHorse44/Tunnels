@@ -5,14 +5,17 @@ import android.net.Network
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
+import io.github.stronghorse44.tunnels.lan.BindGuard
 import io.github.stronghorse44.tunnels.lan.DnsProbe
 import io.github.stronghorse44.tunnels.lan.DnsVerdict
+import io.github.stronghorse44.tunnels.lan.DropCounter
 import io.github.stronghorse44.tunnels.lan.HttpLite
 import io.github.stronghorse44.tunnels.lan.LanAddresses
 import io.github.stronghorse44.tunnels.lan.LanKeys
 import io.github.stronghorse44.tunnels.lan.LanScope
 import io.github.stronghorse44.tunnels.lan.MdnsTypes
 import io.github.stronghorse44.tunnels.lan.PortCatalog
+import io.github.stronghorse44.tunnels.lan.ProbeBinder
 import io.github.stronghorse44.tunnels.lan.ResolverScope
 import io.github.stronghorse44.tunnels.lan.Ssdp
 import io.github.stronghorse44.tunnels.lan.SsdpResponse
@@ -81,9 +84,19 @@ data class LanScanOutput(
     val router: RouterFacts,
     /** Stages that hit their time budget, or lost requests to a system limit, and returned partial results. */
     val partial: List<String>,
-    /** Discovered addresses dropped before any probe because they lay outside the confirmed network. Count only. */
+    /** Distinct discovered addresses dropped before any probe because they lay outside the confirmed network. Count only. */
     val droppedOutOfScope: Int = 0,
+    /** Probes not sent because binding to the confirmed network failed (it was lost mid-scan). */
+    val probesSkipped: Int = 0,
+    /** False when nothing was sent because there was no confirmed prefix or network to stay inside. */
+    val scanned: Boolean = true,
 )
+
+/** Pins sockets to the confirmed Wi-Fi [network]; a failure throws and the [BindGuard] treats the network as gone. */
+private class NetworkBinder(private val network: Network) : ProbeBinder {
+    override fun bind(socket: Socket) = network.bindSocket(socket)
+    override fun bind(socket: DatagramSocket) = network.bindSocket(socket)
+}
 
 /**
  * The LAN scan proper: mDNS browse and resolve, SSDP M-SEARCH, TCP connect scan, router checks. Runs
@@ -99,21 +112,27 @@ class LanScanner(private val context: Context) {
 
         // Every connect and probe below stays inside the prefixes the gate confirmed (see LanScope). With no
         // prefixes there is nothing to stay inside, so nothing is sent at all, not even the multicast queries.
+        // Likewise every socket must be bound to the confirmed Wi-Fi before it sends (see BindGuard): an unbound
+        // one would go out over the default network. A failed bind means the network is gone and ends the scan.
         val prefixes = state.prefixes
-        if (prefixes.isEmpty()) {
-            return@withContext LanScanOutput(hosts, RouterFacts(null, LanKeys.UNKNOWN, null, null, null, null, null), listOf(PARTIAL_SCOPE))
+        val network = state.network
+        if (prefixes.isEmpty() || network == null) {
+            return@withContext LanScanOutput(
+                hosts, RouterFacts(null, LanKeys.UNKNOWN, null, null, null, null, null), listOf(PARTIAL_SCOPE), scanned = false,
+            )
         }
+        val guard = BindGuard(NetworkBinder(network))
         val own = prefixes.map { it.first }
-        val dropped = AtomicInteger()
+        val dropped = DropCounter()
         fun record(ip: String): LanHostRecord? {
             val address = LanScope.parseLiteral(ip)
             if (address == null) {
-                dropped.incrementAndGet()
+                dropped.add(ip)
                 return null
             }
             if (LanScope.isOwn(address, own)) return null
             if (!LanScope.accepts(address, prefixes, own)) {
-                dropped.incrementAndGet()
+                dropped.add(address)
                 return null
             }
             if (hosts.size >= MAX_HOSTS && !hosts.containsKey(ip)) return null
@@ -121,31 +140,35 @@ class LanScanner(private val context: Context) {
         }
 
         progress.report(0, STAGES, STAGE_DISCOVERY)
-        val mdnsFailures = withTimeoutOrNull(DISCOVERY_BUDGET_MS) { discoverMdns(state.network, prefixes, own, ::record) }
+        val mdnsFailures = withTimeoutOrNull(DISCOVERY_BUDGET_MS) { discoverMdns(network, prefixes, own, dropped, ::record) }
         if (mdnsFailures == null || mdnsFailures > 0) partial += "mdns"
-        val ssdp = withTimeoutOrNull(SSDP_BUDGET_MS) { ssdpSearch(state.network) } ?: run { partial += "ssdp"; emptyList() }
-        val ssdpResponded = ssdp.isNotEmpty() && "ssdp" !in partial
+        val ssdp = withTimeoutOrNull(SSDP_BUDGET_MS) { ssdpSearch(guard) } ?: run { partial += "ssdp"; emptyList() }
+        // Only replies from addresses that passed the scope count as "the network answered SSDP".
+        var ssdpInScope = false
         for ((ip, response) in ssdp) {
             val rec = record(ip) ?: continue
+            ssdpInScope = true
             response.st?.let { rec.ssdpTypes += it }
             response.location?.let { if (rec.ssdpLocations.size < 4) rec.ssdpLocations += it }
             response.server?.let { rec.ssdpServer = it }
         }
+        val ssdpResponded = ssdpInScope && "ssdp" !in partial
         gateway?.let { record(it) }
 
         progress.report(1, STAGES, STAGE_PORTS)
         val targets = hosts.keys.sortedWith(compareBy({ it != gateway }, { it })).take(MAX_PORT_SCAN_HOSTS)
-        val portsDone = withTimeoutOrNull(PORTS_BUDGET_MS) { portScan(state.network, targets, hosts, prefixes, own, dropped); true }
+        val portsDone = withTimeoutOrNull(PORTS_BUDGET_MS) { portScan(guard, targets, hosts, prefixes, own, dropped); true }
         if (portsDone == null) partial += "ports"
 
         progress.report(2, STAGES, STAGE_ROUTER)
-        val router = withTimeoutOrNull(ROUTER_BUDGET_MS) { routerChecks(state, gateway, gateway?.let { hosts[it] }, ssdpResponded) }
+        val router = withTimeoutOrNull(ROUTER_BUDGET_MS) { routerChecks(state, gateway, gateway?.let { hosts[it] }, ssdpResponded, guard) }
             ?: run {
                 partial += "router"
                 RouterFacts(gateway, LanKeys.UNKNOWN, null, null, null, resolverScope(state), state.linkProperties?.isPrivateDnsActive)
             }
         progress.report(STAGES, STAGES, "done")
-        LanScanOutput(hosts, router, partial, dropped.get())
+        if (guard.lost) partial += PARTIAL_NETWORK
+        LanScanOutput(hosts, router, partial, dropped.count, guard.skipped)
     }
 
     // ---- mDNS -------------------------------------------------------------------------------------
@@ -160,6 +183,7 @@ class LanScanner(private val context: Context) {
         network: Network?,
         prefixes: List<Pair<InetAddress, Int>>,
         own: List<InetAddress>,
+        dropped: DropCounter,
         record: (String) -> LanHostRecord?,
     ): Int {
         val nsd = context.getSystemService(NsdManager::class.java) ?: return 0
@@ -186,7 +210,12 @@ class LanScanner(private val context: Context) {
                             if (outcome.registrationRefused) failures.incrementAndGet()
                         }
                         val resolved = outcome.info ?: return@withPermit
-                        val address = pickAddress(resolved.hostAddresses) { LanScope.accepts(it, prefixes, own) } ?: return@withPermit
+                        val address = pickAddress(resolved.hostAddresses) { LanScope.accepts(it, prefixes, own) }
+                        if (address == null) {
+                            // Nothing usable (for example only link-local addresses): counted, not probed.
+                            resolved.hostAddresses.firstOrNull()?.let { dropped.add(it) }
+                            return@withPermit
+                        }
                         val rec = record(address) ?: return@withPermit
                         resolved.serviceName?.trim()?.takeIf { it.isNotEmpty() }?.let { if (rec.names.size < 4) rec.names += it.take(MAX_NAME) }
                         resolved.serviceType?.let { rec.mdnsTypes += MdnsTypes.normalize(it) }
@@ -299,13 +328,13 @@ class LanScanner(private val context: Context) {
     // ---- SSDP -------------------------------------------------------------------------------------
 
     /** One M-SEARCH (repeated once) and [SSDP_WINDOW_MS] of listening under a MulticastLock. */
-    private suspend fun ssdpSearch(network: Network?): List<Pair<String, SsdpResponse>> = withContext(Dispatchers.IO) {
+    private suspend fun ssdpSearch(guard: BindGuard): List<Pair<String, SsdpResponse>> = withContext(Dispatchers.IO) {
         val out = ArrayList<Pair<String, SsdpResponse>>()
         val wifi = context.getSystemService(WifiManager::class.java)
         val lock = runCatching { wifi?.createMulticastLock("tunnels-homenet")?.apply { setReferenceCounted(false); acquire() } }.getOrNull()
         try {
             DatagramSocket().use { socket ->
-                network?.let { runCatching { it.bindSocket(socket) } }
+                if (!guard.bindUdp(socket)) return@withContext out
                 socket.soTimeout = 300
                 val message = Ssdp.mSearch(mx = 2).toByteArray(Charsets.US_ASCII)
                 val target = InetSocketAddress(InetAddress.getByName(Ssdp.ADDRESS), Ssdp.PORT)
@@ -342,28 +371,30 @@ class LanScanner(private val context: Context) {
     // ---- TCP connect scan ---------------------------------------------------------------------------
 
     private suspend fun portScan(
-        network: Network?,
+        guard: BindGuard,
         targets: List<String>,
         hosts: Map<String, LanHostRecord>,
         prefixes: List<Pair<InetAddress, Int>>,
         own: List<InetAddress>,
-        dropped: AtomicInteger,
+        dropped: DropCounter,
     ) = coroutineScope {
         val inFlight = Semaphore(PORT_CONCURRENCY)
         for (ip in targets) {
             // Second guard: the targets were already scoped when recorded, and are checked again right before connecting.
             val address = LanScope.parseLiteral(ip)?.takeIf { LanScope.accepts(it, prefixes, own) }
             if (address == null) {
-                dropped.incrementAndGet()
+                dropped.add(ip)
                 continue
             }
+            if (guard.lost) break
             for (port in PortCatalog.ports) {
                 launch(Dispatchers.IO) {
                     inFlight.withPermit {
                         if (!isActive) return@withPermit
                         val socket = Socket()
                         try {
-                            network?.let { runCatching { it.bindSocket(socket) } }
+                            // A failed bind skips this probe; it must never connect over the default network.
+                            if (!guard.bindTcp(socket)) return@withPermit
                             socket.connect(InetSocketAddress(address, port), CONNECT_TIMEOUT_MS)
                             hosts[ip]?.openPorts?.add(port)
                         } catch (_: Exception) {
@@ -391,7 +422,13 @@ class LanScanner(private val context: Context) {
         return dns.firstOrNull { it is Inet4Address } ?: dns.firstOrNull()
     }
 
-    private suspend fun routerChecks(state: WifiState, gateway: String?, gatewayRecord: LanHostRecord?, ssdpResponded: Boolean): RouterFacts {
+    private suspend fun routerChecks(
+        state: WifiState,
+        gateway: String?,
+        gatewayRecord: LanHostRecord?,
+        ssdpResponded: Boolean,
+        guard: BindGuard,
+    ): RouterFacts {
         val lp = state.linkProperties
         val privateDns = lp?.isPrivateDnsActive
         val dns = state.dnsServers
@@ -404,7 +441,7 @@ class LanScanner(private val context: Context) {
                 .filter { HttpLite.parseUrl(it)?.host == gateway }
                 .take(3)
             for (location in locations) {
-                val d = withTimeoutOrNull(FETCH_TIMEOUT_MS) { fetchDescription(state.network, location) } ?: continue
+                val d = withTimeoutOrNull(FETCH_TIMEOUT_MS) { fetchDescription(guard, location) } ?: continue
                 description = description ?: d
                 if (d.hasIgd) {
                     description = d
@@ -412,15 +449,16 @@ class LanScanner(private val context: Context) {
                 }
             }
             val advertisesIgd = gatewayRecord?.ssdpTypes?.any(Ssdp::isIgdType) == true
-            upnpIgd = Upnp.igdVerdict(description, advertisesIgd, locations.size, ssdpResponded)
+            upnpIgd = Upnp.igdVerdict(description, advertisesIgd, locations.size, ssdpResponded, gatewayProbed = gatewayRecord != null)
         }
 
-        // The hijack probe goes only to a resolver on the local network: a public resolver handed out by DHCP
-        // would make the phone send DNS to the internet, which this tunnel promises never to do.
+        // The hijack probe obeys the same scope as every other probe: it goes only to a resolver inside the
+        // confirmed network (LanScope), never to a public one handed out by DHCP and never to a private address
+        // outside the prefix. [scope] below only classifies what the phone was configured with, for the card.
         val resolver = pickResolver(state)
         val scope = resolverScope(state)
-        val verdict = if (resolver != null && scope != ResolverScope.OFF_LAN) {
-            withTimeoutOrNull(DNS_TIMEOUT_MS * 2 + 500) { dnsProbe(state.network, resolver) }
+        val verdict = if (resolver != null && LanScope.accepts(resolver, state.prefixes, state.prefixes.map { it.first })) {
+            withTimeoutOrNull(DNS_TIMEOUT_MS * 2 + 500) { dnsProbe(guard, resolver) }
         } else {
             null
         }
@@ -428,12 +466,14 @@ class LanScanner(private val context: Context) {
     }
 
     /** Fetches a UPnP description over a raw socket (plain http to the gateway only), capped at 64 KB. */
-    private suspend fun fetchDescription(network: Network?, url: String): UpnpDescription? = withContext(Dispatchers.IO) {
+    private suspend fun fetchDescription(guard: BindGuard, url: String): UpnpDescription? = withContext(Dispatchers.IO) {
         val target = HttpLite.parseUrl(url) ?: return@withContext null
+        // The host was matched to the gateway's address literal already; parse it strictly, never resolve a name.
+        val address = LanScope.parseLiteral(target.host) ?: return@withContext null
         try {
             Socket().use { socket ->
-                network?.let { runCatching { it.bindSocket(socket) } }
-                socket.connect(InetSocketAddress(InetAddress.getByName(target.host), target.port), FETCH_TIMEOUT_MS.toInt())
+                if (!guard.bindTcp(socket)) return@withContext null
+                socket.connect(InetSocketAddress(address, target.port), FETCH_TIMEOUT_MS.toInt())
                 socket.soTimeout = FETCH_TIMEOUT_MS.toInt()
                 socket.getOutputStream().apply { write(HttpLite.getRequest(target).toByteArray(Charsets.US_ASCII)); flush() }
                 val buffer = ByteArrayOutputStream()
@@ -454,12 +494,12 @@ class LanScanner(private val context: Context) {
     }
 
     /** Asks [server] for a name that cannot exist; one retry. Null when it never answered. */
-    private suspend fun dnsProbe(network: Network?, server: InetAddress): DnsVerdict? = withContext(Dispatchers.IO) {
+    private suspend fun dnsProbe(guard: BindGuard, server: InetAddress): DnsVerdict? = withContext(Dispatchers.IO) {
         val id = Random.nextInt(1, 0xFFFF)
         val query = DnsProbe.buildQuery(DnsProbe.probeName(), id)
         try {
             DatagramSocket().use { socket ->
-                network?.let { runCatching { it.bindSocket(socket) } }
+                if (!guard.bindUdp(socket)) return@withContext null
                 socket.soTimeout = DNS_TIMEOUT_MS.toInt()
                 val buffer = ByteArray(1500)
                 repeat(2) {
@@ -487,6 +527,8 @@ class LanScanner(private val context: Context) {
         const val STAGE_ROUTER = "router"
         /** Reported in [LanScanOutput.partial] when the link has no address prefix, so nothing was scanned. */
         const val PARTIAL_SCOPE = "scope"
+        /** Reported in [LanScanOutput.partial] when a socket could not be bound to the confirmed network mid-scan. */
+        const val PARTIAL_NETWORK = "network"
 
         const val MAX_HOSTS = 50
         const val MAX_PORT_SCAN_HOSTS = 32

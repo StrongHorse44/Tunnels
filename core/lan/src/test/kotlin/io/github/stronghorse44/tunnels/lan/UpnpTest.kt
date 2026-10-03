@@ -83,11 +83,19 @@ class UpnpTest {
     fun igdVerdictNeverReportsAFailedCheckAsPassed() {
         val withIgd = Upnp.scan(igd)
         val plain = Upnp.scan("<root><device><friendlyName>Box</friendlyName></device></root>")
-        assertEquals(LanKeys.TRUE, Upnp.igdVerdict(withIgd, advertisesIgd = false, locationsTried = 1, ssdpResponded = true))
-        assertEquals(LanKeys.TRUE, Upnp.igdVerdict(null, advertisesIgd = true, locationsTried = 0, ssdpResponded = true))
-        assertEquals(LanKeys.FALSE, Upnp.igdVerdict(plain, advertisesIgd = false, locationsTried = 1, ssdpResponded = true))
-        assertEquals("gateway advertised but its description could not be read", LanKeys.UNKNOWN, Upnp.igdVerdict(null, false, locationsTried = 2, ssdpResponded = true))
-        assertEquals("others answered, the gateway did not", LanKeys.FALSE, Upnp.igdVerdict(null, false, locationsTried = 0, ssdpResponded = true))
-        assertEquals("nobody answered SSDP: not a pass", LanKeys.UNKNOWN, Upnp.igdVerdict(null, false, locationsTried = 0, ssdpResponded = false))
+        assertEquals(LanKeys.TRUE, Upnp.igdVerdict(withIgd, advertisesIgd = false, locationsTried = 1, ssdpResponded = true, gatewayProbed = true))
+        assertEquals(LanKeys.TRUE, Upnp.igdVerdict(null, advertisesIgd = true, locationsTried = 0, ssdpResponded = true, gatewayProbed = true))
+        assertEquals(LanKeys.FALSE, Upnp.igdVerdict(plain, advertisesIgd = false, locationsTried = 1, ssdpResponded = true, gatewayProbed = true))
+        assertEquals("gateway advertised but its description could not be read", LanKeys.UNKNOWN, Upnp.igdVerdict(null, false, locationsTried = 2, ssdpResponded = true, gatewayProbed = true))
+        assertEquals("others answered, the gateway did not", LanKeys.FALSE, Upnp.igdVerdict(null, false, locationsTried = 0, ssdpResponded = true, gatewayProbed = true))
+        assertEquals("nobody answered SSDP: not a pass", LanKeys.UNKNOWN, Upnp.igdVerdict(null, false, locationsTried = 0, ssdpResponded = false, gatewayProbed = true))
+    }
+
+    @Test
+    fun igdVerdictIsUnknownWhenTheGatewayWasNeverProbed() {
+        // The gateway was dropped as out of scope, but other devices answered SSDP: that is not "UPnP is off".
+        assertEquals(LanKeys.UNKNOWN, Upnp.igdVerdict(null, advertisesIgd = false, locationsTried = 0, ssdpResponded = true, gatewayProbed = false))
+        assertEquals(LanKeys.UNKNOWN, Upnp.igdVerdict(null, advertisesIgd = false, locationsTried = 0, ssdpResponded = false, gatewayProbed = false))
+        assertEquals(LanKeys.UNKNOWN, Upnp.igdVerdict(UpnpDescription(null, null, null, emptyList(), emptyList()), advertisesIgd = false, locationsTried = 1, ssdpResponded = true, gatewayProbed = false))
     }
 }

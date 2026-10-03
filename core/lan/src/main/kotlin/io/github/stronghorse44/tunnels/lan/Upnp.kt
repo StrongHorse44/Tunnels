@@ -50,10 +50,19 @@ object Upnp {
     /**
      * The router:upnpIgd value. A check that could not run must never read as a pass: "false" only when the
      * gateway's own description was read and names no WAN connection service, or when SSDP did get answers from
-     * the network ([ssdpResponded]: at least one reply and the stage was not cut short) and nothing from the
-     * gateway named an IGD. A multicast-filtering AP, a refused socket or a timed-out stage leave it "unknown".
+     * the network ([ssdpResponded]: at least one in-scope reply and the stage was not cut short) and nothing from
+     * the gateway named an IGD. A multicast-filtering AP, a refused socket or a timed-out stage leave it "unknown",
+     * and so does a gateway that was never probed ([gatewayProbed] false: it lay outside the confirmed network or
+     * the scan lost it), whatever other devices answered.
      */
-    fun igdVerdict(description: UpnpDescription?, advertisesIgd: Boolean, locationsTried: Int, ssdpResponded: Boolean): String = when {
+    fun igdVerdict(
+        description: UpnpDescription?,
+        advertisesIgd: Boolean,
+        locationsTried: Int,
+        ssdpResponded: Boolean,
+        gatewayProbed: Boolean,
+    ): String = when {
+        !gatewayProbed -> LanKeys.UNKNOWN
         description?.hasIgd == true || advertisesIgd -> LanKeys.TRUE
         description != null -> LanKeys.FALSE
         locationsTried > 0 -> LanKeys.UNKNOWN

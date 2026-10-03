@@ -103,17 +103,60 @@ class LanScopeTest {
     }
 
     @Test
-    fun literalsOnly() {
+    fun literalsAreParsedStrictlyAndNeverResolved() {
         assertTrue(LanScope.acceptsLiteral("192.168.1.77", home, own))
         assertTrue(LanScope.acceptsLiteral(" 192.168.1.77 ", home, own))
         assertFalse(LanScope.acceptsLiteral("192.168.2.77", home, own))
         assertFalse(LanScope.acceptsLiteral("192.168.1.23", home, own))
         assertTrue(LanScope.acceptsLiteral("fe80::abcd%wlan0", listOf(ip("fe80::1") to 64)))
         assertNull("names are never resolved", LanScope.parseLiteral("router.local"))
+        assertNull("not an address, and not a lookup either", LanScope.parseLiteral("localhost"))
         assertNull(LanScope.parseLiteral("example.com"))
         assertNull(LanScope.parseLiteral(""))
         assertNull(LanScope.parseLiteral("192.168.1"))
         assertFalse(LanScope.acceptsLiteral("router.local", home, own))
         assertEquals(ip("10.0.0.1"), LanScope.parseLiteral("10.0.0.1"))
+    }
+
+    @Test
+    fun malformedLiteralsAreRejectedWithoutALookup() {
+        // getByName would treat these as host names (a hosts-file entry or a DNS query would answer them).
+        for (bad in listOf(
+            "999.1.1.1", "...", "1.2.3", "1.2.3.4.5", "1..2.3", ".1.2.3", "1.2.3.", "256.1.1.1", "-1.2.3.4", "+1.2.3.4",
+            "01.2.3.4", "1.2.3.4/24", "0x7f.0.0.1", "1.2.3.4a", "router.local", "example.com", "localhost", "", " ",
+        )) {
+            assertNull("v4/name: '$bad'", LanScope.parseLiteral(bad))
+        }
+        for (bad in listOf(
+            ":::", "::1::", "fe80::1::2", "fe80:::1", "12345::1", "g::1", "1:2:3:4:5:6:7:8:9", "1:2:3:4:5:6:7", "1:2:3:4:5:6:7:8::",
+            "::ffff:1.2.3.4", "fe80::1%", ":1:2:3:4:5:6:7", "1:2:3:4:5:6:7:", ":",
+        )) {
+            // "fe80::1%" has an empty zone, which is ignored, so it is the one valid entry here.
+            if (bad == "fe80::1%") assertEquals(ip("fe80::1"), LanScope.parseLiteral(bad)) else assertNull("v6: '$bad'", LanScope.parseLiteral(bad))
+        }
+    }
+
+    @Test
+    fun nonAsciiDigitsAreRejected() {
+        // Arabic-indic, fullwidth and Devanagari digits satisfy Char.isDigit() but are not address digits.
+        assertNull(LanScope.parseLiteral("\u0661\u0669\u0662.\u0661\u0666\u0668.\u0661.\u0661"))
+        assertNull(LanScope.parseLiteral("\uFF11\uFF19\uFF12.168.1.1"))
+        assertNull(LanScope.parseLiteral("192.168.\u0967.1"))
+        assertNull(LanScope.parseLiteral("fd12:\u0663456::1"))
+        assertFalse(LanScope.acceptsLiteral("192.168.\u0661.77", home, own))
+    }
+
+    @Test
+    fun parsesTheFormsHostAddressProduces() {
+        assertEquals(ip("192.168.1.77"), LanScope.parseLiteral("192.168.1.77"))
+        assertEquals(ip("0.0.0.0"), LanScope.parseLiteral("0.0.0.0"))
+        assertEquals(ip("fd12:3456::23"), LanScope.parseLiteral("fd12:3456:0:0:0:0:0:23"))
+        assertEquals(ip("fd12:3456::23"), LanScope.parseLiteral("FD12:3456::23"))
+        assertEquals(ip("::1"), LanScope.parseLiteral("::1"))
+        assertEquals(ip("::"), LanScope.parseLiteral("::"))
+        assertEquals(ip("fe80::abcd"), LanScope.parseLiteral("fe80::abcd%wlan0"))
+        assertEquals(ip("1:2:3:4:5:6:7::"), LanScope.parseLiteral("1:2:3:4:5:6:7::"))
+        val parsed = ip("fd12:3456:0:0:0:0:0:23")
+        assertEquals(parsed, LanScope.parseLiteral(parsed.hostAddress))
     }
 }

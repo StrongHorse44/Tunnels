@@ -59,10 +59,16 @@ object LanKeys {
     /** Comma list of stages that hit their time budget and returned partial results. */
     const val SCAN_PARTIAL = "scan:partial"
     /**
-     * How many discovered addresses were dropped before any probe because they lay outside the confirmed
-     * network (see [LanScope]). Only the count is kept, never the addresses. Absent when zero.
+     * How many distinct discovered addresses were dropped before any probe because they lay outside the
+     * confirmed network (see [LanScope], [DropCounter]). Only the count is kept, never the addresses. Absent
+     * when zero.
      */
     const val SCAN_DROPPED_OUT_OF_SCOPE = "scan:droppedOutOfScope"
+    /**
+     * Probes not sent because the socket could not be bound to the confirmed network (Wi-Fi dropped or roamed
+     * mid-scan; see [BindGuard]). The scan is also marked partial with the stage "network". Absent when zero.
+     */
+    const val SCAN_PROBES_SKIPPED = "scan:probesSkipped"
 
     const val GATE_CONFIRMED = "confirmed"
     const val GATE_UNCONFIRMED = "unconfirmed"
