@@ -88,8 +88,11 @@ tests; Maven Central rate-limits (HTTP 429) are transient, retry.
   path-filtered, so the `[emulator]` commit must change a file under your module (an empty commit
   does not trigger a run).
 - `ci.yml`: integration, `main`, PRs, and manual runs (`workflow_dispatch`) on any branch. Full build,
-  all unit tests, permission checks, app emulator smoke test, and a numbered debug release on integration
-  pushes and on every manual run outside `main`.
+  all unit tests, permission checks, the release gate (`gate/`), app emulator smoke test, and a numbered
+  debug release on integration pushes only; pull requests and manual runs never publish.
+- `release.yml`: `v*` tags; see `docs/RELEASING.md`. `workflow-lint.yml`: zizmor on `.github/**` changes.
+- Every Gradle job runs with `--dependency-verification=strict` against `gradle/verification-metadata.xml`;
+  every action is pinned to a commit SHA (`gate/README.md`).
 
 ## Status (2026-10-01)
 

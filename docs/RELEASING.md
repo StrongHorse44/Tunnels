@@ -1,15 +1,24 @@
 # Releasing Tunnels
 
-Every push to the integration branch, and every manual run of the **CI** workflow on any other branch
-(Actions → CI → Run workflow, pick the branch), builds a **debug** APK (`io.github.stronghorse44.tunnels.debug`)
-and publishes it to Releases. Work on another branch reaches the phone the same way: start CI on it. It is
-labelled "Tunnels" like the release build; the version name ends in `-debug` and the package name tells them apart.
-Each one is published as its own prerelease, **Debug build #N**, with a plain `tunnels-debug-N.apk`
-you can tap on the phone. The newest is at the top of the Releases page and the last 10 are kept.
-Debug builds install alongside release builds, use the build number as their version code, and are
-signed with a public debug key committed in `app/debug.keystore`, so each one updates over the last.
+Every push to the integration branch builds a **debug** APK (`io.github.stronghorse44.tunnels.debug`),
+checks it against the release gate (`gate/baseline.json`, see `gate/README.md`) and publishes it to Releases.
+A pull request or a manual run of the **CI** workflow builds, tests and checks the gate too, but never
+publishes. It is labelled "Tunnels" like the release build; the version name ends in `-debug` and the package
+name tells them apart. Each one is published as its own prerelease, **Debug build #N**, with a plain
+`tunnels-debug-N.apk` you can tap on the phone. The newest is at the top of the Releases page and the last 10
+are kept. Debug builds install alongside release builds, use the build number as their version code, and are
+signed with a public debug key committed in `app/debug.keystore`, so each one updates over the last. Because
+that key is public, the certificate pin in `gate/baseline.json` only catches an accidental key change; it
+does not show who built the APK.
 
-Pushing a tag like `v0.1.0` builds a **signed release** APK and attaches it to a GitHub Release.
+The publish job runs in the `publish` environment and attaches a build provenance attestation to the APK.
+With required reviewers set on that environment (Settings, Environments, `publish`), each publish waits
+for approval first.
+
+Pushing a tag like `v0.1.0` builds a **signed release** APK and attaches it to a GitHub Release, once the
+release baseline `gate/baseline.release.json` exists (it is added with the build that moves the app to
+release builds; until then the Release workflow stops at its first step). The tag's commit must be on the
+integration branch or `main`.
 Obtainium can follow those releases directly.
 
 ## Updating from inside Tunnels
@@ -55,9 +64,12 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The version code is derived from the tag (`v1.2.3` → `1002003`), so tags must increase.
+The version code is derived from the tag (`v1.2.3` → `1002003`), so tags must increase. Tag only a commit
+that is on the integration branch or `main` and contains the release gate; the workflow refuses a commit that
+is on neither.
 
 ## Verifying a release
 
 Each release includes `tunnels-<version>.apk.sha256`. The workflow log prints the signing certificate
-(`apksigner verify --print-certs`); note its SHA-256 once and compare it on later releases.
+(`apksigner verify --print-certs`); note its SHA-256 once and compare it on later releases. The release
+job also refuses to publish a certificate other than the one pinned in `gate/baseline.release.json`.
