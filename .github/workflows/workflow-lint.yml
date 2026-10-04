@@ -1,0 +1,37 @@
+# Lints the workflows with zizmor (template injection, credential persistence, excessive
+# permissions, actions not pinned to a commit SHA) whenever something under .github/ changes. Offline mode:
+# no GitHub API calls. The config requires every action to be pinned to a commit SHA.
+
+name: Workflow lint
+
+on:
+  push:
+    branches: ["ccr-dff99af5-ij1rle", "main"]
+    paths: [".github/**"]
+  pull_request:
+    paths: [".github/**"]
+
+permissions: {}
+
+concurrency:
+  group: workflow-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zizmor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Install zizmor (hash-pinned)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/zizmor"
+          "$RUNNER_TEMP/zizmor/bin/pip" install --quiet --require-hashes --only-binary :all: -r .github/zizmor-requirements.txt
+
+      - name: Lint workflows
+        run: '"$RUNNER_TEMP/zizmor/bin/zizmor" --offline --config .github/zizmor.yml .github/workflows'

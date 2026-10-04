@@ -1,0 +1,2218 @@
+{
+  "schema": 2,
+  "app": "tunnels",
+  "variant": "debug",
+  "package": "io.github.stronghorse44.tunnels.debug",
+  "shared_user_id": null,
+  "sdk": {
+    "min": 34,
+    "target": 36
+  },
+  "debuggable": true,
+  "backup": {
+    "allow_backup": false,
+    "full_backup_content": "false",
+    "data_extraction_rules": true,
+    "backup_agent": null
+  },
+  "network": {
+    "uses_cleartext_traffic": "absent",
+    "network_security_config": null
+  },
+  "permissions": {
+    "requested": [
+      "android.permission.ACCESS_BACKGROUND_LOCATION",
+      "android.permission.ACCESS_COARSE_LOCATION",
+      "android.permission.ACCESS_FINE_LOCATION",
+      "android.permission.ACCESS_NETWORK_STATE",
+      "android.permission.ACCESS_WIFI_STATE",
+      "android.permission.BLUETOOTH_CONNECT",
+      "android.permission.BLUETOOTH_SCAN;usesPermissionFlags=neverForLocation",
+      "android.permission.CAMERA",
+      "android.permission.CHANGE_WIFI_MULTICAST_STATE",
+      "android.permission.FOREGROUND_SERVICE",
+      "android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE",
+      "android.permission.FOREGROUND_SERVICE_LOCATION",
+      "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
+      "android.permission.INTERNET",
+      "android.permission.NEARBY_WIFI_DEVICES;usesPermissionFlags=neverForLocation",
+      "android.permission.PACKAGE_USAGE_STATS",
+      "android.permission.POST_NOTIFICATIONS",
+      "android.permission.QUERY_ALL_PACKAGES",
+      "android.permission.READ_BASIC_PHONE_STATE",
+      "android.permission.RECEIVE_BOOT_COMPLETED",
+      "android.permission.REQUEST_DELETE_PACKAGES",
+      "android.permission.REQUEST_INSTALL_PACKAGES",
+      "android.permission.USE_BIOMETRIC",
+      "android.permission.VIBRATE",
+      "io.github.stronghorse44.tunnels.debug.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
+      "moe.shizuku.manager.permission.API_V23"
+    ],
+    "declared": [
+      "io.github.stronghorse44.tunnels.debug.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION;protectionLevel=0x2"
+    ]
+  },
+  "queries": [
+    "intent:action:android.net.VpnService",
+    "package:moe.shizuku.privileged.api"
+  ],
+  "uses_native_libraries": [],
+  "components": [
+    {
+      "type": "activity",
+      "name": "androidx.compose.ui.tooling.PreviewActivity",
+      "exported": true,
+      "permission": null,
+      "read_permission": null,
+      "write_permission": null,
+      "grant_uri_permissions": null,
+      "authorities": [],
+      "foreground_service_type": null,
+      "actions": [],
+      "categories": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "name": "io.github.stronghorse44.tunnels.MainActivity",
+      "exported": true,
+      "permission": null,
+      "read_permission": null,
+      "write_permission": null,
+      "grant_uri_permissions": null,
+      "authorities": [],
+      "foreground_service_type": null,
+      "actions": [
+        "android.intent.action.MAIN"
+      ],
+      "categories": [
+        "android.intent.category.LAUNCHER"
+      ],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "name": "io.github.stronghorse44.tunnels.installer.InstallActivity",
+      "exported": true,
+      "permission": null,
+      "read_permission": null,
+      "write_permission": null,
+      "grant_uri_permissions": null,
+      "authorities": [],
+      "foreground_service_type": null,
+      "actions": [
+        "android.intent.action.INSTALL_PACKAGE",
+        "android.intent.action.SEND",
+        "android.intent.action.VIEW"
+      ],
+      "categories": [
+        "android.intent.category.DEFAULT"
+      ],
+      "data": [
+        "mimeType=application/vnd.android.package-archive",
+        "scheme=content"
+      ]
+    },
+    {
+      "type": "activity",
+      "name": "io.github.stronghorse44.tunnels.unzip.UnzipActivity",
+      "exported": true,
+      "permission": null,
+      "read_permission": null,
+      "write_permission": null,
+      "grant_uri_permissions": null,
+      "authorities": [],
+      "foreground_service_type": null,
+      "actions": [
+        "android.intent.action.SEND",
+        "android.intent.action.VIEW"
+      ],
+      "categories": [
+        "android.intent.category.DEFAULT"
+      ],
+      "data": [
+        "mimeType=application/gzip",
+        "mimeType=application/octet-stream",
+        "mimeType=application/vnd.pmtiles",
+        "mimeType=application/x-7z-compressed",
+        "mimeType=application/x-bzip",
+        "mimeType=application/x-bzip2",
+        "mimeType=application/x-compressed-tar",
+        "mimeType=application/x-gtar",
+        "mimeType=application/x-gzip",
+        "mimeType=application/x-tar",
+        "mimeType=application/x-xz",
+        "mimeType=application/x-zip-compressed",
+        "mimeType=application/zip",
+        "scheme=content"
+      ]
+    },
+    {
+      "type": "provider",
+      "name": "androidx.startup.InitializationProvider",
+      "exported": false,
+      "permission": null,
+      "read_permission": null,
+      "write_permission": null,
+      "grant_uri_permissions": false,
+      "authorities": [
+        "io.github.stronghorse44.tunnels.debug.androidx-startup"
+      ],
+      "foreground_service_type": null,
+      "actions": [],
+      "categories": [],
+      "data": []
+    },
+    {
+      "type": "provider",
+      "name": "rikka.shizuku.ShizukuProvider",
+      "exported": true,
+      "permission": "android.permission.INTERACT_ACROSS_USERS_FULL",
+      "read_permission": null,
+      "write_permission": null,
+      "grant_uri_permissions": false,
+      "authorities": [
+        "io.github.stronghorse44.tunnels.debug.shizuku"
+      ],
+      "foreground_service_type": null,
+      "actions": [],
+      "categories": [],
+      "data": []
+    },
+    {
+      "type": "receiver",
+      "name": "androidx.profileinstaller.ProfileInstallReceiver",
+      "exported": true,
+      "permission": "android.permission.DUMP",
+      "read_permission": null,
+      "write_permission": null,
+      "grant_uri_permissions": null,
+      "authorities": [],
+      "foreground_service_type": null,
+      "actions": [
+        "androidx.profileinstaller.action.BENCHMARK_OPERATION",
+        "androidx.profileinstaller.action.INSTALL_PROFILE",
+        "androidx.profileinstaller.action.SAVE_PROFILE",
+        "androidx.profileinstaller.action.SKIP_FILE"
+      ],
+      "categories": [],
+      "data": []
+    },
+    {
+      "type": "receiver",
+      "name": "io.github.stronghorse44.tunnels.installer.InstallResultReceiver",
+      "exported": false,
+      "permission": null,
+      "read_permission": null,
+      "write_permission": null,
+      "grant_uri_permissions": null,
+      "authorities": [],
+      "foreground_service_type": null,
+      "actions": [],
+      "categories": [],
+      "data": []
+    },
+    {
+      "type": "service",
+      "name": "androidx.camera.core.impl.MetadataHolderService",
+      "exported": false,
+      "permission": null,
+      "read_permission": null,
+      "write_permission": null,
+      "grant_uri_permissions": null,
+      "authorities": [],
+      "foreground_service_type": null,
+      "actions": [],
+      "categories": [],
+      "data": []
+    },
+    {
+      "type": "service",
+      "name": "androidx.room.MultiInstanceInvalidationService",
+      "exported": false,
+      "permission": null,
+      "read_permission": null,
+      "write_permission": null,
+      "grant_uri_permissions": null,
+      "authorities": [],
+      "foreground_service_type": null,
+      "actions": [],
+      "categories": [],
+      "data": []
+    },
+    {
+      "type": "service",
+      "name": "io.github.stronghorse44.tunnels.notifications.NotifListenerService",
+      "exported": true,
+      "permission": "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE",
+      "read_permission": null,
+      "write_permission": null,
+      "grant_uri_permissions": null,
+      "authorities": [],
+      "foreground_service_type": null,
+      "actions": [
+        "android.service.notification.NotificationListenerService"
+      ],
+      "categories": [],
+      "data": []
+    },
+    {
+      "type": "service",
+      "name": "io.github.stronghorse44.tunnels.surroundings.MonitorService",
+      "exported": false,
+      "permission": null,
+      "read_permission": null,
+      "write_permission": null,
+      "grant_uri_permissions": null,
+      "authorities": [],
+      "foreground_service_type": "0x18",
+      "actions": [],
+      "categories": [],
+      "data": []
+    },
+    {
+      "type": "service",
+      "name": "io.github.stronghorse44.tunnels.traffic.DnsVpnService",
+      "exported": false,
+      "permission": "android.permission.BIND_VPN_SERVICE",
+      "read_permission": null,
+      "write_permission": null,
+      "grant_uri_permissions": null,
+      "authorities": [],
+      "foreground_service_type": "0x40000000",
+      "actions": [
+        "android.net.VpnService"
+      ],
+      "categories": [],
+      "data": []
+    },
+    {
+      "type": "service",
+      "name": "io.github.stronghorse44.tunnels.watch.WatchJobService",
+      "exported": false,
+      "permission": "android.permission.BIND_JOB_SERVICE",
+      "read_permission": null,
+      "write_permission": null,
+      "grant_uri_permissions": null,
+      "authorities": [],
+      "foreground_service_type": null,
+      "actions": [],
+      "categories": [],
+      "data": []
+    }
+  ],
+  "native_libs": [
+    "lib/arm64-v8a/libandroidx.graphics.path.so",
+    "lib/arm64-v8a/libimage_processing_util_jni.so",
+    "lib/arm64-v8a/libsqlcipher.so",
+    "lib/arm64-v8a/libsurface_util_jni.so",
+    "lib/armeabi-v7a/libandroidx.graphics.path.so",
+    "lib/armeabi-v7a/libimage_processing_util_jni.so",
+    "lib/armeabi-v7a/libsqlcipher.so",
+    "lib/armeabi-v7a/libsurface_util_jni.so",
+    "lib/x86/libandroidx.graphics.path.so",
+    "lib/x86/libimage_processing_util_jni.so",
+    "lib/x86/libsqlcipher.so",
+    "lib/x86/libsurface_util_jni.so",
+    "lib/x86_64/libandroidx.graphics.path.so",
+    "lib/x86_64/libimage_processing_util_jni.so",
+    "lib/x86_64/libsqlcipher.so",
+    "lib/x86_64/libsurface_util_jni.so"
+  ],
+  "extra_code": [
+    "DebugProbesKt.bin"
+  ],
+  "desugared_library": false,
+  "network_api": [
+    {
+      "value": "Landroid/app/DownloadManager;",
+      "note": "AndroidX core ContextCompat service-name table only (androidx.core.content); Tunnels never calls DownloadManager, the updater uses HttpURLConnection"
+    },
+    {
+      "value": "Landroid/net/ConnectivityManager$NetworkCallback;",
+      "note": "tunnels/traffic DnsVpnService.followDefaultNetwork: follows the default network while a Traffic session the user started is running; no sockets"
+    },
+    {
+      "value": "Landroid/net/ConnectivityManager;",
+      "note": "state queries, no sockets: tunnels/traffic (session the user starts), tunnels/homenet (own-network gate), tunnels/devicecheck and tunnels/explore (read-only checks); also AndroidX core"
+    },
+    {
+      "value": "Landroid/net/DhcpInfo;",
+      "note": "tunnels/homenet NetworkGate: DHCP gateway and server for the network fingerprint; read-only, scans only after the user confirms the network"
+    },
+    {
+      "value": "Landroid/net/IpPrefix;",
+      "note": "tunnels/homenet NetworkGate: route destination type (RouteInfo.destination) when finding the default gateway; read-only"
+    },
+    {
+      "value": "Landroid/net/LinkAddress;",
+      "note": "tunnels/homenet NetworkGate: the phone's own prefix that bounds every probe (LanScope); read-only"
+    },
+    {
+      "value": "Landroid/net/LinkProperties;",
+      "note": "state query, no sockets: tunnels/homenet (own-network gate), tunnels/traffic (underlying DNS servers for a session), tunnels/devicecheck"
+    },
+    {
+      "value": "Landroid/net/Network;",
+      "note": "network handle used by tunnels/homenet, tunnels/traffic (session the user starts), tunnels/devicecheck and tunnels/explore for state queries and binding; also AndroidX core"
+    },
+    {
+      "value": "Landroid/net/NetworkCapabilities;",
+      "note": "state query, no sockets: tunnels/traffic (another VPN present), tunnels/homenet (Wi-Fi gate), tunnels/devicecheck, tunnels/explore"
+    },
+    {
+      "value": "Landroid/net/NetworkInfo;",
+      "note": "AndroidX core ConnectivityManagerCompat only; no first-party use"
+    },
+    {
+      "value": "Landroid/net/RouteInfo;",
+      "note": "tunnels/homenet NetworkGate: finds the default gateway from the routes; read-only"
+    },
+    {
+      "value": "Landroid/net/TrafficStats;",
+      "note": "AndroidX core TrafficStatsCompat only; no first-party use"
+    },
+    {
+      "value": "Landroid/net/TransportInfo;",
+      "note": "tunnels/homenet and tunnels/explore: Wi-Fi info from the connected network; read-only"
+    },
+    {
+      "value": "Landroid/net/VpnService$Builder;",
+      "note": "tunnels/traffic DnsVpnService: builds the DNS-only VPN, routing only 10.111.0.1/32 and an IPv6 equivalent; only in a Traffic session the user starts"
+    },
+    {
+      "value": "Landroid/net/VpnService;",
+      "note": "tunnels/traffic DnsVpnService: DNS-only VPN, started by the user (VPN consent), 60 minute cap, refuses while another VPN is up"
+    },
+    {
+      "value": "Landroid/net/nsd/NsdManager$DiscoveryListener;",
+      "note": "tunnels/homenet LanScanner: mDNS discovery, only during a user-started Home network scan behind NetworkGate"
+    },
+    {
+      "value": "Landroid/net/nsd/NsdManager$ServiceInfoCallback;",
+      "note": "tunnels/homenet LanScanner: mDNS service updates, only during a user-started Home network scan behind NetworkGate"
+    },
+    {
+      "value": "Landroid/net/nsd/NsdManager;",
+      "note": "tunnels/homenet LanScanner: mDNS discovery, only during a user-started Home network scan behind NetworkGate; also an AndroidX core service-name table"
+    },
+    {
+      "value": "Landroid/net/nsd/NsdServiceInfo;",
+      "note": "tunnels/homenet LanScanner: mDNS service records, only during a user-started Home network scan behind NetworkGate"
+    },
+    {
+      "value": "Landroid/net/wifi/ScanResult;",
+      "note": "tunnels/surroundings: reads nearby Wi-Fi scan results (security, evil-twin check); no sockets, no INTERNET use"
+    },
+    {
+      "value": "Landroid/net/wifi/WifiInfo;",
+      "note": "read-only Wi-Fi state: tunnels/explore, tunnels/homenet (network fingerprint), tunnels/surroundings; no sockets"
+    },
+    {
+      "value": "Landroid/net/wifi/WifiManager$MulticastLock;",
+      "note": "tunnels/homenet LanScanner: held during one SSDP discovery in a user-started Home network scan"
+    },
+    {
+      "value": "Landroid/net/wifi/WifiManager;",
+      "note": "tunnels/homenet (multicast lock, DHCP info during a scan), tunnels/surroundings (scan results), tunnels/explore (read-only); also an AndroidX core service-name table"
+    },
+    {
+      "value": "Landroid/net/wifi/WifiSsid;",
+      "note": "tunnels/surroundings: reads the SSID of scan results; no sockets"
+    },
+    {
+      "value": "Landroid/net/wifi/p2p/WifiP2pManager;",
+      "note": "AndroidX core ContextCompat service-name table only; Tunnels never uses Wi-Fi Direct"
+    },
+    {
+      "value": "Landroid/webkit/MimeTypeMap;",
+      "note": "AndroidX documentfile and core.content file-type helpers; no network"
+    },
+    {
+      "value": "Landroid/webkit/WebView;",
+      "note": "AndroidX core LinkifyCompat reference only; Tunnels has no WebView"
+    },
+    {
+      "value": "Ljava/net/DatagramPacket;",
+      "note": "UDP packets: tunnels/traffic DnsForwarder (DNS lookups in a session the user starts) and tunnels/homenet (SSDP and the router DNS-hijack probe in a user-started scan)"
+    },
+    {
+      "value": "Ljava/net/DatagramSocket;",
+      "note": "UDP: tunnels/traffic DnsForwarder (session the user starts), tunnels/homenet and core/lan (SSDP and DNS probe, user-started Home network scan behind NetworkGate); also AndroidX core TrafficStatsCompat"
+    },
+    {
+      "value": "Ljava/net/HttpURLConnection;",
+      "note": "tunnels/updater GitHubClient: asks api.github.com for releases and downloads one APK, only when the user taps Check or Download; also an unused Apache commons-io reference"
+    },
+    {
+      "value": "Ljava/net/Inet4Address;",
+      "note": "address value type in tunnels/homenet, core/lan, tunnels/traffic and core/dns; opens nothing by itself"
+    },
+    {
+      "value": "Ljava/net/Inet6Address;",
+      "note": "address value type in tunnels/homenet, core/lan, tunnels/traffic and core/dns; opens nothing by itself"
+    },
+    {
+      "value": "Ljava/net/InetAddress;",
+      "note": "address value type in tunnels/homenet, core/dns, tunnels/traffic and core/lan; opens nothing by itself"
+    },
+    {
+      "value": "Ljava/net/InetSocketAddress;",
+      "note": "tunnels/homenet (scan targets inside the confirmed network) and tunnels/traffic (session forwarding); only while those user-started sessions run"
+    },
+    {
+      "value": "Ljava/net/ServerSocket;",
+      "note": "type reference only: no call site in Tunnels source or in the dex code; Tunnels opens no listening socket"
+    },
+    {
+      "value": "Ljava/net/Socket;",
+      "note": "tunnels/homenet LanScanner TCP connect scan inside the confirmed network, user-started and behind NetworkGate; also core/lan, tunnels/traffic (VpnService.protect overload) and AndroidX core TrafficStatsCompat"
+    },
+    {
+      "value": "Ljava/net/SocketAddress;",
+      "note": "tunnels/homenet LanScanner: connect target of the TCP scan, user-started and behind NetworkGate"
+    },
+    {
+      "value": "Ljava/net/SocketException;",
+      "note": "tunnels/traffic DnsForwarder: caught when a session's socket is closed"
+    },
+    {
+      "value": "Ljava/net/SocketImpl;",
+      "note": "AndroidX core TrafficStatsCompat only; no first-party use"
+    },
+    {
+      "value": "Ljava/net/SocketTimeoutException;",
+      "note": "tunnels/homenet LanScanner: caught on read timeouts during a user-started Home network scan"
+    },
+    {
+      "value": "Ljava/net/URI;",
+      "note": "parsing only: core/dns Upstream URL validation; Apache commons-io and commons-compress, zxing; opens nothing"
+    },
+    {
+      "value": "Ljava/net/URISyntaxException;",
+      "note": "exception type only; opens no connection"
+    },
+    {
+      "value": "Ljava/net/URL;",
+      "note": "tunnels/updater (release API and APK download, user-started) and tunnels/traffic (DNS-over-HTTPS endpoint, only if the user picked an encrypted upstream); library references in Apache commons-io, commons-lang3, kotlinx.coroutines and kotlin.io"
+    },
+    {
+      "value": "Ljava/net/URLClassLoader;",
+      "note": "Apache commons-lang3 class-loader helpers only; Tunnels does not use it"
+    },
+    {
+      "value": "Ljava/net/URLConnection;",
+      "note": "tunnels/updater and tunnels/traffic connection base type (same gating as HttpURLConnection and HttpsURLConnection); Apache commons-io references"
+    },
+    {
+      "value": "Ljava/net/URLDecoder;",
+      "note": "zxing client result parsing (pairing QR codes); no network"
+    },
+    {
+      "value": "Ljava/net/URLEncoder;",
+      "note": "AndroidX core LinkifyCompat only; no network"
+    },
+    {
+      "value": "Ljavax/net/ssl/HttpsURLConnection;",
+      "note": "tunnels/traffic DnsForwarder: DNS-over-HTTPS (RFC 8484) to the upstream the user picked (Upstream presets or custom); the default is the network's own resolver over UDP; only in a session the user starts"
+    }
+  ],
+  "dependencies": {
+    "project": ":app",
+    "configuration": "debugRuntimeClasspath",
+    "modules": [],
+    "files": [],
+    "desugaring": []
+  },
+  "hosts": [
+    {
+      "value": "0.0.0.0",
+      "note": "core/dns HostList.kt: sinkhole address skipped when parsing hosts-file blocklist lines (parser ignore list); not an address Tunnels binds or connects to"
+    },
+    {
+      "value": "10.111.0.1",
+      "note": "tunnels/traffic DnsVpnService.kt: the DNS-only VPN's own tunnel address, inside the tun only, during a Traffic session the user starts"
+    },
+    {
+      "value": "10.111.0.2",
+      "note": "tunnels/traffic DnsVpnService.kt: the DNS-only VPN's fake DNS address inside the tun, only during a Traffic session the user starts"
+    },
+    {
+      "value": "239.255.255.250",
+      "note": "core/lan Ssdp.kt SSDP multicast group; tunnels/homenet sends one M-SEARCH during a user-started Home network scan on the confirmed Wi-Fi"
+    },
+    {
+      "value": "2mdn.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "2o7.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "360yield.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "a.prod.fastly.net",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "a.ssl.fastly.net",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "ac.cn",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "ac.jp",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "ac.uk",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "ad.jp",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "adaway.github.io",
+      "note": "core/dns HostList.kt Blocklists.ADAWAY.source: attribution link for the bundled AdAway list (tunnels/traffic assets), shown as text, never fetched"
+    },
+    {
+      "value": "adcolony.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "ade.googlesyndication.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "adform.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "adform.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "adikteev.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "adjust.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "adjust.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "admob.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "adnxs.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "adobedtm.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "ads-api.twitter.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "ads.google.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "ads.linkedin.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "ads.microsoft.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "ads.pinterest.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "ads.reddit.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "ads.twitter.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "ads.yahoo.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "adsafeprotected.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "adservice.google.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "adsrvr.org",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "adtechus.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "advertising.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "aerserv.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "agkn.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "airbridge.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "alb.reddit.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "amazon-adsystem.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "amplifyapp.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "amplitude.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "an.facebook.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "an.yandex.ru",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "analytics.google.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "analytics.twitter.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "analytics.yahoo.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "api.github.com",
+      "note": "tunnels/updater GitHubClient (core/updates Updates.API_HOST): the project's release list, contacted only when the user taps Check on the update screen; approved 2026-10-01"
+    },
+    {
+      "value": "app-measurement.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "app.link",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "appboy.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "appdynamics.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "applovin.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "applvn.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "appmetrica.yandex.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "appmetrica.yandex.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "appnexus.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "appsflyer.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "appsflyersdk.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "appspot.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "apptimize.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "apsalar.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "asn.au",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "asso.fr",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "awsglobalaccelerator.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "azure-api.net",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "azurecontainer.io",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "azureedge.net",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "azurefd.net",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "azurestaticapps.net",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "azurewebsites.net",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "b.ssl.fastly.net",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "bat.bing.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "batch.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "bidmachine.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "bidswitch.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "bitbucket.io",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "blob.core.windows.net",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "blogspot.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "bluekai.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "branch.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "braze.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "braze.eu",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "browser-intake-ap1-datadoghq.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "browser-intake-datadoghq.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "browser-intake-ddog-gov.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "browser-intake-us3-datadoghq.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "browser-intake-us5-datadoghq.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "browser.events.data.microsoft.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "bubbleapps.io",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "bugfender.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "bugsnag.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "byteoversea.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "carrd.co",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "casalemedia.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "chartbeat.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "chartbeat.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "chartboost.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "clevertap.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "clicktale.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "cloudapp.azure.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "cloudapp.net",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "cloudflare-ipfs.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "cloudflareinsights.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "cloudfront.net",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "cloudfunctions.net",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "co.jp",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "co.uk",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "codesandbox.io",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "com.au",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "com.cn",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "com.co",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "com.fr",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "comscore.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "config.unityads.unity3d.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "contentsquare.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "conversantmedia.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "count.ly",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "crashlytics.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "crazyegg.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "criteo.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "criteo.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "crwdcntrl.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "ct.pinterest.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "customer.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "data.mistat.intl.xiaomi.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "data.mistat.xiaomi.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "datadoghq.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "datadoghq.eu",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "dc.services.visualstudio.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "ddns.net",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "demdex.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "developer.android.com",
+      "note": "documentation link in Compose Material deprecation messages, never contacted"
+    },
+    {
+      "value": "device-metrics-us-2.amazon.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "device-metrics-us.amazon.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "digitaloceanspaces.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "dotomi.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "doubleclick.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "doubleverify.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "duckdns.org",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "dynatrace.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "dyndns.org",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "dynu.net",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "ed.jp",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "edu.au",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "edu.cn",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "edu.co",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "elb.amazonaws.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "emarsys.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "embrace.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "eum-appdynamics.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "events.data.microsoft.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "events.mapbox.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "events.reddit.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "everesttech.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "example.com",
+      "note": "core/lan DnsProbe PROBE_DOMAIN: the Home network DNS-hijack check asks the router for a random label under this IANA-reserved name during a user-started scan; also tunnels/doors probe URL, which never touches the network"
+    },
+    {
+      "value": "exelator.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "exponea.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "eyeota.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "facebook.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "fastlylb.net",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "firebaseapp.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "firebaseinstallations.googleapis.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "firebaselogging-pa.googleapis.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "firebaselogging.googleapis.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "firebaseperusertopics-pa.googleapis.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "firebaseremoteconfig.googleapis.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "flashtalking.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "fls-na.amazon.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "flurry.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "fly.dev",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "found.apple.com",
+      "note": "core/ble TrackerGuides.kt: help text telling the user where to read an AirTag, never contacted"
+    },
+    {
+      "value": "freeddns.org",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "fullstory.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "fyber.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "gc.ca",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "getclicky.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "github.com",
+      "note": "tunnels/updater: releases page and allowed download host in core/updates Updates.kt, contacted only when the user taps Check or Download; also the AdAway attribution link in core/dns Blocklists and a string in Apache commons-compress"
+    },
+    {
+      "value": "github.io",
+      "note": "AdAway attribution URL in core/dns Blocklists (never fetched); also a hosting suffix in PublicSuffix.kt, used locally"
+    },
+    {
+      "value": "githubusercontent.com",
+      "note": "tunnels/updater: allowed download host suffix in core/updates Updates.kt, used only on a user-started update download; also listed in PublicSuffix.kt"
+    },
+    {
+      "value": "gitlab.io",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "glassboxdigital.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "glitch.me",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "global.prod.fastly.net",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "global.ssl.fastly.net",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "go.jp",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "go.link",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "google-analytics.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "googleadservices.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "googleoptimize.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "googlesyndication.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "googletagmanager.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "googletagservices.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "gouv.fr",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "gov.au",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "gov.cn",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "gov.co",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "gov.uk",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "gr.jp",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "graph.facebook.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "grapheneos.org",
+      "note": "core/attestation SiliconRules.kt: help text pointing at GrapheneOS's published verified-boot values, never contacted"
+    },
+    {
+      "value": "gumgum.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "hasoffers.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "heapanalytics.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "herokuapp.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "herokussl.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "hopto.org",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "hotjar.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "hotjar.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "hs-analytics.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "hsadspixel.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "http://",
+      "note": "scheme prefix only, no host: used by tunnels/homenet (Home network HTTP probe text), core/lan HttpLite and AndroidX LinkifyCompat; the probe itself is gated by the confirmed-network scan"
+    },
+    {
+      "value": "http://example.com",
+      "note": "tunnels/doors DoorsTunnel.kt: probe URL given to PackageManager to list browser handlers, never opened"
+    },
+    {
+      "value": "http://ns.adobe.com",
+      "note": "XMP namespace string in androidx.exifinterface (ExifInterface), not a connection"
+    },
+    {
+      "value": "http://www.w3.org",
+      "note": "SVG namespace string in androidx.compose.ui.graphics PathSvg parser, not a connection"
+    },
+    {
+      "value": "https://",
+      "note": "scheme prefix only, no host: core/dns Upstream URL check, tunnels/traffic panel hint text, AndroidX LinkifyCompat"
+    },
+    {
+      "value": "https://api.github.com",
+      "note": "tunnels/updater GitHubClient (core/updates Updates.API_HOST): the project's release list, contacted only when the user taps Check on the update screen; approved 2026-10-01"
+    },
+    {
+      "value": "https://cloudflare-dns.com",
+      "note": "core/dns Upstream.kt PRESETS: Cloudflare DNS-over-HTTPS endpoint, contacted by tunnels/traffic only when the user picks it as the Traffic upstream (default is the network resolver) during a session they start"
+    },
+    {
+      "value": "https://commons.apache.org",
+      "note": "documentation URL in Apache commons-compress messages (zip, 7z), never contacted"
+    },
+    {
+      "value": "https://dns.example.net",
+      "note": "tunnels/traffic TrafficPanel.kt: placeholder text in the custom DNS-over-HTTPS field, never contacted"
+    },
+    {
+      "value": "https://dns.mullvad.net",
+      "note": "core/dns Upstream.kt PRESETS: Mullvad DNS-over-HTTPS endpoint, contacted by tunnels/traffic only when the user picks it as the Traffic upstream (default is the network resolver) during a session they start"
+    },
+    {
+      "value": "https://dns.quad9.net",
+      "note": "core/dns Upstream.kt PRESETS: Quad9 DNS-over-HTTPS endpoint, contacted by tunnels/traffic only when the user picks it as the Traffic upstream (default is the network resolver) during a session they start"
+    },
+    {
+      "value": "https://example.com",
+      "note": "tunnels/doors DoorsTunnel.kt: probe URL given to PackageManager to list browser handlers, never opened"
+    },
+    {
+      "value": "https://github.com",
+      "note": "tunnels/updater: releases page link in core/updates Updates.kt, contacted only on a user-started update check or download; also the AdAway attribution link in core/dns Blocklists"
+    },
+    {
+      "value": "https://goo.gle",
+      "note": "documentation URL in an androidx.compose.runtime error message (ComposerKt), never contacted"
+    },
+    {
+      "value": "https://issuetracker.google.com",
+      "note": "bug-report URL in AndroidX (camera, room) comments and messages, never contacted"
+    },
+    {
+      "value": "https://tukaani.org",
+      "note": "URL in Apache commons-compress CompressorStreamFactory messages (xz), never contacted"
+    },
+    {
+      "value": "https://youtrack.jetbrains.com",
+      "note": "bug-report URL in a Kotlin runtime (kotlin.jvm.internal PropertyReference) message, never contacted"
+    },
+    {
+      "value": "hyprmx.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "id.au",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "imrworldwide.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "indexww.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "inmobi.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "inmobicdn.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "innovid.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "instabug.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "instana.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "intercom.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "ironsrc.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "iterable.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "kissmetrics.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "kissmetrics.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "kochava.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "krxd.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "kumulos.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "launchdarkly.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "leanplum.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "lg.jp",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "liadm.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "liftoff.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "linodeusercontent.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "localytics.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "logrocket.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "lotame.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "lr-in.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "lr-ingest.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "ltd.uk",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "marketo.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "mathtag.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "matomo.cloud",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "mc.yandex.ru",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "me.uk",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "measurementapi.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "media.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "mediamath.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "metrics.data.hicloud.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "mgid.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "mintegral.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "mintegral.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "mixpanel.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "mktoresp.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "moatads.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "mobile.events.data.microsoft.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "mobileapptracking.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "moengage.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "molocoads.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "mopub.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "mouseflow.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "mparticle.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "msk.ru",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "myshopify.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "ne.jp",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "net.au",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "net.cn",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "net.co",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "net.uk",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "netlify.app",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "newrelic.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "nexage.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "ngrok-free.app",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "ngrok.app",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "ngrok.io",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "nhs.uk",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "nip.io",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "no-ip.org",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "nom.fr",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "notion.site",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "nr-data.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "objects.githubusercontent.com",
+      "note": "tunnels/updater: where GitHub serves a release APK, contacted only when the user taps Download on the update screen"
+    },
+    {
+      "value": "ogury.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "ogury.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "omtrdc.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "ondigitalocean.app",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "onesignal.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "onrender.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "openx.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "optimizely.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "or.jp",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "oraclecloudapps.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "org.au",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "org.cn",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "org.co",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "org.uk",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "outbrain.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "owneriq.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "pages.dev",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "pangle.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "pangleglobal.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "pardot.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "parsely.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "pendo.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "pixel.facebook.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "plausible.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "plc.uk",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "police.uk",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "presage.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "pubmatic.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "pubnative.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "pushwoosh.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "pythonanywhere.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "quantcount.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "quantserve.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "quantummetric.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "r2.dev",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "raygun.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "raygun.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "rayjump.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "readthedocs.io",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "release-assets.githubusercontent.com",
+      "note": "tunnels/updater: where GitHub serves a release APK, contacted only when the user taps Download on the update screen"
+    },
+    {
+      "value": "remerge.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "repl.co",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "replit.app",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "revcontent.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "rlcdn.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "rollbar.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "rtsp://",
+      "note": "scheme prefix only, no host: AndroidX LinkifyCompat link detection, no connection"
+    },
+    {
+      "value": "rubiconproject.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "run.app",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "s3.amazonaws.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "sailthru.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "samsungacr.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "samsungads.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "sascdn.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "sch.uk",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "scorecardresearch.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "segment.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "segment.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "self.events.data.microsoft.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "sentry.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "serving-sys.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "sharethrough.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "sift.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "siftscience.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "singular.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "smaato.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "smaato.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "smartadserver.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "smartlook.cloud",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "smartlook.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "sng.link",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "snowplowanalytics.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "spb.ru",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "split.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "spotx.tv",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "spotxchange.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "sslip.io",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "stackblitz.io",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "startapp.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "statcounter.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "stickyadstv.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "supersonicads.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "swrve.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "taboola.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "tapad.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "tapjoy.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "taplytics.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "teads.tv",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "telemetry.mozilla.org",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "tenjin.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "tenjin.io",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "tr.snapchat.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "track.hubspot.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "tracking.miui.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "trafficmanager.net",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "tune.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "unagi.amazon.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "undertone.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "unityads.unity3d.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "urbanairship.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "uxcam.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "vercel.app",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "vortex.data.microsoft.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "vungle.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "web.app",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "webflow.io",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "withgoogle.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "wixsite.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "wonderpush.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "woopra.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "wordpress.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "workers.dev",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "wzrkt.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "xip.io",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "yieldlab.net",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "yieldmo.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "zapto.org",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt, used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": "zedo.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "zemanta.com",
+      "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    }
+  ],
+  "signing": {
+    "cert_sha256": [
+      "0f23f08bbe02f1d0ff9b4a721ad523c2c977a9178a2b842c38ede005f3de34c2"
+    ]
+  },
+  "scan": {
+    "extra_text_paths": []
+  },
+  "notes": []
+}
