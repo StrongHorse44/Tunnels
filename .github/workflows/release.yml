@@ -1,8 +1,11 @@
 # The vX.Y.Z release channel (docs/RELEASING.md): release-signed APKs, published as the GitHub release vX.Y.Z.
 #
-# Trigger: workflow_dispatch ONLY (no tag trigger: a tag can name any commit, with any workflow file, and
-# the `signing` environment has no reviewer, so a tag push must not be able to reach the key). Inputs:
-#   version   exactly vMAJOR.MINOR.PATCH (for example v0.1.0)
+# Trigger: a push to the integration branch that changes the VERSION file (a merged pull request that bumps
+# it), or workflow_dispatch. There is no tag trigger (a tag can name any commit, with any workflow file, and
+# the `signing` environment has no reviewer, so a tag push must not be able to reach the key), and no push
+# trigger on main (it only receives versions that are already released). The version always comes from the
+# VERSION file at the run's commit (docs/RELEASING.md has its format); it is never typed. A push means
+# "publish": the owner's approval at the `publish` environment is the control. The one dispatch input:
 #   publish   default false. false is a DRY RUN: it builds, runs the release gate and rehearses signing with a
 #             throwaway key, and stops; `sign`, `release-check` and `publish` do not run, so nothing is signed or
 #             published. true runs the whole chain and, at the end, creates the tag and the release. It is
@@ -14,36 +17,40 @@
 # repository's code references a secret. The release is built UNSIGNED by `build`, which also runs the release
 # gate (gate/gate.py against gate/baseline.release.json) and a signing rehearsal with a throwaway key.
 #
+#   plan           no checkout, no repository code. reads VERSION, decides what this run does   -> tag, code, build, release
 #   build          no environment. unsigned APK, tests, gate, rehearsal            -> unsigned-apk
 #   sign           environment: signing. ref check, decode key, align, sign, verify -> signed-apk (1 day)
 #   release-check  certificate pin (gate.py cert --require-pin), version, order    -> checked sha256
 #   publish        environment: publish (the owner's approval). attest, tag, release
 #
-# Who can push to the integration branch and main is the control on the key: a publish=true dispatch from
-# either one signs without a reviewer (one approval per release, at `publish`). The signed APK exists as a run
-# artifact (downloadable by signed-in users, 1 day) before that approval.
+# Who can push to the integration branch and main is the control on the key: a VERSION merge or a
+# publish=true dispatch from either one signs without a reviewer (one approval per release, at `publish`). The
+# signed APK exists as a run artifact (downloadable by signed-in users, 1 day) before that approval, and only on
+# runs that will ask for it: `plan` stops a run whose version is already released, malformed, out of order or
+# otherwise refused before anything is built or signed.
 #
 # Every job after `build` is gated by a job-level `if:` written against the event context (never against an
-# output a build step could set): a dispatch with publish=true on the integration branch or main. sign and
-# release-check also check the built commit is on one of those branches (compare API against the branch's SHA)
-# before anything is decoded or published.
+# output a build step could set): a push to the integration branch, or a dispatch with publish=true on the
+# integration branch or main. `plan` runs no repository code and its output can only narrow that (AND), never
+# widen it. sign and release-check also check the built commit is on one of those branches (compare API against
+# the branch's SHA) before anything is decoded or published.
 #
-# Version: `version` must be exactly vMAJOR.MINOR.PATCH, each a number from 0 to 999 without leading zeros,
-# not v0.0.0. versionName is MAJOR.MINOR.PATCH and versionCode is MAJOR*1000000 + MINOR*1000 + PATCH, so
-# versions order the way their codes do. release-check and publish (with gh only) refuse a version whose code
-# is not above every other vX.Y.Z release's (rollback is a higher version, never a lower one), and a version
-# whose release or tag already exists at another commit. The release is named by its tag, vX.Y.Z; the in-app
-# updater follows exactly those tags (core/updates).
+# Version: VERSION holds exactly MAJOR.MINOR.PATCH, each a number from 0 to 999 without leading zeros, not
+# 0.0.0. The tag is vMAJOR.MINOR.PATCH, versionName is MAJOR.MINOR.PATCH and versionCode is
+# MAJOR*1000000 + MINOR*1000 + PATCH, so versions order the way their codes do. plan, release-check and publish
+# (with gh only) refuse a version whose code is not above every other vX.Y.Z release's (rollback is a higher
+# version, never a lower one), and a version whose release or tag already exists at another commit. A push whose
+# VERSION is already released ends green in `plan`, with nothing built or signed. The release is named by its
+# tag, vX.Y.Z; the in-app updater follows exactly those tags (core/updates).
 
 name: Release
 
 on:
+  push:
+    branches: ["ccr-dff99af5-ij1rle"]
+    paths: ["VERSION"]
   workflow_dispatch:
     inputs:
-      version:
-        description: "Version to build, exactly vMAJOR.MINOR.PATCH (for example v0.1.0)"
-        required: true
-        type: string
       publish:
         description: "Publish it. Off = dry run: build, gate and rehearse only. Only from the integration branch or main."
         required: false
@@ -63,7 +70,182 @@ env:
   KEYSTORE_TYPE: PKCS12
 
 jobs:
+  # Decides what this run does before anything is built or signed, so nothing is signed for a version that will
+  # be refused and the release-signed artifact exists only on runs that will ask the owner. It checks out nothing
+  # and runs no repository code: it reads VERSION at the run's commit through the API, with gh and jq only. It
+  # can only narrow what the later jobs' event-context conditions allow, never widen it.
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      name: ${{ steps.plan.outputs.name }}
+      code: ${{ steps.plan.outputs.code }}
+      build: ${{ steps.plan.outputs.build }}
+      release: ${{ steps.plan.outputs.release }}
+    steps:
+      - name: Read VERSION and decide what this run does
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          INPUT_PUBLISH: ${{ inputs.publish }}
+        run: |
+          integration=refs/heads/ccr-dff99af5-ij1rle
+          short="${SHA::7}"
+          # What kind of run this is. A push means publish (the owner's approval at `publish` is the control); a
+          # dispatch publishes only when ticked, and only from the integration branch or main.
+          if [ "$EVENT" = workflow_dispatch ] && [ "$INPUT_PUBLISH" = true ]; then
+            mode=publish
+            if [ "$REF" != "$integration" ] && [ "$REF" != refs/heads/main ]; then
+              echo "::error::publish=true only runs from the integration branch or main, not from $REF. Run it there, or leave publish off for a dry run."
+              exit 1
+            fi
+          elif [ "$EVENT" = workflow_dispatch ]; then
+            mode=dry
+          elif [ "$EVENT" = push ] && [ "$REF" = "$integration" ]; then
+            mode=push
+          else
+            echo "::error::Nothing is planned for a $EVENT event on $REF."
+            exit 1
+          fi
+          # Only a 404 means "not there": any other API failure stops the job.
+          out=
+          lookup() {
+            local err
+            err=$(mktemp -p "$RUNNER_TEMP")
+            if out=$(gh api "$1" 2> "$err"); then rm -f "$err"; return 0; fi
+            if grep -q 'HTTP 404' "$err"; then rm -f "$err"; out=; return 1; fi
+            cat "$err" >&2; exit 1
+          }
+          # Keep parse_version and read_version identical in plan and release-check (and parse_version in ci.yml's
+          # Check VERSION step).
+          # parse_version $1: the file. The bytes must be MAJOR.MINOR.PATCH or that plus one newline, at most 12 bytes
+          # (each part 0-999, no leading zero, no v, no CR, no spaces, no BOM). Sets version, tag, name and code, or
+          # says why not and returns 1.
+          parse_version() {
+            local f=$1 size body last first ok=false
+            local re='^(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'
+            size=$(LC_ALL=C wc -c < "$f")
+            body=$(LC_ALL=C cat "$f" 2>/dev/null)
+            last=$(LC_ALL=C tail -c1 "$f" | od -An -tx1 | tr -d ' \n')
+            if [ "$size" -le 12 ] && [[ "$body" =~ $re ]]; then
+              code=$(( BASH_REMATCH[1] * 1000000 + BASH_REMATCH[2] * 1000 + BASH_REMATCH[3] ))
+              if [ "$size" -eq "${#body}" ]; then
+                ok=true
+              elif [ "$size" -eq $(( ${#body} + 1 )) ] && [ "$last" = 0a ]; then
+                ok=true
+              fi
+            fi
+            if [ "$ok" != true ]; then
+              first=$(LC_ALL=C head -c 20 "$f" | LC_ALL=C tr -cd '[:print:]')
+              echo "::error::VERSION must be a regular file holding one line like 0.1.1 (each part 0-999, no leading zeros, no 'v'), got '$first'."
+              return 1
+            fi
+            if [ "$code" -lt 1 ]; then
+              echo "::error::VERSION 0.0.0 is not a release version."
+              return 1
+            fi
+            version=$body
+            tag="v$body"
+            name=$body
+          }
+          # read_version $1: a commit SHA. Reads VERSION there through the contents API (404 = missing; it must be a
+          # file), then parse_version; any failure stops the job.
+          read_version() {
+            local sha=$1 kind vfile="$RUNNER_TEMP/VERSION.read"
+            if ! lookup "repos/$GITHUB_REPOSITORY/contents/VERSION?ref=$sha"; then
+              echo "::error::VERSION is missing at $sha; nothing is built."
+              exit 1
+            fi
+            kind=$(jq -r 'if type=="object" then "\(.type) \(.encoding)" else "not an object" end' <<< "$out" 2>/dev/null) || kind="not JSON"
+            if [ "$kind" != "file base64" ]; then
+              echo "::error::VERSION must be a regular file holding one line like 0.1.1 (each part 0-999, no leading zeros, no 'v'), got 'not a regular file'."
+              exit 1
+            fi
+            jq -r .content <<< "$out" | base64 -d > "$vfile" 2>/dev/null || : > "$vfile"
+            parse_version "$vfile" || exit 1
+            rm -f "$vfile"
+          }
+          read_version "$SHA"
+          re='^v(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'
+          # The release and the tag for this version, and the highest other release. Read into variables first: a
+          # failed API call must stop the job, not read as "no earlier release".
+          have_release=false
+          existing=
+          if lookup "repos/$GITHUB_REPOSITORY/releases/tags/$tag"; then
+            have_release=true
+            existing=$(jq -r .target_commitish <<< "$out")
+          fi
+          have_tag=false
+          if lookup "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag"; then
+            have_tag=true
+          fi
+          others=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --jq '.[].tag_name')
+          highest=0
+          while read -r other; do
+            if [ "$other" != "$tag" ] && [[ "$other" =~ $re ]]; then
+              c=$(( BASH_REMATCH[1] * 1000000 + BASH_REMATCH[2] * 1000 + BASH_REMATCH[3] ))
+              if [ "$c" -gt "$highest" ]; then highest=$c; fi
+            fi
+          done <<< "$others"
+          check_order() {
+            if [ "$code" -le "$highest" ]; then
+              echo "::error::$tag (version code $code) is not above the highest earlier release (version code $highest). A release must be a higher version than every other vX.Y.Z; to roll back, release a higher version."
+              exit 1
+            fi
+          }
+          # Decide. build: whether the build job runs. release: whether sign, release-check and publish run.
+          build=true
+          release=true
+          case "$mode" in
+            push)
+              if [ "$have_release" = true ]; then
+                echo "::notice::$tag is already released (at $existing); nothing to build. Bump VERSION in a pull request to release."
+                build=false
+                release=false
+              elif [ "$have_tag" = true ]; then
+                echo "::error::Tag $tag exists without a release. Nothing is signed; look at the tag by hand (docs/RELEASING.md)."
+                exit 1
+              else
+                check_order
+                echo "::notice::Releasing $tag (version code $code) from $REF at $short, after the signing job and the owner's approval."
+              fi
+              ;;
+            publish)
+              if [ "$have_release" = true ] && [ "$existing" != "$SHA" ]; then
+                echo "::error::Release $tag already exists for '$existing', not this commit ($SHA). A published version is never replaced by another commit; release a higher version."
+                exit 1
+              fi
+              # A tag without a release is left to release-check, which allows one at the built commit.
+              check_order
+              echo "::notice::Publishing $tag (version code $code) from $REF at $short, after the signing job and the owner's approval."
+              ;;
+            dry)
+              release=false
+              if [ "$have_release" = true ]; then
+                echo "::notice::DRY RUN of $tag (version code $code) at $REF $short: $tag is already released (at $existing); this run still builds, gates and rehearses signing, and nothing is signed or published."
+              else
+                check_order
+                echo "::notice::DRY RUN of $tag (version code $code) at $REF $short: builds, gates and rehearses signing; nothing is signed or published."
+              fi
+              ;;
+          esac
+          {
+            echo "tag=$tag"
+            echo "name=$name"
+            echo "code=$code"
+            echo "build=$build"
+            echo "release=$release"
+          } >> "$GITHUB_OUTPUT"
+
   build:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -77,36 +259,6 @@ jobs:
 
       - id: commit
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      # Validates the version before anything is built, and refuses a publishing dispatch from the wrong ref
-      # (the later jobs would otherwise be skipped quietly and the run would look like it succeeded).
-      - name: Version and what this run does
-        id: plan
-        env:
-          REF: ${{ github.ref }}
-          INPUT_VERSION: ${{ inputs.version }}
-          INPUT_PUBLISH: ${{ inputs.publish }}
-        run: |
-          tag="$INPUT_VERSION"
-          re='^v(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'
-          if [[ ! "$tag" =~ $re ]]; then
-            echo "::error::The version must look like v1.2.3 (each part 0-999, no leading zeros), got '$tag'"; exit 1
-          fi
-          code=$(( BASH_REMATCH[1] * 1000000 + BASH_REMATCH[2] * 1000 + BASH_REMATCH[3] ))
-          if [ "$code" -lt 1 ]; then
-            echo "::error::v0.0.0 is not a release version"; exit 1
-          fi
-          echo "name=${tag#v}" >> "$GITHUB_OUTPUT"
-          echo "code=$code" >> "$GITHUB_OUTPUT"
-          if [ "$INPUT_PUBLISH" = true ]; then
-            if [ "$REF" != refs/heads/ccr-dff99af5-ij1rle ] && [ "$REF" != refs/heads/main ]; then
-              echo "::error::publish=true only runs from the integration branch or main, not from $REF. Run it there, or leave publish off for a dry run."
-              exit 1
-            fi
-            echo "::notice::Publishing $tag (version code $code) from $REF, after the signing job and the owner's approval."
-          else
-            echo "::notice::DRY RUN of $tag (version code $code): builds, gates and rehearses signing; nothing is signed or published."
-          fi
 
       # Fails closed before anything is built: no release without a reviewed release baseline.
       - name: Require the release baseline
@@ -158,8 +310,8 @@ jobs:
       - name: Build the unsigned release
         env:
           VERIFY: ${{ steps.verify.outputs.flag }}
-          VERSION_CODE: ${{ steps.plan.outputs.code }}
-          VERSION_NAME: ${{ steps.plan.outputs.name }}
+          VERSION_CODE: ${{ needs.plan.outputs.code }}
+          VERSION_NAME: ${{ needs.plan.outputs.name }}
         run: |
           set -o pipefail
           ./gradlew --no-daemon --stacktrace $VERIFY \
@@ -316,9 +468,11 @@ jobs:
   # approval is the `publish` environment's, at the end.
   sign:
     if: >-
-      github.event_name == 'workflow_dispatch' && inputs.publish &&
-      (github.ref == 'refs/heads/ccr-dff99af5-ij1rle' || github.ref == 'refs/heads/main')
-    needs: build
+      needs.plan.outputs.release == 'true' && (
+        (github.event_name == 'push' && github.ref == 'refs/heads/ccr-dff99af5-ij1rle') ||
+        (github.event_name == 'workflow_dispatch' && inputs.publish &&
+         (github.ref == 'refs/heads/ccr-dff99af5-ij1rle' || github.ref == 'refs/heads/main')))
+    needs: [plan, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: signing
@@ -451,9 +605,11 @@ jobs:
   # token and no signing secret; the publish job below runs no repository code.
   release-check:
     if: >-
-      github.event_name == 'workflow_dispatch' && inputs.publish &&
-      (github.ref == 'refs/heads/ccr-dff99af5-ij1rle' || github.ref == 'refs/heads/main')
-    needs: [build, sign]
+      needs.plan.outputs.release == 'true' && (
+        (github.event_name == 'push' && github.ref == 'refs/heads/ccr-dff99af5-ij1rle') ||
+        (github.event_name == 'workflow_dispatch' && inputs.publish &&
+         (github.ref == 'refs/heads/ccr-dff99af5-ij1rle' || github.ref == 'refs/heads/main')))
+    needs: [plan, build, sign]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -492,26 +648,18 @@ jobs:
           echo "::error::$TARGET is not on ccr-dff99af5-ij1rle or main, so it is not published."
           exit 1
 
-      # The version, from the event again (not from the build job); the rule that a version is higher than every
-      # other vX.Y.Z release (rolling back is releasing a higher version); and that a release or tag that already
-      # exists for this version points at the commit being published, so a re-dispatch of a published version at
-      # another commit stops here, before the owner is asked to approve anything.
+      # The version, from VERSION at the built commit again (not from the plan job): it must be the version the
+      # plan job planned; the rule that a version is higher than every other vX.Y.Z release (rolling back is
+      # releasing a higher version); and that a release or tag that already exists for this version points at the
+      # commit being published, so a re-dispatch of a published version at another commit stops here, before the
+      # owner is asked to approve anything.
       - name: Version, order and what already exists
         id: version
         env:
           GH_TOKEN: ${{ github.token }}
-          INPUT_VERSION: ${{ inputs.version }}
+          PLAN_TAG: ${{ needs.plan.outputs.tag }}
           TARGET: ${{ needs.build.outputs.sha }}
         run: |
-          tag="$INPUT_VERSION"
-          re='^v(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'
-          if [[ ! "$tag" =~ $re ]]; then
-            echo "::error::The version must look like v1.2.3 (each part 0-999, no leading zeros), got '$tag'"; exit 1
-          fi
-          code=$(( BASH_REMATCH[1] * 1000000 + BASH_REMATCH[2] * 1000 + BASH_REMATCH[3] ))
-          if [ "$code" -lt 1 ]; then
-            echo "::error::v0.0.0 is not a release version"; exit 1
-          fi
           # Only a 404 means "not there": any other API failure stops the job.
           out=
           lookup() {
@@ -521,6 +669,120 @@ jobs:
             if grep -q 'HTTP 404' "$err"; then rm -f "$err"; out=; return 1; fi
             cat "$err" >&2; exit 1
           }
+          # Keep parse_version and read_version identical in plan and release-check (and parse_version in ci.yml's
+          # Check VERSION step).
+          # parse_version $1: the file. The bytes must be MAJOR.MINOR.PATCH or that plus one newline, at most 12 bytes
+          # (each part 0-999, no leading zero, no v, no CR, no spaces, no BOM). Sets version, tag, name and code, or
+          # says why not and returns 1.
+          parse_version() {
+            local f=$1 size body last first ok=false
+            local re='^(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'
+            size=$(LC_ALL=C wc -c < "$f")
+            body=$(LC_ALL=C cat "$f" 2>/dev/null)
+            last=$(LC_ALL=C tail -c1 "$f" | od -An -tx1 | tr -d ' \n')
+            if [ "$size" -le 12 ] && [[ "$body" =~ $re ]]; then
+              code=$(( BASH_REMATCH[1] * 1000000 + BASH_REMATCH[2] * 1000 + BASH_REMATCH[3] ))
+              if [ "$size" -eq "${#body}" ]; then
+                ok=true
+              elif [ "$size" -eq $(( ${#body} + 1 )) ] && [ "$last" = 0a ]; then
+                ok=true
+              fi
+            fi
+            if [ "$ok" != true ]; then
+              first=$(LC_ALL=C head -c 20 "$f" | LC_ALL=C tr -cd '[:print:]')
+              echo "::error::VERSION must be a regular file holding one line like 0.1.1 (each part 0-999, no leading zeros, no 'v'), got '$first'."
+              return 1
+            fi
+            if [ "$code" -lt 1 ]; then
+              echo "::error::VERSION 0.0.0 is not a release version."
+              return 1
+            fi
+            version=$body
+            tag="v$body"
+            name=$body
+          }
+          # read_version $1: a commit SHA. Reads VERSION there through the contents API (404 = missing; it must be a
+          # file), then parse_version; any failure stops the job.
+          read_version() {
+            local sha=$1 kind vfile="$RUNNER_TEMP/VERSION.read"
+            if ! lookup "repos/$GITHUB_REPOSITORY/contents/VERSION?ref=$sha"; then
+              echo "::error::VERSION is missing at $sha; nothing is built."
+              exit 1
+            fi
+            kind=$(jq -r 'if type=="object" then "\(.type) \(.encoding)" else "not an object" end' <<< "$out" 2>/dev/null) || kind="not JSON"
+            if [ "$kind" != "file base64" ]; then
+              echo "::error::VERSION must be a regular file holding one line like 0.1.1 (each part 0-999, no leading zeros, no 'v'), got 'not a regular file'."
+              exit 1
+            fi
+            jq -r .content <<< "$out" | base64 -d > "$vfile" 2>/dev/null || : > "$vfile"
+            parse_version "$vfile" || exit 1
+            rm -f "$vfile"
+          }
+          # body_type $1: jq's name for the JSON type of an API answer, or non-JSON (also for an empty answer).
+          body_type() {
+            local t
+            t=$(jq -r type <<< "$1" 2>/dev/null) || t=
+            echo "${t:-non-JSON}"
+          }
+          # Keep resolve_tag identical in release-check and publish (like the signing functions). It follows the tag ref
+          # to what it points at and stops the job unless that is the commit being published ($TARGET). $1 the tag,
+          # $2 the body of the git/ref/tags/<tag> lookup, $3 the job's closing words for each error. Only the object
+          # type and sha are read, after checking the answer has that shape (a jq error counts as malformed).
+          resolve_tag() {
+            local tag=$1 body=$2 end=$3 shape answer kind sha n err
+            shape='if type=="object" and (.object|type)=="object" and (.object.type|type)=="string" and (.object.sha|type)=="string" and (.object.sha|test("^[0-9a-f]{40}$")) then .object.type+" "+.object.sha else empty end'
+            answer=$(jq -r "$shape" <<< "$body" 2>/dev/null) || answer=
+            if [ -z "$answer" ]; then
+              echo "::error::GitHub's answer for refs/tags/$tag is not one ref with object.type and object.sha (got $(body_type "$body")).$end"
+              exit 1
+            fi
+            kind=${answer%% *}
+            sha=${answer#* }
+            for n in 1 2 3 4 5; do
+              [ "$kind" = tag ] || break
+              err=$(mktemp -p "$RUNNER_TEMP")
+              if ! body=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" 2> "$err"); then
+                cat "$err" >&2
+                rm -f "$err"
+                echo "::error::Could not read annotated tag object $sha (level $n under $tag); the API call failed.$end"
+                exit 1
+              fi
+              rm -f "$err"
+              answer=$(jq -r "$shape" <<< "$body" 2>/dev/null) || answer=
+              if [ -z "$answer" ]; then
+                echo "::error::Annotated tag object $sha (level $n under $tag) has no object.type and object.sha (got $(body_type "$body")).$end"
+                exit 1
+              fi
+              kind=${answer%% *}
+              sha=${answer#* }
+            done
+            if [ "$kind" = tag ]; then
+              echo "::error::Tag $tag is still an annotated tag after 5 levels (at $sha); deeper chains are refused.$end"
+              exit 1
+            fi
+            if [ "$kind" != commit ]; then
+              echo "::error::Tag $tag ends at a $kind ($sha), not a commit, so it is refused.$end"
+              exit 1
+            fi
+            if [ "$sha" != "$TARGET" ]; then
+              echo "::error::Tag $tag exists at $sha ($kind), not at the commit being published ($TARGET).$end"
+              exit 1
+            fi
+          }
+          read_version "$TARGET"
+          if [ "v$version" != "$PLAN_TAG" ]; then
+            echo "::error::VERSION at the built commit ($TARGET) says '$version', not the planned $PLAN_TAG."
+            exit 1
+          fi
+          tag="$PLAN_TAG"
+          re='^v(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'
+          if [[ ! "$tag" =~ $re ]]; then
+            echo "::error::The version must look like v1.2.3 (each part 0-999, no leading zeros), got '$tag'"; exit 1
+          fi
+          code=$(( BASH_REMATCH[1] * 1000000 + BASH_REMATCH[2] * 1000 + BASH_REMATCH[3] ))
+          if [ "$code" -lt 1 ]; then
+            echo "::error::v0.0.0 is not a release version"; exit 1
+          fi
           # Read into a variable first: a failed API call must stop the job, not read as "no earlier release".
           others=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --jq '.[].tag_name')
           highest=0
@@ -543,20 +805,9 @@ jobs:
           fi
           # The tag itself too, whether or not a release exists: a release's target_commitish says where it was meant
           # to point, the tag ref says where the tag does, and the two can differ. An annotated tag is followed to
-          # its commit (a tag of a tag too); anything that does not end at a commit is not the built commit.
+          # its commit (a tag of a tag too, at most 5 levels); anything that does not end at a commit is refused.
           if lookup "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag"; then
-            sha=$(jq -r .object.sha <<< "$out")
-            kind=$(jq -r .object.type <<< "$out")
-            for _ in 1 2 3 4 5; do
-              [ "$kind" = tag ] || break
-              obj=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq '.object.type + " " + .object.sha')
-              kind=${obj%% *}
-              sha=${obj#* }
-            done
-            if [ "$kind" != commit ] || [ "$sha" != "$TARGET" ]; then
-              echo "::error::Tag $tag exists at $sha ($kind), not at the commit being published ($TARGET)."
-              exit 1
-            fi
+            resolve_tag "$tag" "$out" " Nothing is published."
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "name=${tag#v}" >> "$GITHUB_OUTPUT"
@@ -604,9 +855,11 @@ jobs:
   # a run waiting behind another replaces an older waiting one, so start the replaced one again.
   publish:
     if: >-
-      github.event_name == 'workflow_dispatch' && inputs.publish &&
-      (github.ref == 'refs/heads/ccr-dff99af5-ij1rle' || github.ref == 'refs/heads/main')
-    needs: [build, release-check]
+      needs.plan.outputs.release == 'true' && (
+        (github.event_name == 'push' && github.ref == 'refs/heads/ccr-dff99af5-ij1rle') ||
+        (github.event_name == 'workflow_dispatch' && inputs.publish &&
+         (github.ref == 'refs/heads/ccr-dff99af5-ij1rle' || github.ref == 'refs/heads/main')))
+    needs: [plan, build, release-check]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: publish
@@ -629,15 +882,15 @@ jobs:
           CHECKED: ${{ needs.release-check.outputs.apk_sha256 }}
           TAG: ${{ needs.release-check.outputs.tag }}
           NAME: ${{ needs.release-check.outputs.name }}
-          INPUT_VERSION: ${{ inputs.version }}
+          PLAN_TAG: ${{ needs.plan.outputs.tag }}
         run: |
           actual=$(sha256sum apks/app-release.apk | cut -d' ' -f1)
           if [ -z "$CHECKED" ] || [ "$actual" != "$CHECKED" ]; then
             echo "::error::apks/app-release.apk ($actual) is not the APK release-check checked ($CHECKED)"
             exit 1
           fi
-          if [ -z "$TAG" ] || [ "$TAG" != "$INPUT_VERSION" ] || [ "v$NAME" != "$TAG" ]; then
-            echo "::error::release-check checked '$TAG' ('$NAME'), not the requested '$INPUT_VERSION'"
+          if [ -z "$TAG" ] || [ "$TAG" != "$PLAN_TAG" ] || [ "v$NAME" != "$TAG" ]; then
+            echo "::error::release-check checked '$TAG' ('$NAME'), not the planned '$PLAN_TAG'"
             exit 1
           fi
 
@@ -679,6 +932,57 @@ jobs:
             if grep -q 'HTTP 404' "$err"; then rm -f "$err"; out=; return 1; fi
             cat "$err" >&2; exit 1
           }
+          # body_type $1: jq's name for the JSON type of an API answer, or non-JSON (also for an empty answer).
+          body_type() {
+            local t
+            t=$(jq -r type <<< "$1" 2>/dev/null) || t=
+            echo "${t:-non-JSON}"
+          }
+          # Keep resolve_tag identical in release-check and publish (like the signing functions). It follows the tag ref
+          # to what it points at and stops the job unless that is the commit being published ($TARGET). $1 the tag,
+          # $2 the body of the git/ref/tags/<tag> lookup, $3 the job's closing words for each error. Only the object
+          # type and sha are read, after checking the answer has that shape (a jq error counts as malformed).
+          resolve_tag() {
+            local tag=$1 body=$2 end=$3 shape answer kind sha n err
+            shape='if type=="object" and (.object|type)=="object" and (.object.type|type)=="string" and (.object.sha|type)=="string" and (.object.sha|test("^[0-9a-f]{40}$")) then .object.type+" "+.object.sha else empty end'
+            answer=$(jq -r "$shape" <<< "$body" 2>/dev/null) || answer=
+            if [ -z "$answer" ]; then
+              echo "::error::GitHub's answer for refs/tags/$tag is not one ref with object.type and object.sha (got $(body_type "$body")).$end"
+              exit 1
+            fi
+            kind=${answer%% *}
+            sha=${answer#* }
+            for n in 1 2 3 4 5; do
+              [ "$kind" = tag ] || break
+              err=$(mktemp -p "$RUNNER_TEMP")
+              if ! body=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" 2> "$err"); then
+                cat "$err" >&2
+                rm -f "$err"
+                echo "::error::Could not read annotated tag object $sha (level $n under $tag); the API call failed.$end"
+                exit 1
+              fi
+              rm -f "$err"
+              answer=$(jq -r "$shape" <<< "$body" 2>/dev/null) || answer=
+              if [ -z "$answer" ]; then
+                echo "::error::Annotated tag object $sha (level $n under $tag) has no object.type and object.sha (got $(body_type "$body")).$end"
+                exit 1
+              fi
+              kind=${answer%% *}
+              sha=${answer#* }
+            done
+            if [ "$kind" = tag ]; then
+              echo "::error::Tag $tag is still an annotated tag after 5 levels (at $sha); deeper chains are refused.$end"
+              exit 1
+            fi
+            if [ "$kind" != commit ]; then
+              echo "::error::Tag $tag ends at a $kind ($sha), not a commit, so it is refused.$end"
+              exit 1
+            fi
+            if [ "$sha" != "$TARGET" ]; then
+              echo "::error::Tag $tag exists at $sha ($kind), not at the commit being published ($TARGET).$end"
+              exit 1
+            fi
+          }
           others=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --jq '.[].tag_name')
           highest=0
           while read -r other; do
@@ -706,21 +1010,10 @@ jobs:
           fi
           # The tag ref too, with or without a release (a release's target_commitish and the tag can differ): it
           # must be the commit being published, or gh would replace the APK of, or attach this one to, another
-          # commit's tag. An annotated tag is followed to its commit; anything that does not end at a commit is
-          # refused. Only a 404 means there is no tag.
+          # commit's tag. An annotated tag is followed to its commit (at most 5 levels); anything that does not
+          # end at a commit is refused. Only a 404 means there is no tag.
           if lookup "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG"; then
-            sha=$(jq -r .object.sha <<< "$out")
-            kind=$(jq -r .object.type <<< "$out")
-            for _ in 1 2 3 4 5; do
-              [ "$kind" = tag ] || break
-              obj=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq '.object.type + " " + .object.sha')
-              kind=${obj%% *}
-              sha=${obj#* }
-            done
-            if [ "$kind" != commit ] || [ "$sha" != "$TARGET" ]; then
-              echo "::error::Tag $TAG exists at $sha ($kind), not at the commit being published ($TARGET). Not replacing or creating the release."
-              exit 1
-            fi
+            resolve_tag "$TAG" "$out" " Not replacing or creating the release."
           fi
           if [ "$have_release" = true ]; then
             gh release upload "$TAG" "$apk" "$apk.sha256" --clobber

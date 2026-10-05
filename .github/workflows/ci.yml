@@ -1,26 +1,27 @@
 # Full build of the integration branch and main: everything compiles, every unit test passes,
-# permissions are allowed, the release gate (gate/baseline.json) matches the APK, the app launches on an
-# emulator, and a push to the integration branch publishes a numbered debug build.
+# permissions are allowed, the release gate (gate/baseline.json) matches the APK, the VERSION file is well
+# formed, and the app launches on an emulator. It runs on pull requests, pushes and manual runs, and
+# PUBLISHES NOTHING: no job here holds a writing token. Releases are release.yml's (docs/RELEASING.md); there is
+# no longer a "Debug build #N" channel.
 #
-# This workflow publishes the DEBUG variant ("Debug build #N"), signed with the public key committed in
+# The DEBUG variant is still built and gated on every run, signed with the public key committed in
 # app/debug.keystore. The release gate (gate/gate.py) compares that APK with gate/baseline.json: a new
 # permission, exported component, native library, network API, host literal, runtime dependency, SDK level or
-# backup flag fails the build unless the same pull request updates the baseline (gate/README.md). The gate runs
-# in this workflow before anything is published, so an unlisted change can never reach Releases. The certificate
-# pin proves little while the signing key is public: it only catches an accidental key change.
+# backup flag fails the build unless the same pull request updates the baseline (gate/README.md). The certificate
+# pin proves little while the signing key is public: it only catches an accidental key change, and is checked
+# in the build job.
 #
 # The RELEASE variant (the vX.Y.Z channel, signed by release.yml with the owner's key) is built here on every run
 # too, unsigned, and gated against gate/baseline.release.json, so a pull request that changes what a release can
 # do must change that baseline. This workflow never signs or publishes a release. If the release baseline is
 # missing, the run fails.
 #
+# VERSION (the release workflow's only input) is checked here too, so a malformed one is a red pull request and
+# not a red release run after the merge. Same rules as release.yml's plan job (docs/RELEASING.md).
+#
 # Dependencies are checked against gradle/verification-metadata.xml. If that file is missing (delete it to
 # regenerate after a dependency change), every Gradle job writes one from its real tasks, attaches it to the
 # run and fails so it gets committed.
-#
-# Only a push to the integration branch publishes. Pull requests and manual runs build, test and check the
-# gate, and never publish. No job that runs this repository's build code holds a token that can write
-# anything: publishing is in its own job, which runs no repository code.
 
 name: CI
 
@@ -73,6 +74,52 @@ jobs:
 
       - id: commit
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # VERSION is what release.yml reads (docs/RELEASING.md): a malformed one fails here, in the pull request.
+      # No token: it reads the checked-out file. Keep parse_version identical to release.yml's.
+      - name: Check VERSION
+        run: |
+          # Keep parse_version identical in release.yml's plan and release-check jobs.
+          # parse_version $1: the file. The bytes must be MAJOR.MINOR.PATCH or that plus one newline, at most 12 bytes
+          # (each part 0-999, no leading zero, no v, no CR, no spaces, no BOM). Sets version, tag, name and code, or
+          # says why not and returns 1.
+          parse_version() {
+            local f=$1 size body last first ok=false
+            local re='^(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'
+            size=$(LC_ALL=C wc -c < "$f")
+            body=$(LC_ALL=C cat "$f" 2>/dev/null)
+            last=$(LC_ALL=C tail -c1 "$f" | od -An -tx1 | tr -d ' \n')
+            if [ "$size" -le 12 ] && [[ "$body" =~ $re ]]; then
+              code=$(( BASH_REMATCH[1] * 1000000 + BASH_REMATCH[2] * 1000 + BASH_REMATCH[3] ))
+              if [ "$size" -eq "${#body}" ]; then
+                ok=true
+              elif [ "$size" -eq $(( ${#body} + 1 )) ] && [ "$last" = 0a ]; then
+                ok=true
+              fi
+            fi
+            if [ "$ok" != true ]; then
+              first=$(LC_ALL=C head -c 20 "$f" | LC_ALL=C tr -cd '[:print:]')
+              echo "::error::VERSION must be a regular file holding one line like 0.1.1 (each part 0-999, no leading zeros, no 'v'), got '$first'."
+              return 1
+            fi
+            if [ "$code" -lt 1 ]; then
+              echo "::error::VERSION 0.0.0 is not a release version."
+              return 1
+            fi
+            version=$body
+            tag="v$body"
+            name=$body
+          }
+          if [ ! -e VERSION ] && [ ! -L VERSION ]; then
+            echo "::error::VERSION is missing at $GITHUB_SHA; nothing is built."
+            exit 1
+          fi
+          if [ ! -f VERSION ] || [ -L VERSION ]; then
+            echo "::error::VERSION must be a regular file holding one line like 0.1.1 (each part 0-999, no leading zeros, no 'v'), got 'not a regular file'."
+            exit 1
+          fi
+          parse_version VERSION || exit 1
+          echo "VERSION is $version: a release of it would be $tag, version code $code."
 
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
@@ -134,8 +181,8 @@ jobs:
           scripts/check-apk-permissions.sh app/build/outputs/apk/debug/app-debug.apk debug
           scripts/check-apk-permissions.sh app/build/outputs/apk/release/app-release-unsigned.apk release
 
-      # The debug APK is what ships, so it is what the gate checks. In a pull request the gate lists every
-      # baseline field the pull request changes (the certificate pin included).
+      # The debug APK is no longer published, but every run builds it, so it is what this gate checks. In a
+      # pull request the gate lists every baseline field the pull request changes (the certificate pin included).
       - name: Release gate (compare the debug APK with gate/baseline.json)
         id: gate
         env:
@@ -147,6 +194,9 @@ jobs:
           fi
           python3 gate/gate.py check --require-tools --require-pin --apk app/build/outputs/apk/debug/app-debug.apk \
             --deps "$RUNNER_TEMP/gradle.log" --generated build/gate/baseline.generated.json "${compare[@]}"
+          # The pinned certificate (the public debug key): catches an accidental key change. Moved here from
+          # the release-check job that went with the debug channel.
+          python3 gate/gate.py cert --require-pin --apk app/build/outputs/apk/debug/app-debug.apk
           python3 -m unittest discover -s gate
 
       # The release variant, unsigned, against the release baseline (fails closed if there is none). The signing
@@ -193,10 +243,7 @@ jobs:
           name: tunnels-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          # Pull request and manual builds are only for checking; only a push to the integration branch publishes.
-          # 30 days, GitHub's limit for a run waiting for approval; the APK expires with the artifact, so approve well
-          # before then.
-          retention-days: ${{ github.event_name == 'push' && 30 || 3 }}
+          retention-days: 3
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
@@ -330,121 +377,3 @@ jobs:
         run: |
           echo "::error::Dependencies were not verified: commit the gradle/verification-metadata.xml the jobs wrote (the union of every job's verification-metadata-* artifact; see gate/README.md)."
           exit 1
-
-  # Read-only checks before publishing: the commit is on the integration branch, and the APK is signed by the
-  # certificate pinned in gate/baseline.json (the public debug key for now: it catches an accidental key change,
-  # not an impostor). They run the repository's gate/ script, so they live in a job without a writing token;
-  # the publish job below runs no repository code.
-  release-check:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/ccr-dff99af5-ij1rle'
-    needs: [build, smoke]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    outputs:
-      apk_sha256: ${{ steps.cert.outputs.apk_sha256 }}
-    steps:
-      # Only the gate files: the baseline of the commit the APK was built from, and the script.
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          ref: ${{ needs.build.outputs.sha }}
-          persist-credentials: false
-          sparse-checkout: gate
-
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: tunnels-debug-apk
-          path: apks
-
-      # The branch is resolved to its SHA first, so a tag or branch with a similar name can't stand in for it.
-      - name: Check the commit is on the integration branch
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TARGET: ${{ needs.build.outputs.sha }}
-          BRANCH: ccr-dff99af5-ij1rle
-        run: |
-          head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha)
-          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$head...$TARGET" --jq .status)
-          if [ "$status" != "identical" ] && [ "$status" != "behind" ]; then
-            echo "::error::$TARGET is not on $BRANCH (compare status: $status), so it is not published."
-            exit 1
-          fi
-
-      - name: Check the signing certificate against gate/baseline.json
-        id: cert
-        run: |
-          apk=apks/app-debug.apk
-          python3 gate/gate.py cert --require-pin --apk "$apk"
-          echo "apk_sha256=$(sha256sum "$apk" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-
-  # Publishes "Debug build #N" as a prerelease with a plain .apk (Actions artifacts always arrive zipped), newest
-  # first, keeping the newest 10. Only pushes to the integration branch get here; the build above passed the
-  # gate, and release-check passed the certificate and branch checks.
-  publish:
-    needs: [build, release-check]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    # Required reviewers on this environment make each publish wait for RJ's approval (docs/RELEASING.md).
-    environment: publish
-    # Publishes for one ref go one at a time and a running one is never cancelled. The group lives on this job
-    # alone, so build and smoke for later pushes are not held while a publish waits for approval. (GitHub keeps
-    # one pending run per group: if two later publishes are queued behind a waiting one, the older queued one
-    # is dropped. Its APK stays an artifact for 30 days.)
-    concurrency:
-      group: ci-publish-${{ github.ref }}
-      cancel-in-progress: false
-    permissions:
-      contents: write # creates the prerelease and uploads the APK
-      id-token: write # signs the build provenance attestation
-      attestations: write # stores the attestation next to the repository
-    steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: tunnels-debug-apk
-          path: apks
-
-      # Publishes exactly the APK release-check checked.
-      - name: Check the APK is the one that was checked
-        env:
-          CHECKED: ${{ needs.release-check.outputs.apk_sha256 }}
-        run: |
-          actual=$(sha256sum apks/app-debug.apk | cut -d' ' -f1)
-          if [ -z "$CHECKED" ] || [ "$actual" != "$CHECKED" ]; then
-            echo "::error::apks/app-debug.apk ($actual) is not the APK release-check checked ($CHECKED)"
-            exit 1
-          fi
-
-      - name: Name the APK for the release
-        env:
-          N: ${{ github.run_number }}
-        run: |
-          cp apks/app-debug.apk "tunnels-debug-$N.apk"
-          # The in-app updater checks the download against this.
-          sha256sum "tunnels-debug-$N.apk" > "tunnels-debug-$N.apk.sha256"
-
-      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: tunnels-debug-${{ github.run_number }}.apk
-
-      - name: Publish debug build
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          N: ${{ github.run_number }}
-          TARGET: ${{ needs.build.outputs.sha }}
-        run: |
-          short="${TARGET::7}"
-          apk="tunnels-debug-$N.apk"
-          {
-            gh api "repos/$GITHUB_REPOSITORY/commits/$TARGET" --jq .commit.message
-            echo
-            echo "---"
-            echo "Debug build #$N of \`$short\` from \`$GITHUB_REF_NAME\`. Installs as \"Tunnels\" (package \`io.github.stronghorse44.tunnels.debug\`) and updates over earlier debug builds."
-          } > notes.md
-          gh release create "debug-$N" "$apk" "$apk.sha256" --prerelease --target "$TARGET" \
-            --title "Debug build #$N ($short)" --notes-file notes.md
-          gh release delete debug-latest --yes --cleanup-tag 2>/dev/null || true
-          gh release list --limit 100 --json tagName --jq '.[].tagName' \
-            | grep -E '^debug-[0-9]+$' | sort -t- -k2 -n -r | tail -n +11 \
-            | xargs -r -I{} gh release delete {} --yes --cleanup-tag
