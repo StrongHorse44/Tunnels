@@ -6,6 +6,7 @@ import android.provider.Settings
 import android.util.Log
 import androidx.compose.runtime.Composable
 import io.github.stronghorse44.tunnels.ble.CellHeuristics
+import io.github.stronghorse44.tunnels.ble.CellJudgement
 import io.github.stronghorse44.tunnels.ble.CellSummary
 import io.github.stronghorse44.tunnels.ble.SightingAggregator
 import io.github.stronghorse44.tunnels.ble.SightingRecord
@@ -44,7 +45,7 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
         PermissionSpec(Manifest.permission.NEARBY_WIFI_DEVICES, "To check the Wi-Fi networks around you for open or impostor networks"),
         PermissionSpec(
             Manifest.permission.ACCESS_FINE_LOCATION,
-            "To tell a tracker that travels with you from one that stays put, and for cell checks. Only whether you moved is kept, never a position",
+            "To tell a tracker that travels with you from one that stays put, and to learn which cell towers you use at places you return to. Only keyed hashes are kept, never a position",
         ),
         PermissionSpec(Manifest.permission.ACCESS_COARSE_LOCATION, "Android requires this next to precise location; no position is stored"),
     )
@@ -101,10 +102,36 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
         val downgrades = (cellHistory + listOfNotNull(cell.cell)).zipWithNext().count { (a, b) -> CellHeuristics.isDowngrade(a.registered, b.registered) }
         val twinsRecorded = recent.count { it.kind == SurroundingsKeys.EVENT_WIFI }
 
+        progress.report(6, STEPS, "checking the cell logbook")
+        val log = judgeLogbook(place, cell, previousCell?.registered?.rank ?: 0)
+
         progress.report(STEPS, STEPS, "done")
         return SurroundingsKeys.bleObservations(aggregate, ble.devicesTotal, ble.available, now, muted, sessions, currentSession = session, placeAvailable = place.available) +
             SurroundingsKeys.wifiObservations(wifi.summaries, wifi.available, twinsRecorded) +
-            SurroundingsKeys.cellObservations(cell.cell, cell.available, changed, downgrades)
+            SurroundingsKeys.cellObservations(cell.cell, cell.available, changed, downgrades) +
+            SurroundingsKeys.logObservations(log.first, log.second)
+    }
+
+    /**
+     * The cell logbook's step of a scan: the `log:state` and, when the scan was judged, the judgement. The order of
+     * states is off (no row: nothing is read, learned or written), then no place, then no cell id. Anything that goes
+     * wrong is `failed` with no verdict and the rest of the scan is unchanged. The serving cells and the place's
+     * hashes exist in memory for this call only.
+     */
+    private suspend fun judgeLogbook(place: PlaceResult, cell: CellProbeResult, previousRank: Int): Pair<String, CellJudgement?> = try {
+        val logbook = CellLogStore(context)
+        val block = place.block
+        when {
+            !logbook.isOn() -> SurroundingsKeys.LOG_OFF to null
+            block == null -> SurroundingsKeys.LOG_NO_PLACE to null
+            cell.serving.none { it.cellId != null } -> SurroundingsKeys.LOG_NO_CELL_ID to null
+            else -> logbook.judge(block, cell.serving, previousRank)
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "cell logbook failed: ${e.javaClass.simpleName}")
+        SurroundingsKeys.LOG_FAILED to null
     }
 
     /** The tunnel's rows from the events table, newest first; empty when the store cannot be opened. */
@@ -132,6 +159,10 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
         in SurroundingsRules.trackerKinds -> trackerActions(draft.subject)
         SurroundingsRules.CELL_DOWNGRADE, SurroundingsRules.CELL_DOWNGRADED -> listOf(
             FindingAction.OpenSettings(Settings.ACTION_NETWORK_OPERATOR_SETTINGS, "Mobile network settings"),
+        )
+        SurroundingsRules.UNFAMILIAR_TOWER -> listOfNotNull(
+            FindingAction.OpenSettings(Settings.ACTION_NETWORK_OPERATOR_SETTINGS, "Mobile network settings"),
+            SurroundingsKeys.parseTowerSubject(draft.subject)?.let { id -> FindingAction.Perform(LABEL_NORMAL_HERE) { CellLogStore(context).accept(id) } },
         )
         else -> listOf(FindingAction.OpenSettings(Settings.ACTION_WIFI_SETTINGS, "Wi-Fi settings"))
     }
@@ -188,6 +219,7 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
     companion object {
         private const val TAG = "Surroundings"
         const val LABEL_MUTE = "Known tracker: mute 30 days"
+        const val LABEL_NORMAL_HERE = "Normal here: remember this tower"
 
         /**
          * Subjects muted right now. Mute rows since v3 come from their own small stream
@@ -221,7 +253,7 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
             PlaceResult(SurroundingsKeys.AVAILABLE_FAILED, null)
         }
 
-        private const val STEPS = 6
+        private const val STEPS = 7
         const val BLE_WINDOW_MS = 15_000L
         private const val GRACE_MS = 5_000L
         private const val CELL_TIMEOUT_MS = 10_000L

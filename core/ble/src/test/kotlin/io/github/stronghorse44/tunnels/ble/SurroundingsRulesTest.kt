@@ -6,6 +6,7 @@ import io.github.stronghorse44.tunnels.model.Observation
 import io.github.stronghorse44.tunnels.model.RuleContext
 import io.github.stronghorse44.tunnels.model.Severity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -437,5 +438,67 @@ class SurroundingsRulesTest {
         assertEquals("1 hour", SurroundingsRules.duration(60))
         assertEquals("2 hours 5 minutes", SurroundingsRules.duration(125))
         assertEquals("3 days", SurroundingsRules.duration(3 * 24 * 60))
+    }
+
+    // The cell logbook's notice
+
+    private fun logObs(
+        verdict: String,
+        signals: String = "none",
+        tower: String? = null,
+        tech: String = "LTE",
+        operator: String = "310-260",
+    ) = listOfNotNull(
+        Observation(t, SurroundingsKeys.CELL_SUMMARY, SurroundingsKeys.CELL_TYPE, tech),
+        Observation(t, SurroundingsKeys.CELL_SUMMARY, SurroundingsKeys.CELL_OPERATOR, operator),
+        Observation(t, SurroundingsKeys.CELL_SUMMARY, SurroundingsKeys.LOG_STATE, "on"),
+        Observation(t, SurroundingsKeys.CELL_SUMMARY, SurroundingsKeys.LOG_VERDICT, verdict),
+        Observation(t, SurroundingsKeys.CELL_SUMMARY, SurroundingsKeys.LOG_SIGNALS, signals),
+        tower?.let { Observation(t, SurroundingsKeys.CELL_SUMMARY, SurroundingsKeys.LOG_TOWER, it) },
+    )
+
+    @Test
+    fun unfamiliarTowerIsOneStickyNotice() {
+        val drafts = evaluate(logObs("unfamiliar", "area", tower = "0a1b2c3d")).of(SurroundingsRules.UNFAMILIAR_TOWER)
+        assertEquals(1, drafts.size)
+        val d = drafts.single()
+        assertEquals("tower 0a1b2c3d", d.subject)
+        assertEquals(Severity.NOTICE, d.severity)
+        assertTrue(d.sticky)
+        assertTrue(d.evidence, d.evidence.startsWith("Unfamiliar tower at a place you scan often: the phone used a cell it has never used here, and the tracking area is new here."))
+        assertTrue(d.evidence.contains("Usually this is the network changing (a new or re-planned cell)."))
+        assertTrue(d.evidence.contains("use LTE only and turn off 2G."))
+        // Two towers are two findings, one per scan's worst cell; a second scan with the same tower is the same finding.
+        assertEquals(d.subject, evaluate(logObs("unfamiliar", "area", tower = "0a1b2c3d"), logObs("unfamiliar", "area", tower = "0a1b2c3d")).of(SurroundingsRules.UNFAMILIAR_TOWER).single().subject)
+        // A garbled tower id makes no finding rather than a strange subject.
+        assertTrue(evaluate(logObs("unfamiliar", "area", tower = "NOT-HEX!")).of(SurroundingsRules.UNFAMILIAR_TOWER).isEmpty())
+        assertTrue(evaluate(logObs("unfamiliar", "area")).of(SurroundingsRules.UNFAMILIAR_TOWER).isEmpty())
+        // The signals read as they are.
+        val three = evaluate(logObs("unfamiliar", "area,downgrade,operator", tower = "0a1b2c3d", tech = "UMTS")).single { it.kind == SurroundingsRules.UNFAMILIAR_TOWER }.evidence
+        assertTrue(three, three.contains("the tracking area is new here, the connection dropped to 3G (UMTS) and the operator 310-260 is new here."))
+        val two = evaluate(logObs("unfamiliar", "downgrade,operator", tower = "0a1b2c3d", tech = "GSM", operator = "?")).single { it.kind == SurroundingsRules.UNFAMILIAR_TOWER }.evidence
+        assertTrue(two, two.contains("the connection dropped to 2G (GSM) and the operator is new here."))
+    }
+
+    @Test
+    fun noFindingForLearningFamiliarOrNewNormal() {
+        for (v in listOf("learning", "familiar", "new-normal")) {
+            assertTrue(v, evaluate(logObs(v, tower = "0a1b2c3d")).of(SurroundingsRules.UNFAMILIAR_TOWER).isEmpty())
+        }
+        assertTrue(evaluate(cell("LTE")).of(SurroundingsRules.UNFAMILIAR_TOWER).isEmpty())
+        assertTrue(evaluate(emptyList()).of(SurroundingsRules.UNFAMILIAR_TOWER).isEmpty())
+        // The logbook adds no other finding of its own.
+        assertTrue(evaluate(logObs("unfamiliar", "area", tower = "0a1b2c3d")).none { it.kind != SurroundingsRules.UNFAMILIAR_TOWER })
+    }
+
+    @Test
+    fun unfamiliarTowerWordingNeverSaysAttack() {
+        val forbidden = listOf("attack", "detected", "imsi catcher", "imsi-catcher", "stingray")
+        val combos = listOf(emptyList(), listOf(Signal.AREA), listOf(Signal.DOWNGRADE), listOf(Signal.OPERATOR), Signal.entries)
+        for (signals in combos) for (tech in CellTech.entries) for (op in listOf(null, "?", "310-260")) {
+            val text = SurroundingsRules.unfamiliarTowerEvidence(signals, tech, op).lowercase()
+            for (w in forbidden) assertFalse("$w in $text", text.contains(w))
+        }
+        assertTrue(SurroundingsRules.all.contains(SurroundingsRules.unfamiliarTower))
     }
 }

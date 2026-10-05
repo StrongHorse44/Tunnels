@@ -7,8 +7,6 @@ import android.location.Location
 import android.location.LocationManager
 import android.os.CancellationSignal
 import android.os.SystemClock
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
 import android.util.Log
 import androidx.core.content.ContextCompat
 import io.github.stronghorse44.tunnels.ble.PlaceAnchor
@@ -23,14 +21,14 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import java.security.KeyStore
-import javax.crypto.KeyGenerator
-import javax.crypto.Mac
-import javax.crypto.SecretKey
 import kotlin.coroutines.resume
 
-/** Whether a scan knew the phone's place, and the place's number when it did. */
-data class PlaceResult(val available: String, val place: Long?)
+/**
+ * Whether a scan knew the phone's place, and the place's number when it did. [block] (set only when [available] is
+ * `yes`) is the keyed hashes of the scan's grid cell and its eight neighbours, the cell's own first: memory only, for
+ * the cell logbook during this scan; nothing here is stored by the caller except through the logbook's own row.
+ */
+data class PlaceResult(val available: String, val place: Long?, val block: List<String>? = null)
 
 /**
  * The place number for a scan ([PlaceTracking]): one position fix, snapped to the grid, compared with the current
@@ -39,6 +37,8 @@ data class PlaceResult(val available: String, val place: Long?)
  * scan. The hash key is an HMAC key in the Android keystore that never leaves it.
  *
  * Shared by the manual scan and the background monitor; a mutex keeps two scans from numbering one move twice.
+ * The cell logbook (CLAUDE.md rule 3, hashed-set exception) keeps an unordered, capped set of these same keyed place
+ * hashes with no times; this file's anchor row is still the only thing it stores itself.
  */
 object PlaceProbe {
     private const val TAG = "SurroundingsPlace"
@@ -47,7 +47,6 @@ object PlaceProbe {
     const val STREAM = "surroundings.place"
     private const val KIND = "place.anchor"
     private const val SUBJECT = "anchor"
-    private const val KEY_ALIAS = "tunnels.surroundings.place"
     /** A fix this recent, from any app's request, is as good as a new one. */
     private const val FRESH_FIX_NS = 2 * 60 * 1_000_000_000L
 
@@ -76,7 +75,7 @@ object PlaceProbe {
                     store.recordEvent(STREAM, KIND, SUBJECT, next.encode(), java.time.Instant.ofEpochMilli(now))
                     store.dao.deleteEventsBefore(STREAM, now)
                     cached = next
-                    PlaceResult(SurroundingsKeys.AVAILABLE_YES, next.place)
+                    PlaceResult(SurroundingsKeys.AVAILABLE_YES, next.place, hashes)
                 } catch (e: Exception) {
                     Log.w(TAG, "place unavailable: ${e.javaClass.simpleName}")
                     PlaceResult(SurroundingsKeys.AVAILABLE_FAILED, null)
@@ -117,18 +116,8 @@ object PlaceProbe {
     /** Keyed hashes of [cell] and its neighbours ([PlaceGrid.block] order), 16 bytes each, hex. */
     private fun blockHashes(cell: PlaceGrid.Cell): List<String> {
         memo?.let { (c, hashes) -> if (c == cell) return hashes }
-        val mac = Mac.getInstance("HmacSHA256").apply { init(key()) }
-        val hashes = PlaceGrid.block(cell).map { c -> mac.doFinal(c.id.toByteArray(Charsets.UTF_8)).take(16).joinToString("") { "%02x".format(it) } }
+        val hashes = SurroundingsKey.hmacAll(PlaceGrid.block(cell).map { it.id })
         memo = cell to hashes
         return hashes
-    }
-
-    /** The HMAC key, created on first use. It is not exportable: hashes can only be made, and so matched, on this phone. */
-    private fun key(): SecretKey {
-        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (ks.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
-        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_HMAC_SHA256, "AndroidKeyStore")
-        generator.init(KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_SIGN).build())
-        return generator.generateKey()
     }
 }

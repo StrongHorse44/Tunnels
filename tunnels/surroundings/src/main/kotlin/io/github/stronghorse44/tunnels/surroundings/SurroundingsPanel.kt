@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
@@ -32,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.stronghorse44.tunnels.ble.AppleFindMyFrame
+import io.github.stronghorse44.tunnels.ble.CellLogText
 import io.github.stronghorse44.tunnels.ble.FamilyFacts
 import io.github.stronghorse44.tunnels.ble.FamilySummary
 import io.github.stronghorse44.tunnels.ble.FollowingLevel
@@ -63,14 +66,16 @@ import io.github.stronghorse44.tunnels.model.Observation
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenActions
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenState
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private val line: Color get() = LineColors.of(MetroLine.NETWORK)
 
-/** Live scan readout, the background-monitor switch with its opt-in text, the tracker section with per-identity detail, and the guide. */
+/** Live scan readout, the cell logbook, the background-monitor switch with its opt-in text, the tracker section with per-identity detail, and the guide. */
 @Composable
 fun SurroundingsPanel(state: TunnelScreenState, actions: TunnelScreenActions) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         LiveCard(state)
+        CellLogbookCard(state)
         MonitorCard(actions)
         TrackerSection(state, actions)
         GuideCard()
@@ -113,6 +118,60 @@ private fun LiveCard(state: TunnelScreenState) {
                 )
             }
         }
+    }
+}
+
+/**
+ * The cell logbook: off until the user starts it, then what the last scan found at this place. Start and Clear are the
+ * only controls; the row holds keyed hashes only and lasts until cleared (CLAUDE.md rule 3, hashed-set exception).
+ */
+@Composable
+private fun CellLogbookCard(state: TunnelScreenState) {
+    val context = LocalContext.current
+    val logbook = remember { CellLogStore(context.applicationContext) }
+    val row by remember { logbook.rowFlow() }.collectAsStateWithLifecycle(initialValue = null)
+    val scope = rememberCoroutineScope()
+    var message by remember { mutableStateOf<String?>(null) }
+    var confirm by remember { mutableStateOf(false) }
+    val facts = remember(state.observations) {
+        state.observations.filter { it.subject == SurroundingsKeys.CELL_SUMMARY && it.key.startsWith("log:") }.associate { it.key to it.value }
+    }
+    val current = row ?: return
+    GlassPanel(Modifier.fillMaxWidth(), tint = line) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Cell logbook", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                CellLogText.line(current, facts),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (current is CellLogText.Row.Unreadable) StatusColors.warn else GlassColors.dim,
+            )
+            if (current !is CellLogText.Row.Off) {
+                Text(
+                    "Keyed hashes only, never a position or a cell identity, and no times. It lasts until you clear it and is not exported.",
+                    style = MaterialTheme.typography.labelSmall, color = GlassColors.dim,
+                )
+            }
+            if (current is CellLogText.Row.Off) {
+                Button(onClick = { scope.launch { message = logbook.start() } }, enabled = !state.scan.running) { Text("Start the cell logbook") }
+            } else {
+                OutlinedButton(onClick = { confirm = true }) { Text("Clear the cell logbook") }
+            }
+            message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = GlassColors.dim) }
+        }
+    }
+    if (confirm) {
+        AlertDialog(
+            onDismissRequest = { confirm = false },
+            title = { Text("Clear the cell logbook?") },
+            text = { Text("It forgets every place and tower it learned and turns itself off. You can start it again; it then learns from zero.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirm = false
+                    scope.launch { message = logbook.clear() }
+                }) { Text("Clear") }
+            },
+            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
+        )
     }
 }
 

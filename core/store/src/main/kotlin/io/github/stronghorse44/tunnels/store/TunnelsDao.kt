@@ -171,6 +171,18 @@ abstract class TunnelsDao {
 
     @Query("DELETE FROM settings WHERE `key` = :key")
     abstract suspend fun deleteSetting(key: String)
+
+    /**
+     * Reads the setting [key] (null when absent), passes it to [transform] and stores what that returns, in one
+     * transaction: two writers of one row never lose each other's change. A null result deletes the row; returning
+     * the value it was given leaves the row as it is. [transform] runs inside the transaction, so keep it short
+     * and free of I/O; if it throws, nothing is written.
+     */
+    @Transaction
+    open suspend fun updateSetting(key: String, transform: (String?) -> String?) {
+        val next = transform(setting(key))
+        if (next == null) deleteSetting(key) else putSetting(SettingEntity(key, next))
+    }
 }
 
 /** A snapshot an import adds: when it was taken, whether it was pinned, and what it saw. Row ids are the store's to assign. */
