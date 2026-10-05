@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <!-- ui-tooling (debugImplementation in core/common) ships Compose's PreviewActivity as exported, so any
+             app could render composables on this build outside the app lock. Studio previews do not need it in
+             the manifest, so it is removed from the debug APK rather than only un-exported. -->
+        <activity
+            android:name="androidx.compose.ui.tooling.PreviewActivity"
+            tools:node="remove" />
+    </application>
+</manifest>

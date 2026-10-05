@@ -25,6 +25,11 @@ The updater tells the channels apart by the release **tag** (`debug-N` against `
 package (a name ending `.debug` follows the debug channel); a release install never offers a debug build and a
 debug install never offers a release (`core/updates` tests pin both).
 
+Debug publishes wait for approval one at a time per branch. GitHub keeps one pending run per group, so when
+two newer pushes queue behind a waiting publish, the older queued one is dropped and its run shows as
+**cancelled** on the Actions page. That is expected, not a failure: the newer build contains the older commit,
+and the updater only offers the newest.
+
 ## The signing key (one time, on the phone)
 
 The key is made and kept on the phone. In Termux (`pkg install openjdk-17`), with JDK 17's `keytool`, which

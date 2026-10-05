@@ -194,7 +194,8 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           # Pull request and manual builds are only for checking; only a push to the integration branch publishes.
-          # 30 days, so a publish approved late still finds its APK.
+          # 30 days, GitHub's limit for a run waiting for approval; the APK expires with the artifact, so approve well
+          # before then.
           retention-days: ${{ github.event_name == 'push' && 30 || 3 }}
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
