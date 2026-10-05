@@ -5,6 +5,8 @@ import io.github.stronghorse44.tunnels.model.FindingDraft
 import io.github.stronghorse44.tunnels.model.Observation
 import io.github.stronghorse44.tunnels.model.RuleContext
 import io.github.stronghorse44.tunnels.model.Severity
+import io.github.stronghorse44.tunnels.posture.PostureKeys
+import io.github.stronghorse44.tunnels.posture.PostureRules
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -169,5 +171,39 @@ class DeepRulesTest {
         assertEquals(DeepKeys.SUBJECT_DEEP, d.subject)
         assertEquals("Deep mode is off: Shizuku is installed but not running", d.evidence)
         assertTrue(evaluate(listOf(obs(DeepKeys.SUBJECT_DEEP, DeepKeys.AVAILABLE, "true"))).isEmpty())
+    }
+
+    @Test
+    fun postureSubjectIsNotAnApp() {
+        assertEquals(PostureKeys.SUBJECT, DeepKeys.SUBJECT_POSTURE)
+        assertEquals(PostureKeys.TUNNEL_ID, DeepKeys.TUNNEL_ID)
+        assertTrue(!DeepKeys.isApp(DeepKeys.SUBJECT_POSTURE))
+        assertTrue(DeepKeys.isApp("com.chat"))
+        // Keys that an app rule would act on, filed under posture, must not read as an app.
+        val drafts = evaluate(
+            listOf(
+                obs(DeepKeys.SUBJECT_POSTURE, DeepKeys.lastKey(DeepKeys.RECORD_AUDIO), "today"),
+                obs(DeepKeys.SUBJECT_POSTURE, DeepKeys.bgLastKey(DeepKeys.CAMERA), "today"),
+                obs(DeepKeys.SUBJECT_POSTURE, DeepKeys.lastKey(DeepKeys.READ_CLIPBOARD), "today"),
+                obs(DeepKeys.SUBJECT_POSTURE, DeepKeys.modeKey(DeepKeys.CAMERA), "ignore"),
+            ),
+            previous = listOf(obs(DeepKeys.SUBJECT_POSTURE, DeepKeys.modeKey(DeepKeys.CAMERA), "allow")),
+        )
+        assertTrue(drafts.toString(), drafts.isEmpty())
+    }
+
+    @Test
+    fun postureRulesRunWithDeepModesRules() {
+        assertTrue(DeepRules.all.containsAll(PostureRules.all))
+        val drafts = evaluate(
+            listOf(
+                obs(DeepKeys.SUBJECT_POSTURE, "posture:auto_reboot", "weak"),
+                obs(DeepKeys.SUBJECT_POSTURE, "posture:auto_reboot:value", "off"),
+            ),
+        )
+        val d = drafts.single()
+        assertEquals("POSTURE_AUTO_REBOOT", d.kind)
+        assertEquals(DeepKeys.SUBJECT_POSTURE, d.subject)
+        assertEquals(Severity.WARN, d.severity)
     }
 }

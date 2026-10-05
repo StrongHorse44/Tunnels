@@ -1,11 +1,13 @@
 package io.github.stronghorse44.tunnels.deepmode
 
+import io.github.stronghorse44.tunnels.posture.PostureKeys
 import java.util.concurrent.TimeUnit
 
 /**
  * Observation schema of the deep_mode tunnel. Plain Kotlin.
  *
- * Subjects: `deep` (availability and totals), `settings` (hidden Settings keys) and one per package.
+ * Subjects: `deep` (availability and totals), `settings` (hidden Settings keys), `posture` (the GrapheneOS posture
+ * allowlist, keys and values defined by `core:posture`'s `PostureKeys`; never a package) and one per package.
  * Per-package keys: `app:label`, `app:system`, `app:ime`, `ops:<OP>:mode` (the effective mode: the uid
  * level one when the system mirrors a runtime permission there, else the package level one),
  * `ops:<OP>:last`, `ops:<OP>:bgLast`. Ages are coarse ("today", "3 days ago", "30+ days", "never"),
@@ -16,6 +18,7 @@ object DeepKeys {
 
     const val SUBJECT_DEEP = "deep"
     const val SUBJECT_SETTINGS = "settings"
+    const val SUBJECT_POSTURE = PostureKeys.SUBJECT
 
     const val AVAILABLE = "deep:available"
     const val REASON = "deep:reason"
@@ -90,7 +93,7 @@ object DeepKeys {
     }
 
     /** Subjects that are not packages. */
-    fun isApp(subject: String) = subject != SUBJECT_DEEP && subject != SUBJECT_SETTINGS
+    fun isApp(subject: String) = subject != SUBJECT_DEEP && subject != SUBJECT_SETTINGS && subject != SUBJECT_POSTURE
 
     /** Day-granularity age for an access [agoMillis] in the past; null means never. */
     fun coarseAge(agoMillis: Long?): String {

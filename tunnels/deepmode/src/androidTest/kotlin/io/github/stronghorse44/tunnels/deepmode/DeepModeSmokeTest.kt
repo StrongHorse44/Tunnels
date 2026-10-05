@@ -7,6 +7,8 @@ import io.github.stronghorse44.tunnels.model.FindingDraft
 import io.github.stronghorse44.tunnels.model.RuleContext
 import io.github.stronghorse44.tunnels.model.ScanProgress
 import io.github.stronghorse44.tunnels.model.Severity
+import io.github.stronghorse44.tunnels.posture.PostureKeys
+import io.github.stronghorse44.tunnels.posture.PostureRules
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -66,5 +68,18 @@ class DeepModeSmokeTest {
         val adb = FindingDraft(module.id, DeepKeys.SUBJECT_SETTINGS, DeepRules.ADB_ENABLED, Severity.NOTICE, "USB debugging is on")
         assertTrue(module.actionsFor(adb).single() is FindingAction.OpenSettings)
         assertEquals(0, module.shell.bindAttempts)
+
+        // Posture findings: a Settings deep link each, and none of them starts a shell.
+        val reboot = FindingDraft(module.id, PostureKeys.SUBJECT, "POSTURE_AUTO_REBOOT", Severity.WARN, "Auto reboot is off.")
+        val rebootActions = module.actionsFor(reboot)
+        assertTrue(rebootActions.single() is FindingAction.OpenSettings)
+        assertEquals("android.settings.SECURITY_SETTINGS", (rebootActions.single() as FindingAction.OpenSettings).action)
+        for (kind in PostureRules.kinds - PostureRules.POSTURE_UNREAD) {
+            val actions = module.actionsFor(FindingDraft(module.id, PostureKeys.SUBJECT, kind, Severity.INFO, "x"))
+            assertTrue(kind, actions.single() is FindingAction.OpenSettings)
+        }
+        val unread = module.actionsFor(FindingDraft(module.id, PostureKeys.SUBJECT, PostureRules.POSTURE_UNREAD, Severity.NOTICE, "x"))
+        if (installed) assertTrue(unread.single() is FindingAction.Perform) else assertTrue("dropped by the engine", unread.isEmpty())
+        assertEquals("no posture draft binds a shell", 0, module.shell.bindAttempts)
     }
 }

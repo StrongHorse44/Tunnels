@@ -30,6 +30,7 @@ dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:runtime"))
     implementation(project(":core:store"))
+    implementation(project(":core:posture"))
     implementation(libs.shizuku.api)
     implementation(libs.shizuku.provider)
 

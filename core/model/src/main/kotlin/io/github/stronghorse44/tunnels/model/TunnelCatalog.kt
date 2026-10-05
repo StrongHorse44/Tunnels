@@ -49,7 +49,7 @@ object TunnelCatalog {
         TunnelInfo("system_packages", "System packages", Stratum.BEDROCK, MetroLine.SYSTEM, "Every system package and what it does", null),
         TunnelInfo("trust_store", "Trust store", Stratum.BEDROCK, MetroLine.SYSTEM, "System and user certificate authorities", null),
         TunnelInfo("silicon", "Silicon", Stratum.CORE, MetroLine.SYSTEM, "Verified boot and hardware attestation", null),
-        TunnelInfo("deep_mode", "Deep mode", Stratum.CORE, MetroLine.SYSTEM, "App-ops history via Shizuku", null),
+        TunnelInfo("deep_mode", "Deep mode", Stratum.CORE, MetroLine.SYSTEM, "App-ops history and OS posture via Shizuku", null),
 
         TunnelInfo("notifications", "Notifications", Stratum.TOPSOIL, MetroLine.ACTIVITY, "Who notifies, how often, what leaks", null),
         TunnelInfo("timeline", "Timeline", Stratum.TOPSOIL, MetroLine.ACTIVITY, "App usage and data over time", null),
