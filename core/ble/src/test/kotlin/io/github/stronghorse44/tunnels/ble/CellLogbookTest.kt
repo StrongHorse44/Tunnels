@@ -161,7 +161,9 @@ class CellLogbookTest {
         val b = lte(1001, area = 999)
         val t = tokens(b).single()
         val (held, j) = scan(learned(), block(1), b)
-        val accepted = CellLog.accept(held, j.towerId!!)!!
+        val result = CellLog.accept(held, j.towerId!!)!!
+        assertTrue(result.learned)
+        val accepted = result.book
         assertTrue(accepted.held.isEmpty())
         assertTrue(t.cell in place(accepted).cells)
         assertTrue(t.area in place(accepted).areas)
@@ -423,23 +425,47 @@ class CellLogbookTest {
     }
 
     @Test
-    fun encodeEnforcesTheCaps() {
-        val places = (0 until 80).map { PlaceEntry(hex("pl$it"), 1 + it % 7, 2, filler(it, 60), filler(100 + it, 20), filler(200 + it, 12)) }
-        val held = (0 until 12).map { HeldTower(places[0].place, hex("hh$it"), null, null) }
-        val text = CellLogbook(kid, places, held).encode()
-        val back = CellLogbook.decode(text)!!
-        assertEquals(CellLog.MAX_PLACES, back.places.size)
-        assertTrue(back.places.all { it.cells.size <= CellLog.MAX_CELLS && it.areas.size <= CellLog.MAX_AREAS && it.operators.size <= CellLog.MAX_OPERATORS })
-        // The places that go are the ones with the fewest scans, ties by lowest hash.
-        val kept = places.sortedWith(compareByDescending<PlaceEntry> { it.scans }.thenBy { it.place }).take(CellLog.MAX_PLACES).map { it.place }.toSet()
-        assertEquals(kept, back.places.map { it.place }.toSet())
-        // Held towers of a place that was cut go with it.
-        assertTrue(back.held.all { h -> back.places.any { it.place == h.place } })
-        assertTrue(back.held.size <= CellLog.MAX_HELD)
-        // Out-of-range counts are clamped, not written.
-        val odd = CellLogbook(kid, listOf(PlaceEntry(hex("x"), 500, 9))).encode()
-        assertEquals(99, CellLogbook.decode(odd)!!.places.single().scans)
-        assertEquals(4, CellLogbook.decode(odd)!!.places.single().bestRank)
+    fun encodeRefusesAnOverCapBook() {
+        fun refused(why: String, book: CellLogbook) {
+            try {
+                book.encode()
+                fail("encode wrote $why")
+            } catch (_: IllegalStateException) {
+            }
+        }
+        val one = PlaceEntry(hex("x"), 3, 2)
+        refused("65 places", CellLogbook(kid, (0..CellLog.MAX_PLACES).map { PlaceEntry(hex("pl$it"), 1, 0) }))
+        refused("49 cells", CellLogbook(kid, listOf(one.copy(cells = filler(1, CellLog.MAX_CELLS + 1)))))
+        refused("17 areas", CellLogbook(kid, listOf(one.copy(areas = filler(2, CellLog.MAX_AREAS + 1)))))
+        refused("9 operators", CellLogbook(kid, listOf(one.copy(operators = filler(3, CellLog.MAX_OPERATORS + 1)))))
+        refused("9 held", CellLogbook(kid, listOf(one), (0..CellLog.MAX_HELD).map { HeldTower(one.place, hex("hh$it"), null, null) }))
+        refused("held for no place", CellLogbook(kid, listOf(one), listOf(HeldTower(hex("elsewhere"), hex("t"), null, null))))
+        refused("scans 0", CellLogbook(kid, listOf(one.copy(scans = 0))))
+        refused("scans 100", CellLogbook(kid, listOf(one.copy(scans = 100))))
+        refused("rank 5", CellLogbook(kid, listOf(one.copy(bestRank = 5))))
+        refused("a value that is not a hash", CellLogbook(kid, listOf(one.copy(cells = setOf("123456789")))))
+        refused("duplicate place", CellLogbook(kid, listOf(one, one)))
+        refused("a bad key id", CellLogbook("xyz", listOf(one)))
+        // Exactly at every cap is fine and reads back.
+        val full = PlaceEntry(hex("full"), 99, 4, filler(1, CellLog.MAX_CELLS), filler(2, CellLog.MAX_AREAS), filler(3, CellLog.MAX_OPERATORS))
+        val book = CellLogbook(
+            kid,
+            (0 until CellLog.MAX_PLACES - 1).map { PlaceEntry(hex("pl$it"), 1, 0) } + full,
+            (0 until CellLog.MAX_HELD).map { HeldTower(full.place, hex("hh$it"), null, null) },
+        )
+        assertEquals(book.places.sortedBy { it.place }, CellLogbook.decode(book.encode())!!.places)
+    }
+
+    @Test
+    fun acceptIntoAFullListDropsTheHoldWithoutLearning() {
+        val full = PlaceEntry(block(1)[0], 6, 3, filler(1, CellLog.MAX_CELLS))
+        val b = lte(1001, area = 999)
+        val (held, j) = scan(CellLogbook(kid, listOf(full)), block(1), b)
+        assertEquals(1, held.held.size)
+        val result = CellLog.accept(held, j.towerId!!)!!
+        assertFalse(result.learned)
+        assertTrue(result.book.held.isEmpty())
+        assertFalse(tokens(b).single().cell in result.book.places.single().cells)
     }
 
     @Test

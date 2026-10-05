@@ -61,11 +61,12 @@ class CellLogStore(private val context: Context) {
                     return@updateSetting raw
                 }
                 val (next, j) = CellLog.observe(book, keyId, block, tokens, previousRank)
-                val text = next.encode()
-                // Never write a row this code cannot read back: it would be unreadable, and never overwritten.
-                check(CellLogbook.decode(text) != null) { "row does not read back" }
+                // The verdict is kept before the row is built: a refused or failed write still reports it.
                 judgement = j
                 state = if (j.restarted) SurroundingsKeys.LOG_RESTARTED else SurroundingsKeys.LOG_ON
+                val text = next.encode() // throws on any cap breach: nothing is written and the row stays as it was
+                // Never write a row this code cannot read back: it would be unreadable, and never overwritten.
+                check(CellLogbook.decode(text) != null) { "row does not read back" }
                 text
             }
         } catch (e: CancellationException) {
@@ -122,14 +123,14 @@ class CellLogStore(private val context: Context) {
                     message = CellLogText.UNREADABLE
                     return@updateSetting raw
                 }
-                val next = CellLog.accept(book, towerId)
-                if (next == null) {
+                val accepted = CellLog.accept(book, towerId)
+                if (accepted == null) {
                     message = MESSAGE_NOT_HELD
                     return@updateSetting raw
                 }
-                val text = next.encode()
+                val text = accepted.book.encode()
                 check(CellLogbook.decode(text) != null) { "row does not read back" }
-                message = "Remembered this tower here."
+                message = if (accepted.learned) MESSAGE_REMEMBERED else MESSAGE_LIST_FULL
                 text
             }
             if (message != CellLogText.UNREADABLE) {
@@ -150,5 +151,7 @@ class CellLogStore(private val context: Context) {
         /** The settings-table key of the row. Not exported: `BundleSettings.KEYS` does not list it. */
         const val KEY = "surroundings.cell_logbook"
         const val MESSAGE_NOT_HELD = "Nothing to remember: this tower is no longer waiting."
+        const val MESSAGE_LIST_FULL = "Nothing to remember: this place's list is full."
+        const val MESSAGE_REMEMBERED = "Remembered this tower here."
     }
 }

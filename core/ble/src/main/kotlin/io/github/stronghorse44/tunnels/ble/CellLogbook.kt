@@ -95,30 +95,40 @@ data class CellJudgement(
 /** The logbook row. [keyId] says which Keystore key made the hashes. */
 data class CellLogbook(val keyId: String, val places: List<PlaceEntry> = emptyList(), val held: List<HeldTower> = emptyList()) {
     /**
-     * The row's text, canonical: every line sorted, every hash 32 lowercase hex, caps enforced. A book over a cap
-     * (observe never builds one) is cut down in a fixed way rather than written over a cap: places with the fewest
-     * scans go first (ties: lowest hash), a full set keeps its lowest hashes, held towers keep the highest ids.
+     * The row's text, canonical: every line sorted, every hash 32 lowercase hex. Fails closed: a book over a cap or
+     * with a value out of range throws IllegalStateException and nothing is written (nothing is cut down silently;
+     * [CellLog.observe] and [CellLog.accept] keep a book within its caps themselves).
      */
     fun encode(): String {
-        val kept = places.sortedWith(compareByDescending<PlaceEntry> { it.scans }.thenBy { it.place }).take(CellLog.MAX_PLACES).sortedBy { it.place }
-        val placeSet = kept.mapTo(HashSet()) { it.place }
-        val towers = held.filter { it.place in placeSet }.sortedByDescending { it.cell }.take(CellLog.MAX_HELD).sortedBy { it.cell }
+        check(CellLog.isHash(keyId, 8)) { "key id" }
+        check(places.size <= CellLog.MAX_PLACES) { "too many places" }
+        check(places.map { it.place }.toSet().size == places.size) { "duplicate place" }
+        check(held.size <= CellLog.MAX_HELD) { "too many held towers" }
+        check(held.map { it.cell }.toSet().size == held.size) { "duplicate held tower" }
+        val known = places.mapTo(HashSet()) { it.place }
+        for (p in places) {
+            check(CellLog.isHash(p.place) && p.scans in 1..CellLog.MAX_SCANS && p.bestRank in 0..CellLog.MAX_RANK) { "place entry" }
+            check(p.cells.size <= CellLog.MAX_CELLS && p.areas.size <= CellLog.MAX_AREAS && p.operators.size <= CellLog.MAX_OPERATORS) { "place set over its cap" }
+            check((p.cells + p.areas + p.operators).all { CellLog.isHash(it) }) { "not a hash" }
+        }
+        for (h in held) {
+            check(h.place in known && CellLog.isHash(h.place) && CellLog.isHash(h.cell)) { "held tower" }
+            check((h.area == null || CellLog.isHash(h.area)) && (h.operator == null || CellLog.isHash(h.operator))) { "held tower" }
+        }
         return buildString {
             append(CellLog.MAGIC).append('\n')
             append("kid ").append(keyId).append('\n')
-            for (p in kept) {
-                append("P ").append(p.place).append(' ').append(p.scans.coerceIn(1, CellLog.MAX_SCANS)).append(' ')
-                append(p.bestRank.coerceIn(0, CellLog.MAX_RANK)).append(' ')
-                append(list(p.cells, CellLog.MAX_CELLS)).append(' ').append(list(p.areas, CellLog.MAX_AREAS)).append(' ')
-                append(list(p.operators, CellLog.MAX_OPERATORS)).append('\n')
+            for (p in places.sortedBy { it.place }) {
+                append("P ").append(p.place).append(' ').append(p.scans).append(' ').append(p.bestRank).append(' ')
+                append(list(p.cells)).append(' ').append(list(p.areas)).append(' ').append(list(p.operators)).append('\n')
             }
-            for (h in towers) {
+            for (h in held.sortedBy { it.cell }) {
                 append("H ").append(h.place).append(' ').append(h.cell).append(' ').append(h.area ?: "-").append(' ').append(h.operator ?: "-").append('\n')
             }
         }
     }
 
-    private fun list(set: Set<String>, cap: Int): String = if (set.isEmpty()) "-" else set.sorted().take(cap).joinToString(",")
+    private fun list(set: Set<String>): String = if (set.isEmpty()) "-" else set.sorted().joinToString(",")
 
     companion object {
         /**
@@ -159,7 +169,7 @@ data class CellLogbook(val keyId: String, val places: List<PlaceEntry> = emptyLi
             if (held.any { it.place !in known }) return null
             val book = CellLogbook(kid, places, held)
             // Sorted, no stray spaces or zeros: only text the encoder writes is a readable row.
-            return book.takeIf { it.encode() == raw }
+            return book.takeIf { runCatching { it.encode() }.getOrNull() == raw }
         }
 
         private val HASH = Regex("[0-9a-f]{32}")
@@ -199,6 +209,9 @@ object CellLog {
 
     private val HASH = Regex("[0-9a-f]{32}")
     private val KID = Regex("[0-9a-f]{8}")
+
+    /** True when [s] is [length] lowercase hex characters: 32 for a keyed hash, 8 for a key id. */
+    fun isHash(s: String, length: Int = 32): Boolean = (if (length == 8) KID else HASH).matches(s)
 
     /** The tokens of the cells in [cells] that have an id, [hmac] being the keyed hash (32 lowercase hex). Cells without an id cannot be judged and are left out. */
     fun tokensOf(cells: List<ServingCell>, hmac: (String) -> String): List<CellTokens> =
@@ -295,19 +308,27 @@ object CellLog {
     /** True when the phone fell from 4G/5G ([previousRank] 3 or 4) to a lower rank: [CellHeuristics.isDowngrade] on ranks. */
     private fun isDrop(previousRank: Int, rank: Int): Boolean = previousRank >= CellTech.LTE.rank && rank < previousRank
 
+    /** What [accept] did: the book to keep, and whether the tower went into its place's list ([learned] false: the list was full). */
+    data class Accepted(val book: CellLogbook, val learned: Boolean)
+
     /**
      * "Normal here": moves the held tower [towerId] into its place's sets and drops the hold. Returns null when no
-     * such tower is held. A set already at its cap takes nothing more (the hold is still dropped).
+     * such tower is held. When the place's cell list is already at its cap nothing is added: the hold is dropped and
+     * [Accepted.learned] is false, so the caller can say so.
      */
-    fun accept(book: CellLogbook, towerId: String): CellLogbook? {
+    fun accept(book: CellLogbook, towerId: String): Accepted? {
         val tower = book.held.filter { it.towerId == towerId }.minByOrNull { it.cell } ?: return null
+        var learned = false
         val places = book.places.map {
-            if (it.place != tower.place) it else it.copy(
-                cells = if (it.cells.size < MAX_CELLS) it.cells + tower.cell else it.cells,
-                areas = if (tower.area != null && it.areas.size < MAX_AREAS) it.areas + tower.area else it.areas,
-                operators = if (tower.operator != null && it.operators.size < MAX_OPERATORS) it.operators + tower.operator else it.operators,
-            )
+            if (it.place != tower.place) it else {
+                learned = it.cells.size < MAX_CELLS || tower.cell in it.cells
+                it.copy(
+                    cells = if (it.cells.size < MAX_CELLS) it.cells + tower.cell else it.cells,
+                    areas = if (tower.area != null && it.areas.size < MAX_AREAS) it.areas + tower.area else it.areas,
+                    operators = if (tower.operator != null && it.operators.size < MAX_OPERATORS) it.operators + tower.operator else it.operators,
+                )
+            }
         }
-        return book.copy(places = places, held = book.held.filter { it.cell != tower.cell })
+        return Accepted(book.copy(places = places, held = book.held.filter { it.cell != tower.cell }), learned)
     }
 }

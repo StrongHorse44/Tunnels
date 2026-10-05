@@ -256,7 +256,7 @@ class SurroundingsSmokeTest {
             assertTrue(raw.lines().all { it.isEmpty() || it.startsWith("CLOG1") || it.startsWith("kid ") || it.startsWith("P ") || it.startsWith("H ") })
 
             // Normal here learns it and drops the hold; asking again has nothing to remember.
-            assertEquals("Remembered this tower here.", log.accept(j.towerId!!))
+            assertEquals(CellLogStore.MESSAGE_REMEMBERED, log.accept(j.towerId!!))
             assertEquals(TowerVerdict.FAMILIAR, log.judge(block, listOf(odd), 3).second!!.verdict)
             assertEquals(CellLogStore.MESSAGE_NOT_HELD, log.accept(j.towerId!!))
 
