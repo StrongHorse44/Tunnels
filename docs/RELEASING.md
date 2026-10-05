@@ -80,13 +80,15 @@ needs no environment setting to change.
 either branch, signs the commit it ran on without asking anyone. The workflow file on those branches is reviewed
 code, and the `sign` job runs no repository code; nothing else can read the secrets. Also:
 
-- A `VERSION` merge starts a publishing run, so bump pull requests are **the owner's to merge** (the program
-  overseer may merge one only when it is reviewed, green and changes nothing else that counts as a gate change).
-  The approval at `publish` is what decides whether anything is published: rejecting it publishes nothing and
-  that version is skipped.
+- A `VERSION` merge starts a publishing run. **The program overseer may merge a reviewed, green pull request
+  whose only gate-relevant change is the `VERSION` bump; publishing still waits for the owner's tap at
+  `publish`.** A `VERSION` change combined with any real gate change is a gate change, and the owner merges it.
+  Rejecting the approval publishes nothing and that version is skipped.
 - Agents (Claude sessions) act through tokens tied to the owner's GitHub account, so "agents do not start
   release runs by dispatch or tag, or approve them" is a **policy**, not a control. The program overseer starts
-  dry runs (`publish` off) only; a `publish` ticked dispatch and every approval are the owner's.
+  dry runs (`publish` off) only; a `publish` ticked dispatch and every approval are the owner's. Sessions act
+  with the owner's own GitHub identity, so nothing but the rule stops an agent approving or rejecting a pending
+  deployment at `publish`: agents never do, and the tap is the owner's.
 - A publishing run produces a **release-signed APK as a run artifact (`signed-apk`) before anyone has approved
   anything**. Signed-in users with read access to the repository (it is public) can download artifacts, so the
   artifact is kept for 1 day only. Approve on the same day, or re-run the run. The `plan` job keeps this to runs
@@ -153,8 +155,8 @@ The same Run workflow form, branch `ccr-dff99af5-ij1rle` (or `main`), `publish` 
 not start or that must be tried again. It reads `VERSION` at that branch's head like any other run and is
 refused from any other branch. The release must not already exist at another commit; one at the same commit is
 re-attached to after the approval. There is no `version` input any more. The GitHub app can show and approve
-runs but, as far as we know, cannot fill in the Run workflow form; use the browser. Agents never start a
-publishing run.
+runs but, as far as we know, cannot fill in the Run workflow form; use the browser.
+Agents never start one by dispatch or by tag.
 
 Do not create the tag or the release by hand (**Releases → Draft a new release**): the workflow creates the tag
 and the release at the commit it built, or uses the existing tag if it is already at the built commit, and it

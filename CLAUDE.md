@@ -112,7 +112,9 @@ Google's Maven is not reachable from the cloud dev container: Android modules on
     approval is required: it is the control on publishing, and rejecting it publishes nothing. The overseer
     starts dry runs (`publish` off) on a reviewed branch only; they build, gate and rehearse and publish
     nothing. Agents never start a publishing run: never by dispatching `release.yml` with `publish` ticked and
-    never by pushing a tag. Who can push to the two branches is the control on the key.
+    never by pushing a tag, and agents never approve or reject a pending deployment (the `publish` tap is the
+    owner's by rule; sessions act with the owner's GitHub identity, so the rule is the control). Who can push to
+    the two branches is the control on the key.
   Builder and reviewer agents never merge. The overseer may merge a PR only when review passed,
   CI is green and the PR has no gate change (no new or changed permission, network host, runtime
   dependency, native library, build type, signing config, release workflow or either baseline); a PR

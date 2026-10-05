@@ -162,8 +162,8 @@ jobs:
               echo "::error::VERSION is missing at $sha; nothing is built."
               exit 1
             fi
-            kind=$(jq -r 'if type=="object" then "\(.type) \(.encoding)" else "not an object" end' <<< "$out" 2>/dev/null) || kind="not JSON"
-            if [ "$kind" != "file base64" ]; then
+            kind=$(jq -r 'if type=="object" then "\(.type) \(.encoding) \(.path)" else "not an object" end' <<< "$out" 2>/dev/null) || kind="not JSON"
+            if [ "$kind" != "file base64 VERSION" ]; then
               echo "::error::VERSION must be a regular file holding one line like 0.1.1 (each part 0-999, no leading zeros, no 'v'), got 'not a regular file'."
               exit 1
             fi
@@ -711,8 +711,8 @@ jobs:
               echo "::error::VERSION is missing at $sha; nothing is built."
               exit 1
             fi
-            kind=$(jq -r 'if type=="object" then "\(.type) \(.encoding)" else "not an object" end' <<< "$out" 2>/dev/null) || kind="not JSON"
-            if [ "$kind" != "file base64" ]; then
+            kind=$(jq -r 'if type=="object" then "\(.type) \(.encoding) \(.path)" else "not an object" end' <<< "$out" 2>/dev/null) || kind="not JSON"
+            if [ "$kind" != "file base64 VERSION" ]; then
               echo "::error::VERSION must be a regular file holding one line like 0.1.1 (each part 0-999, no leading zeros, no 'v'), got 'not a regular file'."
               exit 1
             fi
@@ -732,7 +732,7 @@ jobs:
           # type and sha are read, after checking the answer has that shape (a jq error counts as malformed).
           resolve_tag() {
             local tag=$1 body=$2 end=$3 shape answer kind sha n err
-            shape='if type=="object" and (.object|type)=="object" and (.object.type|type)=="string" and (.object.sha|type)=="string" and (.object.sha|test("^[0-9a-f]{40}$")) then .object.type+" "+.object.sha else empty end'
+            shape='if type=="object" and (.object|type)=="object" and (.object.type|type)=="string" and (.object.sha|type)=="string" and (.object.sha|test("\\A[0-9a-f]{40}\\z")) then .object.type+" "+.object.sha else empty end'
             answer=$(jq -r "$shape" <<< "$body" 2>/dev/null) || answer=
             if [ -z "$answer" ]; then
               echo "::error::GitHub's answer for refs/tags/$tag is not one ref with object.type and object.sha (got $(body_type "$body")).$end"
@@ -854,7 +854,8 @@ jobs:
   # group is one constant for every ref, so a run from main and a run from the integration branch cannot publish
   # at the same time (the order re-check below then sees the earlier one's release); it lives on this job alone, so
   # builds and signing for later runs are not held while a publish waits. GitHub keeps one pending run per group:
-  # a run waiting behind another replaces an older waiting one, so start the replaced one again.
+  # a run waiting behind another replaces an older waiting one, which shows as cancelled; that version is
+  # skipped (docs/RELEASING.md), and the next release is a higher one.
   publish:
     if: >-
       needs.plan.outputs.release == 'true' && (
@@ -946,7 +947,7 @@ jobs:
           # type and sha are read, after checking the answer has that shape (a jq error counts as malformed).
           resolve_tag() {
             local tag=$1 body=$2 end=$3 shape answer kind sha n err
-            shape='if type=="object" and (.object|type)=="object" and (.object.type|type)=="string" and (.object.sha|type)=="string" and (.object.sha|test("^[0-9a-f]{40}$")) then .object.type+" "+.object.sha else empty end'
+            shape='if type=="object" and (.object|type)=="object" and (.object.type|type)=="string" and (.object.sha|type)=="string" and (.object.sha|test("\\A[0-9a-f]{40}\\z")) then .object.type+" "+.object.sha else empty end'
             answer=$(jq -r "$shape" <<< "$body" 2>/dev/null) || answer=
             if [ -z "$answer" ]; then
               echo "::error::GitHub's answer for refs/tags/$tag is not one ref with object.type and object.sha (got $(body_type "$body")).$end"
