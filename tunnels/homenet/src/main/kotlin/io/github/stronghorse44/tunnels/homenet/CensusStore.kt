@@ -137,7 +137,10 @@ class CensusStore(context: Context) {
         }
     }
 
-    /** "Start the list again" (and Forget): records a reset, then moves the pin. The reset stands even if the pin move fails. */
+    /**
+     * "Start the list again" (and Forget, once the network is forgotten): records a reset, then moves the pin. The reset
+     * stands even if the pin move fails. Findings already raised are not touched: sticky ones expire at 30 days or on Dismiss.
+     */
     fun reset(tag: String): String = runBlocking {
         guarded {
             store.recordEvent(DeviceCensus.STREAM, DeviceCensus.KIND_RESET, tag, DeviceCensus.RESET_SUMMARY)
