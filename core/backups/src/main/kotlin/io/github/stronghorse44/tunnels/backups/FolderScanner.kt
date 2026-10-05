@@ -38,7 +38,8 @@ enum class Hold { CUT, FAILED }
  * file date) was read. [newestMs] is the newest usable date, 0 when there is none; a header dated more than a day
  * ahead of the clock is counted in [suspicious] instead and never wins. [fromFileDate] is set when the newest is an
  * old-format Tunnels export, which has no header date, so the file's last-modified time stands in; an old-format file
- * with no usable last-modified time is counted in [undated]: present, date unknown. [items] counts Lumen's per-item
+ * with no usable last-modified time is counted in [undated]: present, date unknown. [headerMs] is the newest FWX
+ * header date on its own, so a scan can tell an undated old-format file from one that an FWX header outdates. [items] counts Lumen's per-item
  * bundles, which are counted by name and never opened (only its manifest bundle says when the export was made).
  */
 data class AppSummary(
@@ -50,6 +51,10 @@ data class AppSummary(
     val suspicious: Int,
     val items: Int = 0,
     val undated: Int = 0,
+    /** The newest usable FWX header date, 0 when the app has none. An FWX header is always a later export than any old-format file. */
+    val headerMs: Long = 0L,
+    /** The file that sets [newestMs] is named for another registry app than the one its header (or format) says. */
+    val newestMisnamed: Boolean = false,
 )
 
 /** Bundles whose app ID is not in the registry. Only counted, never named. */
@@ -75,6 +80,8 @@ data class FolderScan(
     val held: Map<String, Hold> = emptyMap(),
     /** Set when what was not read could belong to any app (an unnamed pile, a folder that did not list, a cut listing). */
     val heldAll: Hold? = null,
+    /** Apps held by a failure on a file whose own name says it is theirs ("a Prikey file could not be read"), not by an unnamed one. */
+    val failedNamed: Set<String> = emptySet(),
 ) {
     val bundleFiles: Int get() = apps.values.sumOf { it.files + it.items } + other.files
 
@@ -106,6 +113,9 @@ data class FolderScan(
  * and every header read in it names one app (the group's own app, if the name says so): the unread ones are older exports
  * of the same app, so that app is still judged from its newest. Anything else holds the app the name points to, or all
  * apps when the name points to none. A held app is not judged; it is never called missing or stale.
+ *
+ * A group whose every header read is dated in the future has dated nothing, so it is read past [MAX_PER_APP] (up to
+ * [MAX_HEADERS] in all) until a header gives a date; if names are still unread then, the group is not harmless either.
  */
 object FolderScanner {
     const val MAX_DEPTH = 2
@@ -130,6 +140,8 @@ object FolderScanner {
         var legacyNewest = 0L
         var items = 0
         var undated = 0
+        var newestMisnamed = false
+        var legacyMisnamed = false
     }
 
     private enum class Outcome { NOT_READ, BUNDLE, NOT_A_BUNDLE, FAILED }
@@ -138,6 +150,9 @@ object FolderScanner {
         var outcome = Outcome.NOT_READ
         var app: String? = null
         var otherMs = 0L
+
+        /** The header (or old-format file date) is further ahead than the clock allows, so it dates nothing. */
+        var suspicious = false
     }
 
     private class Group(val key: String, val app: String?) {
@@ -157,6 +172,9 @@ object FolderScanner {
         val n = name.lowercase()
         return IDS_LONGEST_FIRST.firstOrNull { n.startsWith(it) && (n.length == it.length || !n[it.length].isLetter()) }
     }
+
+    /** The file's name points to a registry app other than the one its content says. */
+    private fun misnamed(name: String, appId: String): Boolean = appOfName(name)?.let { it != appId } ?: false
 
     private fun prefixOf(name: String): String = appOfName(name) ?: name.lowercase().takeWhile { it in 'a'..'z' }
 
@@ -230,19 +248,38 @@ object FolderScanner {
             if (!any) break
         }
 
+        // A group whose every header so far is dated in the future has told us no date, so its unread older names are not
+        // "older exports of the same app": keep reading it, one group after another, until a header gives a usable date or
+        // the global bound is reached. What is still unread after that holds the app (see below).
+        for (g in order) {
+            while (reads < MAX_HEADERS && onlySuspicious(g)) {
+                val c = g.cands.firstOrNull { it.outcome == Outcome.NOT_READ } ?: break
+                reads++
+                read(source, c, nowMs, accs)
+                when {
+                    c.outcome == Outcome.FAILED -> { faults++; unreadable++ }
+                    c.outcome == Outcome.NOT_A_BUNDLE -> unreadable++
+                    c.app == OTHER_APP -> { otherFiles++; if (c.otherMs > otherNewest) otherNewest = c.otherMs }
+                }
+            }
+        }
+
         var truncated = cut
+        val failedNamed = HashSet<String>()
         for (g in groups.values) {
             val shaky = g.cands.any { it.outcome == Outcome.NOT_READ || it.outcome == Outcome.FAILED }
             if (!shaky) continue
             truncated = truncated || g.cands.any { it.outcome == Outcome.NOT_READ }
             val first = g.cands.first { it.outcome != Outcome.NOT_A_BUNDLE }
             val apps = g.cands.filter { it.outcome == Outcome.BUNDLE }.mapNotNull { it.app }.toSet()
-            val harmless = first.outcome == Outcome.BUNDLE && apps.size == 1 && (g.app == null || apps.single() == g.app)
+            // Unread names are older exports only if what was read in the group did date something.
+            val harmless = first.outcome == Outcome.BUNDLE && apps.size == 1 && (g.app == null || apps.single() == g.app) && !allSuspicious(g)
             if (harmless) continue
             val why = if (g.cands.any { it.outcome == Outcome.FAILED }) Hold.FAILED else Hold.CUT
             if (g.app == null) {
                 holdAll(why)
             } else {
+                if (why == Hold.FAILED) failedNamed += g.app
                 hold(g.app, why)
                 apps.filter { it != OTHER_APP }.forEach { hold(it, why) }
             }
@@ -259,10 +296,22 @@ object FolderScanner {
                 suspicious = a.suspicious,
                 items = a.items,
                 undated = a.undated,
+                headerMs = a.newest,
+                newestMisnamed = if (useFileDate) a.legacyMisnamed else a.newestMisnamed,
             )
         }
-        return FolderScan(FolderState.OK, summaries, OtherSummary(otherFiles, otherNewest), unreadable, skipped, truncated, faults, held, heldAll)
+        return FolderScan(FolderState.OK, summaries, OtherSummary(otherFiles, otherNewest), unreadable, skipped, truncated, faults, held, heldAll, failedNamed)
     }
+
+    /** Every bundle read in [g] is dated in the future, and there is at least one. */
+    private fun allSuspicious(g: Group): Boolean {
+        val bundles = g.cands.filter { it.outcome == Outcome.BUNDLE }
+        return bundles.isNotEmpty() && bundles.all { it.suspicious }
+    }
+
+    /** [g] should be read further: nothing in it has dated anything yet, nothing failed, and names are left. */
+    private fun onlySuspicious(g: Group): Boolean =
+        allSuspicious(g) && g.cands.none { it.outcome == Outcome.FAILED } && g.cands.any { it.outcome == Outcome.NOT_READ }
 
     /** Reads one candidate's header into [accs] and notes the outcome on [c]. */
     private fun read(source: FolderSource, c: Cand, nowMs: Long, accs: HashMap<String, Acc>) {
@@ -274,8 +323,11 @@ object FolderScanner {
                     c.app = r.appId
                     val a = accs.getOrPut(r.appId) { Acc() }
                     a.files++
-                    if (r.createdMs > nowMs + FUTURE_SLACK_MS) a.suspicious++
-                    else if (r.createdMs > a.newest) { a.newest = r.createdMs; a.schema = r.schema }
+                    if (r.createdMs > nowMs + FUTURE_SLACK_MS) { a.suspicious++; c.suspicious = true }
+                    else if (r.createdMs > a.newest) {
+                        a.newest = r.createdMs; a.schema = r.schema
+                        a.newestMisnamed = misnamed(e.name, r.appId)
+                    }
                 } else {
                     c.app = OTHER_APP
                     if (r.createdMs <= nowMs + FUTURE_SLACK_MS) c.otherMs = r.createdMs
@@ -288,8 +340,8 @@ object FolderScanner {
                 a.files++
                 when {
                     e.modifiedMs <= 0 -> a.undated++
-                    e.modifiedMs > nowMs + FUTURE_SLACK_MS -> a.suspicious++
-                    e.modifiedMs > a.legacyNewest -> a.legacyNewest = e.modifiedMs
+                    e.modifiedMs > nowMs + FUTURE_SLACK_MS -> { a.suspicious++; c.suspicious = true }
+                    e.modifiedMs > a.legacyNewest -> { a.legacyNewest = e.modifiedMs; a.legacyMisnamed = misnamed(e.name, "tunnels") }
                 }
             }
             is HeaderRead.Unreadable -> c.outcome = if (r.access) Outcome.FAILED else Outcome.NOT_A_BUNDLE

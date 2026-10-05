@@ -241,7 +241,8 @@ private fun describe(row: AppRow, folderReadable: Boolean, module: BackupsTunnel
         AppStatus.UNKNOWN_DATE -> "present, date unknown · $files" to GlassColors.dim
         AppStatus.NO_MANIFEST -> "${row.items} item bundle${if (row.items == 1) "" else "s"} but no manifest: incomplete, can't be imported" to StatusColors.warn
         AppStatus.INCOMPLETE -> "not judged: files that may be its own were not read" to StatusColors.warn
-        AppStatus.UNREADABLE -> "not judged: a ${row.app.name} file could not be read" to StatusColors.warn
+        AppStatus.UNREADABLE ->
+            (if (row.failedNamed) "not judged: a ${row.app.name} file could not be read" else "not judged: a file that may be ${row.app.name}'s could not be read") to StatusColors.warn
         AppStatus.UNTRACKED -> (if (newest != null) "$what $newest · ${row.ageDays} days ago · not watched" else "not watched") to GlassColors.dim
         null -> "no bundle seen · not watched" to GlassColors.dim
     }

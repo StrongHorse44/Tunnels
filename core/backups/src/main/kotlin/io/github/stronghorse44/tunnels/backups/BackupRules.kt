@@ -96,11 +96,31 @@ object BackupRules {
             "No app's backup can be checked until you choose the folder again, so nothing is reported stale or missing meanwhile."
     }
 
-    /** Watched apps the scan could not judge, by name, with the reason each was held. */
-    private fun hiddenApps(by: Map<String, List<Observation>>): List<Pair<String, AppStatus>> = BackupApps.all.mapNotNull { app ->
+    private fun watched(by: Map<String, List<Observation>>) = BackupApps.all.mapNotNull { app ->
         val obs = by[app.id] ?: return@mapNotNull null
+        if (value(obs, BackupKeys.TRACKED) == "true") app to obs else null
+    }
+
+    /** Watched apps the scan could not judge, with the reason each was held and whether the failed file was named for it. */
+    private fun hiddenApps(by: Map<String, List<Observation>>): List<Triple<String, AppStatus, Boolean>> = watched(by).mapNotNull { (app, obs) ->
         val status = AppStatus.of(value(obs, BackupKeys.STATUS))
-        if (value(obs, BackupKeys.TRACKED) == "true" && (status == AppStatus.INCOMPLETE || status == AppStatus.UNREADABLE)) app.name to status!! else null
+        if (status == AppStatus.INCOMPLETE || status == AppStatus.UNREADABLE) Triple(app.name, status!!, value(obs, BackupKeys.FAILED_NAMED) == "true") else null
+    }
+
+    /** What the notice (no watched app held back) may say about the watched apps, one case at a time, so it is never more than true. */
+    private fun judgedFrom(by: Map<String, List<Observation>>): String {
+        val apps = watched(by)
+        val unknown = apps.filter { (_, obs) -> AppStatus.of(value(obs, BackupKeys.STATUS)) == AppStatus.UNKNOWN_DATE }.map { it.first.name }
+        val misnamed = apps.filter { (_, obs) ->
+            AppStatus.of(value(obs, BackupKeys.STATUS)) != AppStatus.UNKNOWN_DATE && value(obs, BackupKeys.MISNAMED) == "true"
+        }.map { it.first.name }
+        if (unknown.isEmpty() && misnamed.isEmpty()) return "Every app you watch was still judged from the newest file that was read."
+        val rest = apps.size - unknown.size - misnamed.size
+        return listOfNotNull(
+            unknown.takeIf { it.isNotEmpty() }?.let { "${it.joinToString(", ")} ${if (it.size == 1) "has" else "have"} files but none says when it was made, so ${if (it.size == 1) "its" else "their"} age is not judged." },
+            misnamed.takeIf { it.isNotEmpty() }?.let { "${it.joinToString(", ")} ${if (it.size == 1) "was" else "were"} judged from a file whose name says it is another app's; check that file." },
+            if (rest > 0) "${if (unknown.size + misnamed.size > 0) "Every other app" else "Every app"} you watch was still judged from the newest file that was read." else null,
+        ).joinToString(" ")
     }
 
     private fun incomplete(ctx: RuleContext): List<FindingDraft> {
@@ -120,10 +140,14 @@ object BackupRules {
             if (faults > 0) add("$faults file${if (faults == 1) "" else "s"} or folder${if (faults == 1) "" else "s"} could not be opened (the storage provider failed on ${if (faults == 1) "it" else "them"}).")
         }.joinToString(" ")
         val effect = if (hidden.isEmpty()) {
-            "Every app you watch was still judged from the newest file that was read."
+            judgedFrom(by)
         } else {
-            hidden.joinToString("; ") { (name, status) ->
-                if (status == AppStatus.UNREADABLE) "A $name file could not be read, so $name is not judged" else "$name is not judged: files that may be its own were not read"
+            hidden.joinToString("; ") { (name, status, named) ->
+                when {
+                    status != AppStatus.UNREADABLE -> "$name is not judged: files that may be its own were not read"
+                    named -> "A $name file could not be read, so $name is not judged"
+                    else -> "A file that may be $name's could not be read, so $name is not judged"
+                }
             } + ". A stale or missing backup could be hiding there. " +
                 "Move old exports into another folder, pick a folder on the phone itself, or fix the file, then scan again."
         }
