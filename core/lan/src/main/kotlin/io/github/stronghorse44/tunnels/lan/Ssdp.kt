@@ -63,6 +63,20 @@ object Ssdp {
         return parts.lastOrNull() ?: st
     }
 
+    private val UUID_BODY = Regex("[0-9a-f-]{8,64}")
+
+    /**
+     * The device UUID of a USN header ("uuid:1234abcd-...::upnp:rootdevice" gives "1234abcd-..."): the text after
+     * "uuid:" up to "::", lowercased. Null for a USN that carries none (a bare urn) and for anything that is not
+     * 8 to 64 hex digits and dashes, so a hostile reply cannot put free text into the census.
+     */
+    fun uuidOf(usn: String?): String? {
+        val text = usn?.trim() ?: return null
+        if (!text.startsWith("uuid:", ignoreCase = true)) return null
+        val body = text.substring("uuid:".length).substringBefore("::").trim().lowercase()
+        return body.takeIf { UUID_BODY.matches(it) }
+    }
+
     /** Whether an ST/NT header or USN names an Internet Gateway Device or its WAN connection service. */
     fun isIgdType(type: String?): Boolean {
         val t = type ?: return false

@@ -18,9 +18,13 @@ object LanGuides {
         LanRules.DNS_HIJACK ->
             "In your router's admin page set the DNS servers to a resolver you trust (your ISP's or a public one) and change the admin password; if the setting keeps changing, reset the router and update its firmware. " +
                 "On this phone, turn on Private DNS (Settings > Network & internet > Private DNS) so lookups bypass the router."
-        LanRules.NEW_HOST ->
+        // NEW_HOST is retired as a rule; its guide stays so a finding stored by an older build still gets its action.
+        LanRules.UNKNOWN_DEVICE, LanRules.NEW_HOST ->
             "If you do not recognise this device, open your router's admin page and check its client list. " +
                 "Change the Wi-Fi password and reconnect only the devices you know; turn off WPS."
+        LanRules.CENSUS_NOT_SET_UP ->
+            "Check each device in the list. If you know them all, tap These are all mine; " +
+                "if one is a stranger, check your router's client list first."
         else -> "Open your router's admin page, update its firmware, and check which devices and services are allowed."
     }
 
@@ -28,6 +32,8 @@ object LanGuides {
     const val FIX_LABEL = "How to fix"
     const val ROUTER_ADMIN_LABEL = "Open router admin"
     const val WIFI_SETTINGS_LABEL = "Wi-Fi settings"
+    const val MINE_LABEL = "Mine: add to this network's list"
+    const val ALL_MINE_LABEL = "These are all mine"
 
     /** Router-level kinds get an "Open router admin" action. */
     fun isRouterKind(kind: String) = kind == LanRules.UPNP_IGD_ENABLED || kind == LanRules.DNS_HIJACK

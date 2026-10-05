@@ -106,4 +106,74 @@ class LanSummaryTest {
         assertNull("not scanned is not the same as none open", s.router!!.openPorts)
         assertEquals(0, s.droppedOutOfScope)
     }
+
+    private fun tok(n: Int) = "n" + "%016x".format(n)
+
+    @Test
+    fun censusFieldsAndListedPerHost() {
+        val obs = listOf(
+            Observation(t, "192.168.1.1", LanKeys.HOST_KIND, "router"),
+            Observation(t, "192.168.1.20", LanKeys.HOST_KIND, "tv"),
+            Observation(t, "192.168.1.20", LanKeys.HOST_NAME, "Living Room TV"),
+            Observation(t, "192.168.1.20", LanKeys.HOST_IDS, "${tok(1)},${tok(2)}"),
+            Observation(t, "192.168.1.21", LanKeys.HOST_KIND, "speaker"),
+            Observation(t, "192.168.1.21", LanKeys.HOST_IDS, tok(3)),
+            Observation(t, "192.168.1.22", LanKeys.HOST_KIND, "unknown"),
+            Observation(t, LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_IP, "192.168.1.1"),
+            Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_GATE, "confirmed"),
+            Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.CENSUS_STATE, "set"),
+            Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.CENSUS_KNOWN, "${tok(2)},${tok(1)},${tok(9)}"),
+            Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.CENSUS_UNKNOWN, "2"),
+            Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.CENSUS_FULL, "true"),
+            Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_LINK_LOCAL_ONLY, "2"),
+            Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_OVER_CAP, "4"),
+        )
+        val s = LanSummary.from(obs)
+        assertEquals(DeviceCensus.STATE_SET, s.censusState)
+        assertEquals(3, s.knownCount)
+        assertEquals(2, s.unknownCount)
+        assertTrue(s.full)
+        assertEquals(2, s.linkLocalOnly)
+        assertEquals(4, s.overCap)
+        assertEquals(3, s.devicesSeen)
+        assertEquals("the gateway is never judged", null, s.hosts.single { it.ip == "192.168.1.1" }.listed)
+        val tv = s.hosts.single { it.ip == "192.168.1.20" }
+        assertEquals(true, tv.listed)
+        assertEquals(listOf(tok(1), tok(2)), tv.ids)
+        assertEquals(tok(1), tv.primaryId)
+        assertEquals("Living Room TV", tv.censusTitle)
+        assertEquals(false, s.hosts.single { it.ip == "192.168.1.21" }.listed)
+        val silent = s.hosts.single { it.ip == "192.168.1.22" }
+        assertEquals("a host with no identity reads as not listed", false, silent.listed)
+        assertNull(silent.primaryId)
+        assertEquals("Unnamed device", silent.censusTitle)
+        assertEquals(1, s.listedCount)
+    }
+
+    @Test
+    fun listedIsNullUnlessTheListIsSet() {
+        fun hostsFor(state: String?): LanSummary = LanSummary.from(
+            listOfNotNull(
+                Observation(t, "192.168.1.20", LanKeys.HOST_KIND, "tv"),
+                Observation(t, "192.168.1.20", LanKeys.HOST_IDS, tok(1)),
+                Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_GATE, "confirmed"),
+                state?.let { Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.CENSUS_STATE, it) },
+                Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.CENSUS_KNOWN, tok(1)),
+            ),
+        )
+        for (state in listOf("unset", "unavailable", null, "garbage")) {
+            val s = hostsFor(state)
+            assertNull("state $state", s.hosts.single().listed)
+            assertEquals(0, s.knownCount)
+            assertEquals(0, s.unknownCount)
+            assertEquals(0, s.listedCount)
+            assertEquals(1, s.devicesSeen)
+        }
+        assertNull(hostsFor("garbage").censusState)
+        assertEquals(DeviceCensus.STATE_UNAVAILABLE, hostsFor("unavailable").censusState)
+        // Without census:unknown the count is derived from the hosts.
+        assertEquals(0, hostsFor("set").unknownCount)
+        assertEquals(1, hostsFor("set").listedCount)
+        assertEquals(0, LanSummary.EMPTY.linkLocalOnly + LanSummary.EMPTY.overCap + LanSummary.EMPTY.knownCount)
+    }
 }

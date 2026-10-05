@@ -1,0 +1,181 @@
+package io.github.stronghorse44.tunnels.lan
+
+import io.github.stronghorse44.tunnels.lan.DeviceCensus.Ack
+import io.github.stronghorse44.tunnels.lan.DeviceCensus.Baseline
+import io.github.stronghorse44.tunnels.lan.DeviceCensus.CensusEvent
+import io.github.stronghorse44.tunnels.model.Observation
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class DeviceCensusTest {
+    private val t = LanKeys.TUNNEL_ID
+    private val tag = "ab12cd34"
+
+    /** Distinct valid tokens: u000...0 style, numbered. */
+    private fun tok(n: Int, type: Char = 'n') = type + "%016x".format(n)
+
+    private fun set(vararg n: Int) = Baseline(1_000, DeviceCensus.STATE_SET, n.map { tok(it) }.toSet())
+
+    @Test
+    fun noBaselineAndNoAcksIsUnset() {
+        val c = DeviceCensus.compute(null, null, emptyList())
+        assertEquals(DeviceCensus.STATE_UNSET, c.state)
+        assertTrue(c.known.isEmpty())
+        assertFalse(c.full)
+        // An unset baseline carries nothing forward.
+        val unset = DeviceCensus.compute(Baseline(5, DeviceCensus.STATE_UNSET, emptySet()), null, emptyList())
+        assertEquals(DeviceCensus.STATE_UNSET, unset.state)
+    }
+
+    @Test
+    fun baselineFromThisNetworkOnly() {
+        val mine = listOf(
+            Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_NETWORK, tag),
+            Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.CENSUS_STATE, "set"),
+            Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.CENSUS_KNOWN, "${tok(1)},${tok(2)},junk,${tok(1, 'x')}"),
+        )
+        val b = DeviceCensus.baselineOf(tag, 77, mine)!!
+        assertEquals(77, b.takenAt)
+        assertEquals(setOf(tok(1), tok(2)), b.known)
+        assertNull("another network's snapshot", DeviceCensus.baselineOf("ffffeeee", 77, mine))
+        assertNull("no census in that snapshot", DeviceCensus.baselineOf(tag, 77, mine.filter { it.key == LanKeys.SCAN_NETWORK }))
+        // Unavailable carries no list: it is skipped, never read as an empty list.
+        val unavailable = mine.filter { it.key == LanKeys.SCAN_NETWORK } + Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.CENSUS_STATE, "unavailable")
+        assertNull(DeviceCensus.baselineOf(tag, 77, unavailable))
+        val unset = mine.filter { it.key == LanKeys.SCAN_NETWORK } + Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.CENSUS_STATE, "unset")
+        assertEquals(DeviceCensus.STATE_UNSET, DeviceCensus.baselineOf(tag, 77, unset)!!.state)
+        // Only the summary subject counts, and only home_network rows.
+        val spoof = listOf(
+            Observation(t, "192.168.1.5", LanKeys.SCAN_NETWORK, tag),
+            Observation(t, "192.168.1.5", LanKeys.CENSUS_STATE, "set"),
+            Observation("other_tunnel", LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_NETWORK, tag),
+        )
+        assertNull(DeviceCensus.baselineOf(tag, 1, spoof))
+        // The list read from a snapshot never exceeds the cap.
+        val huge = (1..600).joinToString(",") { tok(it) }
+        assertEquals(DeviceCensus.MAX_KNOWN, DeviceCensus.parseKnown(huge).size)
+        assertTrue(DeviceCensus.parseKnown(LanKeys.NONE).isEmpty())
+        assertTrue(DeviceCensus.parseKnown(null).isEmpty())
+    }
+
+    @Test
+    fun acksAfterTheLastResetOnly() {
+        val acks = listOf(Ack(100, listOf(tok(1))), Ack(300, listOf(tok(2), tok(3))), Ack(200, listOf(tok(4))))
+        val c = DeviceCensus.compute(null, 150, acks)
+        assertEquals(setOf(tok(2), tok(3), tok(4)), c.known)
+        assertEquals(DeviceCensus.STATE_SET, c.state)
+        assertEquals(setOf(tok(1), tok(2), tok(3), tok(4)), DeviceCensus.compute(null, null, acks).known)
+        // An acknowledgement at the instant of the reset is before it.
+        assertTrue(DeviceCensus.compute(null, 300, acks).known.isEmpty())
+        // A baseline plus acks is their union.
+        assertEquals(setOf(tok(9), tok(2), tok(3), tok(4), tok(1)), DeviceCensus.compute(set(9), null, acks).known)
+    }
+
+    @Test
+    fun resetNewerThanBaselineEmptiesTheList() {
+        val c = DeviceCensus.compute(set(1, 2), lastReset = 2_000, acks = emptyList())
+        assertEquals(DeviceCensus.STATE_UNSET, c.state)
+        assertTrue(c.known.isEmpty())
+        // A reset at the baseline's own instant is not older than it either.
+        assertEquals(DeviceCensus.STATE_UNSET, DeviceCensus.compute(set(1, 2), lastReset = 1_000, acks = emptyList()).state)
+    }
+
+    @Test
+    fun baselineTakenAfterResetCounts() {
+        val c = DeviceCensus.compute(set(1, 2), lastReset = 999, acks = emptyList())
+        assertEquals(DeviceCensus.STATE_SET, c.state)
+        assertEquals(setOf(tok(1), tok(2)), c.known)
+    }
+
+    @Test
+    fun capKeepsBaseThenOldestAcksAndSetsFull() {
+        val base = Baseline(1_000, DeviceCensus.STATE_SET, (1..510).map { tok(it) }.toSet())
+        val acks = listOf(
+            Ack(30, listOf(tok(900))),
+            Ack(10, listOf(tok(700), tok(701), tok(702))),
+            Ack(20, listOf(tok(800))),
+        )
+        val c = DeviceCensus.compute(base, null, acks)
+        assertEquals(DeviceCensus.MAX_KNOWN, c.known.size)
+        assertTrue(c.full)
+        assertTrue("the base is kept whole", (1..510).all { tok(it) in c.known })
+        // The oldest ack goes first: two of its three tokens fit, the primary one among them.
+        assertTrue(tok(700) in c.known && tok(701) in c.known)
+        assertFalse(tok(702) in c.known || tok(800) in c.known || tok(900) in c.known)
+        // Exactly full without overflow is not "full".
+        val exact = DeviceCensus.compute(Baseline(1, DeviceCensus.STATE_SET, (1..511).map { tok(it) }.toSet()), null, listOf(Ack(5, listOf(tok(600), tok(1)))))
+        assertEquals(DeviceCensus.MAX_KNOWN, exact.known.size)
+        assertFalse(exact.full)
+        // An acknowledgement already on the list takes no room even when the list is full.
+        assertFalse(DeviceCensus.compute(Baseline(1, DeviceCensus.STATE_SET, (1..512).map { tok(it) }.toSet()), null, listOf(Ack(5, listOf(tok(3))))).full)
+    }
+
+    @Test
+    fun malformedEventRowsAreIgnored() {
+        val good = DeviceCensus.eventSummary(listOf(tok(1), tok(2)))
+        assertEquals("ids=${tok(1)},${tok(2)}", good)
+        assertEquals(listOf(tok(1), tok(2)), DeviceCensus.parseEvent(good))
+        for (bad in listOf(
+            "", "ids=", "ids=,", "ids=${tok(1)},", "ids=junk", "ids=${tok(1)} ${tok(2)}", "ids=${tok(1)},${tok(1)}",
+            "IDS=${tok(1)}", " ids=${tok(1)}", "ids=${tok(1)};${tok(2)}", "ids=" + (1..7).joinToString(",") { tok(it) }, "reset",
+            "ids=${tok(1)},${tok(2, 'x')}",
+        )) {
+            assertNull("[$bad]", DeviceCensus.parseEvent(bad))
+        }
+        assertEquals(6, DeviceCensus.parseEvent("ids=" + (1..6).joinToString(",") { tok(it) })!!.size)
+        // Seven tokens are cut to six when written.
+        assertEquals(6, DeviceCensus.parseEvent(DeviceCensus.eventSummary((1..7).map { tok(it) }))!!.size)
+
+        val folded = DeviceCensus.fold(
+            tag,
+            listOf(
+                CensusEvent(10, DeviceCensus.KIND_ACK, tag, good),
+                CensusEvent(20, DeviceCensus.KIND_ACK, tag, "ids=junk"),
+                CensusEvent(30, DeviceCensus.KIND_ACK, "ffffeeee", DeviceCensus.eventSummary(listOf(tok(5)))),
+                CensusEvent(40, "mystery", tag, good),
+                CensusEvent(50, DeviceCensus.KIND_RESET, tag, "not reset"),
+                CensusEvent(60, DeviceCensus.KIND_RESET, "ffffeeee", DeviceCensus.RESET_SUMMARY),
+                CensusEvent(70, DeviceCensus.KIND_RESET, tag, DeviceCensus.RESET_SUMMARY),
+                CensusEvent(65, DeviceCensus.KIND_RESET, tag, DeviceCensus.RESET_SUMMARY),
+            ),
+        )
+        assertEquals(70L, folded.lastReset)
+        assertEquals(listOf(Ack(10, listOf(tok(1), tok(2)))), folded.acks)
+        assertNull(DeviceCensus.fold(tag, emptyList()).lastReset)
+    }
+
+    @Test
+    fun subjectRoundTripsThePrimaryToken() {
+        val s = DeviceCensus.subject("Living Room TV", tok(7, 'u'))
+        assertEquals("Living Room TV · ${tok(7, 'u')}", s)
+        assertEquals(tok(7, 'u'), DeviceCensus.parsePrimary(s))
+        // A title that itself holds the separator still round-trips: the last field wins.
+        assertEquals(tok(7, 'u'), DeviceCensus.parsePrimary(DeviceCensus.subject("A · B", tok(7, 'u'))))
+        assertNull(DeviceCensus.parsePrimary("unidentified · 192.168.1.5"))
+        assertNull(DeviceCensus.parsePrimary("Living Room TV"))
+        assertNull(DeviceCensus.parsePrimary(tok(7, 'u')))
+        assertNull(DeviceCensus.parsePrimary("x · ${tok(7, 'u')} "))
+        assertNull(DeviceCensus.parsePrimary("x · ${tok(7, 'u').uppercase()}"))
+        val setup = DeviceCensus.setupSubject(tag)
+        assertEquals("Device census · ab12cd34", setup)
+        assertEquals(tag, DeviceCensus.parseTag(setup))
+        assertNull(DeviceCensus.parseTag("Device census · ab12cd3"))
+        assertNull(DeviceCensus.parseTag("Device census · AB12CD34"))
+        assertNull(DeviceCensus.parseTag("Living Room TV · ab12cd34"))
+        assertNull(DeviceCensus.parsePrimary(setup))
+        assertEquals("Unnamed device", DeviceCensus.title(null, null))
+        assertEquals("Sony", DeviceCensus.title(" ", "Sony"))
+        assertEquals("Hue", DeviceCensus.title("Hue", "Philips"))
+    }
+
+    @Test
+    fun aHostIsListedWhenAnyTokenIs() {
+        val known = setOf(tok(1), tok(2))
+        assertTrue(DeviceCensus.isListed(listOf(tok(9), tok(2)), known))
+        assertFalse(DeviceCensus.isListed(listOf(tok(9)), known))
+        assertFalse("no identity is never listed", DeviceCensus.isListed(emptyList(), known))
+    }
+}
