@@ -107,6 +107,68 @@ class DeviceCensusTest {
         assertEquals(setOf(tok(3)), compute(old, null, listOf(Ack(later - 1, listOf(tok(3)))), later).known)
     }
 
+    private val day = 24L * 60 * 60 * 1000
+
+    private fun candidate(takenAt: Long, state: String, vararg known: Int, pinned: Boolean = false, homenetOnly: Boolean = true) =
+        DeviceCensus.Candidate(
+            takenAt, pinned, homenetOnly,
+            listOf(
+                Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_NETWORK, tag),
+                Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.CENSUS_STATE, state),
+                Observation(t, LanKeys.SUBJECT_SUMMARY, LanKeys.CENSUS_KNOWN, LanKeys.list(known.map { tok(it) })),
+            ),
+        )
+
+    @Test
+    fun aHandPinnedMixedSnapshotIsNotExemptFromTheEventLife() {
+        // Expired reset, and a full snapshot the user pinned from Snapshots still holds the pre-reset list: the census
+        // never unpins a mixed snapshot, so the pin must not keep that list alive.
+        val later = 31 * day
+        val mixedPinned = candidate(0, DeviceCensus.STATE_SET, 1, 2, pinned = true, homenetOnly = false)
+        assertNull(DeviceCensus.baselineFrom(tag, listOf(mixedPinned), later))
+        assertEquals(DeviceCensus.STATE_UNSET, compute(null, null, emptyList(), later).state)
+        // The same snapshot inside the 30 days still counts, and a Home-network-only pin is exempt at any age.
+        assertEquals(DeviceCensus.STATE_SET, DeviceCensus.baselineFrom(tag, listOf(mixedPinned), 29 * day)!!.state)
+        val homenetPinned = candidate(0, DeviceCensus.STATE_SET, 1, 2, pinned = true)
+        assertEquals(setOf(tok(1), tok(2)), DeviceCensus.baselineFrom(tag, listOf(homenetPinned), 90 * day)!!.known)
+        // The pin plan ignores the mixed one: nothing is pinned.
+        val plan = CensusPins.plan(listOf(CensusSnap(1, 0, true, false, tag, DeviceCensus.STATE_SET)), tag, null, later)
+        assertNull(plan.pin)
+        assertTrue(plan.unpin.isEmpty())
+    }
+
+    @Test
+    fun aStaleMixedListInFrontDoesNotHideAPinnedHomenetListBehindIt() {
+        val now = 41 * day
+        val staleMixed = candidate(10 * day, DeviceCensus.STATE_SET, 7, pinned = false, homenetOnly = false)
+        val pinnedHomenet = candidate(1 * day, DeviceCensus.STATE_SET, 1, 2, pinned = true)
+        val b = DeviceCensus.baselineFrom(tag, listOf(staleMixed, pinnedHomenet), now)!!
+        assertEquals(setOf(tok(1), tok(2)), b.known)
+        val list = compute(b, null, emptyList(), now)
+        assertEquals(DeviceCensus.STATE_SET, list.state)
+        assertEquals(setOf(tok(1), tok(2)), list.known)
+        // A stale unpinned Home-network-only list is skipped the same way; the pinned one behind it is reached.
+        val staleHomenet = candidate(10 * day, DeviceCensus.STATE_SET, 7)
+        assertEquals(setOf(tok(1), tok(2)), DeviceCensus.baselineFrom(tag, listOf(staleHomenet, pinnedHomenet), now)!!.known)
+        // The first current list wins; stale ones are only passed over, never merged.
+        val recent = candidate(40 * day, DeviceCensus.STATE_SET, 9)
+        assertEquals(setOf(tok(9)), DeviceCensus.baselineFrom(tag, listOf(recent, staleMixed, pinnedHomenet), now)!!.known)
+    }
+
+    @Test
+    fun theWalkStopsAtUnsetAndSkipsUnavailableAndOtherNetworks() {
+        val now = 41 * day
+        val pinnedHomenet = candidate(1 * day, DeviceCensus.STATE_SET, 1, pinned = true)
+        // An unset snapshot (what a reset produces) ends the walk: the older pinned list behind it is not revived.
+        val unset = candidate(40 * day, DeviceCensus.STATE_UNSET)
+        assertEquals(DeviceCensus.STATE_UNSET, DeviceCensus.baselineFrom(tag, listOf(unset, pinnedHomenet), now)!!.state)
+        // Unavailable carries no list and is passed over.
+        val unavailable = candidate(40 * day, DeviceCensus.STATE_UNAVAILABLE)
+        assertEquals(setOf(tok(1)), DeviceCensus.baselineFrom(tag, listOf(unavailable, pinnedHomenet), now)!!.known)
+        assertNull(DeviceCensus.baselineFrom("ffffeeee", listOf(pinnedHomenet), now))
+        assertNull(DeviceCensus.baselineFrom(tag, emptyList(), now))
+    }
+
     @Test
     fun fitsCountsOnlyTokensNotYetListed() {
         val full = (1..512).map { tok(it) }.toSet()

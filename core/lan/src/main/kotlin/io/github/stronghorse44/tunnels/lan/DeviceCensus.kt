@@ -53,13 +53,33 @@ object DeviceCensus {
     data class Folded(val lastReset: Long?, val acks: List<Ack>)
 
     /**
-     * True when a snapshot may still stand for the list: it is pinned, or it was taken within the 30 days an event lives.
+     * True when a snapshot may still stand for the list: it is a pinned Home-network-only snapshot (the only kind the census
+     * pins and unpins, so a reset reaches it; a mixed snapshot someone pinned is not exempt), or it was taken within the 30
+     * days an event lives.
      * A reset is only an event and expires; an old unpinned list that survived it (snapshots are never deleted by age)
      * must not come back to life once the event is gone. A reset always postdates the snapshots it ends, so one older than
      * the event's life was either before a reset that has expired or simply too old to trust.
      */
     fun isCurrent(takenAt: Long, pinned: Boolean, now: Long): Boolean =
         pinned || now - takenAt < RetentionPolicy.EVENT_TTL.toMillis()
+
+    /** A stored Home network snapshot offered as a baseline; [homenetOnly] only needs to be right when [pinned] is true. */
+    class Candidate(val takenAt: Long, val pinned: Boolean, val homenetOnly: Boolean, val observations: List<Observation>)
+
+    /**
+     * The baseline for the network [tag] out of [candidates], newest first. Walks past snapshots of other networks, ones
+     * whose census was `unavailable` and `set` lists that are no longer current ([isCurrent]): a stale unpinned list in
+     * front must not hide a current pinned one behind it. It stops at the first `unset` snapshot (what a reset produces)
+     * and at the first current `set` one.
+     */
+    fun baselineFrom(tag: String, candidates: List<Candidate>, now: Long): Baseline? {
+        for (c in candidates) {
+            val b = baselineOf(tag, c.takenAt, c.observations, pinned = c.pinned && c.homenetOnly) ?: continue
+            if (b.state == STATE_SET && !isCurrent(b.takenAt, b.pinned, now)) continue
+            return b
+        }
+        return null
+    }
 
     /** True when all of a device's tokens that are not yet listed still fit under [MAX_KNOWN]. */
     fun fits(known: Set<String>, ids: List<String>): Boolean =

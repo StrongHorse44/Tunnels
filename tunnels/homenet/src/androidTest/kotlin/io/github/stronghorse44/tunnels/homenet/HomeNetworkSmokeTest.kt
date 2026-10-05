@@ -267,6 +267,15 @@ class HomeNetworkSmokeTest {
             // A pinned one is the list however old it is.
             snapshots += insertSnapshot(thirtyOneDays, pinnedTag, DeviceCensus.STATE_SET, pinned = true, known = listOf(token(pinnedTag, "tv")))
             assertEquals(DeviceCensus.STATE_SET, census.census(pinnedTag).state)
+            // A hand-pinned full (mixed) snapshot is not exempt: after the reset event is gone it does not bring its list back.
+            val mixedTag = "5e7c0b10"
+            snapshots += insertSnapshot(thirtyOneDays, mixedTag, DeviceCensus.STATE_SET, pinned = true, known = listOf(token(mixedTag, "tv")), mixed = true)
+            assertEquals(DeviceCensus.STATE_UNSET, census.census(mixedTag).state)
+            // A stale unpinned mixed list in front does not hide a pinned Home-network-only list behind it.
+            val behindTag = "5e7c0b11"
+            snapshots += insertSnapshot(40L * 24 * 60, behindTag, DeviceCensus.STATE_SET, pinned = true, known = listOf(token(behindTag, "tv")))
+            snapshots += insertSnapshot(thirtyOneDays, behindTag, DeviceCensus.STATE_SET, known = listOf(token(behindTag, "other")), mixed = true)
+            assertEquals(setOf(token(behindTag, "tv")), census.census(behindTag).known)
         } finally {
             store.dao.deleteSnapshots(snapshots)
         }

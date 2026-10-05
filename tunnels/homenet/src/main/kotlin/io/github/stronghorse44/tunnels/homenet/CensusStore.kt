@@ -48,13 +48,20 @@ class CensusStore(context: Context) {
         store.dao.events(DeviceCensus.STREAM, MAX_EVENTS).first().map { DeviceCensus.CensusEvent(it.at, it.kind, it.subject, it.summary) }
 
     /**
-     * The newest snapshot of the network [tag] that carries a list, any pin state, Home-network-only or not, looking back at
-     * most [MAX_WALK] snapshots. A snapshot whose census was `unavailable` carries no list and is skipped.
+     * The newest snapshot of the network [tag] that carries a list, Home-network-only or not, looking back at most
+     * [MAX_WALK] snapshots. `unavailable` snapshots and `set` lists that are no longer current are skipped (see
+     * [DeviceCensus.baselineFrom]).
      */
     fun baseline(tag: String): DeviceCensus.Baseline? = runBlocking { baselineNow(tag) }
 
-    private suspend fun baselineNow(tag: String): DeviceCensus.Baseline? =
-        walk().firstNotNullOfOrNull { DeviceCensus.baselineOf(tag, it.takenAt, it.observations, it.pinned) }
+    private suspend fun baselineNow(tag: String): DeviceCensus.Baseline? {
+        val dao = store.dao
+        // Only a pinned Home-network-only snapshot is exempt from the 30-day rule, so only a pinned one needs the extra query.
+        val candidates = walk().map { w ->
+            DeviceCensus.Candidate(w.takenAt, w.pinned, w.pinned && dao.tunnelsIn(w.id) == listOf(LanKeys.TUNNEL_ID), w.observations)
+        }
+        return DeviceCensus.baselineFrom(tag, candidates, System.currentTimeMillis())
+    }
 
     /** The acknowledgement and reset events, newest first. */
     fun events(): List<DeviceCensus.CensusEvent> = runBlocking { eventsNow() }
