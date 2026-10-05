@@ -2,6 +2,7 @@ package io.github.stronghorse44.tunnels.ble
 
 /** The cell logbook's line in the Surroundings panel, from the row's state and the last scan's observations. Pure, so the words are tested off-device (CellLogbookTest). */
 object CellLogText {
+    /** The line when there is no row: the logbook is off until the user starts it. */
     const val OFF = "Cell logbook is off. It learns which towers your phone uses at places you scan often, as keyed hashes only."
     const val UNREADABLE = "The logbook could not be read. Clear it to start again."
     const val ON_NO_SCAN = "Cell logbook is on. Scan to start learning."
