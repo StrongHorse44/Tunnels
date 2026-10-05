@@ -78,7 +78,7 @@ class ExportImportRoundTripTest {
 
     private fun pinLine(seed: Int, auditedMs: Long): String {
         val key = ByteArray(40) { (it * 7 + seed).toByte() }
-        val id = MessageDigest.getInstance("SHA-256").digest(key).joinToString("") { "%02x".format(it) }
+        val id = MessageDigest.getInstance("SHA-256").digest(key).joinToString("") { "%02X".format(it) }
         return listOf(id, Base64.getEncoder().encodeToString(key), "Pixel $seed", "ab".repeat(32), "1700000000000", auditedMs.toString(), "202610", "true").joinToString("|")
     }
 
@@ -285,16 +285,18 @@ class ExportImportRoundTripTest {
         seed(a, netsA)
         val data = runBlocking { StoreBundles.gather(a, netsA.all()) }
 
-        val closed = Room.inMemoryDatabaseBuilder(context, TunnelsDatabase::class.java).build()
-        val dao = closed.dao()
+        // The store refuses the settings rows, which an import writes after the snapshots: the transaction must undo them.
+        val target = db()
+        target.openHelper.writableDatabase.execSQL("CREATE TRIGGER refuse_settings BEFORE INSERT ON settings BEGIN SELECT RAISE(ABORT, 'refused'); END")
+        val dao = target.dao()
         val netsC = nets("rt_fc")
         netsC.restore(setOf("c3".repeat(32)))
-        closed.close()
         try {
             runBlocking { StoreBundles.commit(dao, netsC, data) }
-            fail("committed to a closed store")
+            fail("committed to a store that refuses the settings")
         } catch (_: ImportCommitFailed) {
         }
+        runBlocking { assertTrue("no snapshot survives a failed import", dao.snapshots().isEmpty()) }
         assertEquals(setOf("c3".repeat(32)), netsC.all())
     }
 
