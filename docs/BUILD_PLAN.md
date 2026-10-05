@@ -150,3 +150,9 @@ Device checks to make on the Pixel 10 (the Device checks screen walks through mo
 - Timeline: scans without usage access clear non-sticky data findings; consider holding them.
 - Runtime: a shared "is system app" helper for the PackageManager tunnels; a hard cap on the generic
   observations list for tunnels with hundreds of subjects.
+- Home network census (B08): devices that announce nothing on mDNS or SSDP (most phones) are invisible; an opt-in sweep
+  of the confirmed network's addresses is the only way to see them, and is parked (revisit if the cameras turn out to be
+  silent). `ACCESS_LOCAL_NETWORK` is needed only when targetSdk moves to 37: that build must name the permission, ask for
+  it when Home network opens with a one-line reason, and is a gate change. The census pins only Home-network-only
+  snapshots (one per network, moved to the newest), so a list that only mixed snapshots carry is not kept past retention.
+  A "Start the list again" does not dismiss UNKNOWN_DEVICE findings already raised; they expire at 30 days or on Dismiss.
