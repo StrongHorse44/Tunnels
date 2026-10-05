@@ -279,6 +279,7 @@ jobs:
           echo "::error::Dependencies were not verified: commit the gradle/verification-metadata.xml the jobs wrote (the union of every job's verification-metadata-* artifact; see gate/README.md)."
           exit 1
 
+  # Launches the debug build on an emulator. It has no part in releasing: release.yml never waits for it.
   smoke:
     name: App smoke test (emulator)
     runs-on: ubuntu-24.04
