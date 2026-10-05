@@ -50,7 +50,9 @@ everything, so uninstall wipes all data and nothing goes to cloud backup.
 - `core:common` theme, shared composables, private staging area for incoming files
 - `tunnels:installer`, `tunnels:unzip` one module per tunnel group; each declares its own permissions
 - `core:metro` home well geometry, depth palette, and the older metro map layout (plain Kotlin, unit-tested)
-- `core:updates` + `tunnels:updater` in-app updates from GitHub releases (user-started; INTERNET allowed)
+- `core:updates` + `tunnels:updater` in-app updates from GitHub releases (user-started; INTERNET allowed). Two
+  channels, told apart by the package: `io.github.stronghorse44.tunnels.debug` (Debug build #N) and
+  `io.github.stronghorse44.tunnels` (`vX.Y.Z`); the repo is public, so the update token is optional
 - `core:crossrules` + `tunnels:crossroads` Crossroads, a derived tunnel (joins other tunnels' data; a bead in the well)
 - `core:watchrules` + `tunnels:watch` findings inbox and opt-in background checks (JobScheduler, offline tunnels only)
 - `core:devicecheck` + `tunnels:devicecheck` device checks: confirms on the phone the readings Tunnels relies on
@@ -86,21 +88,32 @@ Google's Maven is not reachable from the cloud dev container: Android modules on
   for your branch (the repo is public and unmetered, but emulator runs are slow; do not tag every push).
 - Touch only the modules you own plus their `permissions.allow`. Shared files
   (`settings.gradle.kts`, `app/`, `core/common`, `core/runtime`, `core/model`, the catalog,
-  CI) are owned by the lead; ask instead of editing them.
+  CI, the workflows and `gate/`) are owned by the lead; ask instead of editing them. A build the
+  lead assigns to those files (a release-channel or gate change) edits them with that assignment.
 - A tunnel module registers itself by listing its `TunnelProvider` implementation in
   `src/main/resources/META-INF/services/io.github.stronghorse44.tunnels.runtime.TunnelProvider`.
 - Every module ships unit tests (JVM) and at least one instrumented smoke test under
   `src/androidTest` that runs its `scan()` on the emulator.
 - Observations are summaries (counts, names, hashes, booleans), never raw payloads.
 - Every change goes up as a pull request from its own branch. Never push to the integration branch or
-  `main` directly. Only a push to the integration branch publishes a "Debug build #N" prerelease, and
-  only after the release gate, the emulator smoke job and the certificate check pass; the `publish`
-  environment then waits for the owner's approval (the certificate check pins the public debug key until
-  B02). Manual `ci.yml` runs build and test only and never publish; agents still don't start them by
-  hand, the program overseer may on a reviewed branch. Builder and reviewer agents never merge. The overseer may merge a PR only when review passed,
+  `main` directly. Two release channels exist, and neither publishes on merge:
+  - "Debug build #N" prereleases (`ci.yml`): only a push to the integration branch publishes one, and
+    only after the release gate (`gate/baseline.json`, pinned to the committed public debug key), the
+    emulator smoke job and the certificate check pass; the `publish` environment then waits for the
+    owner's approval. Manual `ci.yml` runs build and test only and never publish; agents still don't
+    start them by hand, the program overseer may on a reviewed branch.
+  - `vX.Y.Z` releases (`release.yml`, since B02): started only by a manual run of `release.yml` with
+    `publish` ticked, from the integration branch or `main`, signed in the `sign` job under the
+    `signing` environment (the owner's release key, no reviewer; the environment admits only those two
+    branches) and gated against `gate/baseline.release.json`; the `publish` job waits for the owner's
+    approval and creates the tag. The owner starts publishing runs and approves them. The overseer may
+    start a dry run (`publish` off) on a reviewed branch; it builds, gates and rehearses and publishes
+    nothing. Agents never start a publishing run. Who can push to the two branches is the control on
+    the key.
+  Builder and reviewer agents never merge. The overseer may merge a PR only when review passed,
   CI is green and the PR has no gate change (no new or changed permission, network host, runtime
-  dependency, native library, build type, signing config or release workflow); a PR with a gate change
-  waits for the owner to merge. Never publish from `main`.
+  dependency, native library, build type, signing config, release workflow or either baseline); a PR
+  with a gate change waits for the owner to merge.
 
 ## Workflow
 
