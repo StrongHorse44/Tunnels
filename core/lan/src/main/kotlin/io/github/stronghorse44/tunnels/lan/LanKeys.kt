@@ -54,7 +54,7 @@ object LanKeys {
     const val SCAN_DURATION = "scan:durationSec"
     /** [GATE_CONFIRMED] when the own-network gate let the scan run, else [GATE_UNCONFIRMED]. */
     const val SCAN_GATE = "scan:gate"
-    /** Why the gate refused: "no-wifi", "network-unknown", "not-confirmed" ("no-permission" in older builds). */
+    /** Why the gate refused: "no-wifi", "network-unknown", "not-confirmed", "store-unavailable" ("no-permission" in older builds). */
     const val SCAN_GATE_REASON = "scan:gateReason"
     /** Comma list of stages that hit their time budget and returned partial results. */
     const val SCAN_PARTIAL = "scan:partial"
@@ -76,6 +76,8 @@ object LanKeys {
     /** On Wi-Fi, but neither a gateway nor an address prefix was readable, so the network cannot be told apart. */
     const val REASON_NETWORK_UNKNOWN = "network-unknown"
     const val REASON_NOT_CONFIRMED = "not-confirmed"
+    /** The encrypted store holding the confirmed networks could not be read, so nothing can be confirmed: fail closed. */
+    const val REASON_STORE_UNAVAILABLE = "store-unavailable"
     /** No longer produced (the gate needs no permission); kept so observations stored by older builds still read. */
     const val REASON_NO_PERMISSION = "no-permission"
 

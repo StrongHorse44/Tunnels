@@ -22,14 +22,15 @@ import java.io.FileNotFoundException
 
 /**
  * Export and import of the Tunnels bundle through documents the system file picker gave (no permission needed). The
- * logic is in core:export; this is the Android part: the picked document's streams, deleting a failed export, the
- * confirmed networks file and the store. Every function blocks or suspends: call them off the main thread. The
- * passphrase is the caller's CharArray; it is never stored, logged or put in saved state, and the caller zeroes it.
+ * logic is in core:export; this is the Android part: the picked document's streams, deleting a failed export, moving an
+ * older build's plaintext confirmed-networks file into the store, and the store. Every function blocks or suspends: call
+ * them off the main thread. The passphrase is the caller's CharArray; it is never stored, logged or put in saved state,
+ * and the caller zeroes it.
  */
 class DataTransfer(
     context: Context,
     private val dao: TunnelsDao,
-    private val networks: ConfirmedNetworks = ConfirmedNetworks(context),
+    private val networks: ConfirmedNetworks = ConfirmedNetworks(context, dao),
     /** Applied after an import that carried background-check settings, so the job follows them at once (tests pass a no-op). */
     private val applyWatchSettings: (WatchSettings) -> Unit = { WatchScheduler.apply(context.applicationContext, it) },
 ) {

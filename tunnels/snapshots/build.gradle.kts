@@ -27,6 +27,8 @@ dependencies {
     implementation(project(":core:runtime"))
     implementation(project(":core:store"))
     implementation(project(":core:export"))
+    // The confirmed-network row (ConfirmedNetworkCodec, ConfirmedNetworkBook) is owned by core:lan, shared with Home network.
+    implementation(project(":core:lan"))
     // An import that carries the background-check settings re-arms (or cancels) the scheduled job (WatchScheduler).
     implementation(project(":tunnels:watch"))
     testImplementation(libs.junit)

@@ -39,8 +39,9 @@ class SnapshotsSmokeTest {
         val stored = dao.snapshots()
         assertTrue("snapshot ${result.snapshotId} is in the store", stored.any { it.id == result.snapshotId })
 
-        // A throwaway file for the confirmed networks: this test must not touch the real Home network list.
-        val networks = ConfirmedNetworks(context, "snapshots_smoke_test_networks")
+        // The confirmed networks are a row of the real store: gathering reads them and the re-imports below merge the very
+        // same hashes back (a union, so the real list is unchanged). The old plaintext file's name is a throwaway one.
+        val networks = ConfirmedNetworks(context, dao, "snapshots_smoke_test_legacy")
         val data = StoreBundles.gather(dao, networks.all())
         assertTrue(data.snapshots.snapshots.any { it.localId == result.snapshotId })
         assertEquals(stored.size, data.snapshots.snapshots.size)

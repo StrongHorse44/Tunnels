@@ -19,10 +19,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,6 +48,9 @@ import io.github.stronghorse44.tunnels.lan.RouterInfo
 import io.github.stronghorse44.tunnels.model.MetroLine
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenActions
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val line = LineColors.of(MetroLine.NETWORK)
 
@@ -56,7 +61,13 @@ fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: N
     LifecycleResumeEffect(Unit) { generation++; onPauseOrDispose { } }
     val wifi = remember(generation, state.scan.running) { runCatching { gate.current() }.getOrDefault(WifiState.OFFLINE) }
     val fingerprint = remember(wifi) { runCatching { wifi.fingerprint }.getOrNull() }
-    var confirmed by remember(generation, fingerprint?.hash) { mutableStateOf(fingerprint?.let(gate::isConfirmed) ?: false) }
+    // The confirmed list is in the encrypted store: read and written off the main thread. null = still reading.
+    var confirmed by remember(generation, fingerprint?.hash) { mutableStateOf<Boolean?>(if (fingerprint == null) false else null) }
+    var saveFailed by remember(generation, fingerprint?.hash) { mutableStateOf(false) }
+    LaunchedEffect(generation, fingerprint?.hash) {
+        if (fingerprint != null) confirmed = withContext(Dispatchers.IO) { gate.isConfirmed(fingerprint) }
+    }
+    val scope = rememberCoroutineScope()
     val summary = remember(state.observations) { LanSummary.from(state.observations) }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -66,10 +77,35 @@ fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: N
             confirmed = confirmed,
             scanning = state.scan.running,
             scanLabel = state.scan.label,
-            onConfirm = { fingerprint?.let { gate.confirm(it); confirmed = true } },
-            onForget = { fingerprint?.let { gate.forget(it); confirmed = false } },
+            onConfirm = {
+                fingerprint?.let { fp ->
+                    scope.launch {
+                        val saved = withContext(Dispatchers.IO) { gate.confirm(fp) }
+                        confirmed = saved
+                        saveFailed = !saved
+                    }
+                }
+            },
+            onForget = {
+                fingerprint?.let { fp ->
+                    scope.launch {
+                        val saved = withContext(Dispatchers.IO) { gate.forget(fp) }
+                        // If the list could not be changed the network may still be confirmed: read it again rather than guess.
+                        confirmed = withContext(Dispatchers.IO) { gate.isConfirmed(fp) }
+                        saveFailed = !saved
+                    }
+                }
+            },
             onScan = actions::scan,
         )
+        if (saveFailed) {
+            GlassPanel(Modifier.fillMaxWidth(), tint = StatusColors.warn) {
+                Text(
+                    "Tunnels' encrypted store could not be changed, so nothing was saved. Scanning stays off until it can be.",
+                    Modifier.padding(14.dp), style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
         if (summary.gate == LanKeys.GATE_UNCONFIRMED) {
             GlassPanel(Modifier.fillMaxWidth(), tint = StatusColors.warn) {
                 Text(
@@ -89,7 +125,7 @@ fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: N
 private fun NetworkCard(
     wifi: WifiState,
     fingerprint: NetworkFingerprint?,
-    confirmed: Boolean,
+    confirmed: Boolean?,
     scanning: Boolean,
     scanLabel: String,
     onConfirm: () -> Unit,
@@ -114,13 +150,15 @@ private fun NetworkCard(
                 }
                 else -> {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(10.dp).clip(CircleShape).background(if (confirmed) StatusColors.ok else StatusColors.warn))
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(if (confirmed == true) StatusColors.ok else StatusColors.warn))
                         Spacer(Modifier.width(8.dp))
                         Text(fingerprint.ssid ?: "Wi-Fi network", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
                         Text(fingerprint.prefixTag, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = GlassColors.dim)
                     }
                     Text(fingerprint.label, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = GlassColors.dim)
-                    if (confirmed) {
+                    if (confirmed == null) {
+                        Text("Checking…", style = MaterialTheme.typography.bodySmall, color = GlassColors.dim)
+                    } else if (confirmed) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Confirmed as your network.", style = MaterialTheme.typography.bodySmall, color = StatusColors.ok, modifier = Modifier.weight(1f))
                             TextButton(onClick = onForget, enabled = !scanning) { Text("Forget", color = GlassColors.dim) }
@@ -141,7 +179,7 @@ private fun NetworkCard(
                     )
                     Spacer(Modifier.height(2.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Button(onClick = onScan, enabled = confirmed && !scanning) { Text(if (scanning) "Scanning…" else "Scan my network") }
+                        Button(onClick = onScan, enabled = confirmed == true && !scanning) { Text(if (scanning) "Scanning…" else "Scan my network") }
                         Spacer(Modifier.width(12.dp))
                         StageRow(scanning, scanLabel)
                     }
@@ -305,6 +343,7 @@ private fun gateReasonText(reason: String?): String = when (reason) {
     LanKeys.REASON_NO_WIFI -> "the phone was not on Wi-Fi."
     LanKeys.REASON_NETWORK_UNKNOWN -> "the network's router and address were not readable."
     LanKeys.REASON_NOT_CONFIRMED -> "this network had not been confirmed as yours."
+    LanKeys.REASON_STORE_UNAVAILABLE -> "Tunnels' encrypted store could not be read, so it could not tell whether this network is yours."
     LanKeys.REASON_NO_PERMISSION -> "the Nearby devices permission was missing."
     else -> "the network could not be verified as yours."
 }
