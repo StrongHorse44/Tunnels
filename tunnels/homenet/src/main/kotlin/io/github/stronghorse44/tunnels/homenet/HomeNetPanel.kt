@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -39,12 +40,16 @@ import io.github.stronghorse44.tunnels.common.GlassColors
 import io.github.stronghorse44.tunnels.common.GlassPanel
 import io.github.stronghorse44.tunnels.common.LineColors
 import io.github.stronghorse44.tunnels.common.StatusColors
+import io.github.stronghorse44.tunnels.lan.CensusMessages
+import io.github.stronghorse44.tunnels.lan.DeviceCensus
+import io.github.stronghorse44.tunnels.lan.LanGuides
 import io.github.stronghorse44.tunnels.lan.LanHost
 import io.github.stronghorse44.tunnels.lan.LanKeys
 import io.github.stronghorse44.tunnels.lan.LanSummary
 import io.github.stronghorse44.tunnels.lan.NetworkFingerprint
 import io.github.stronghorse44.tunnels.lan.PortCatalog
 import io.github.stronghorse44.tunnels.lan.RouterInfo
+import io.github.stronghorse44.tunnels.model.FindingAction
 import io.github.stronghorse44.tunnels.model.MetroLine
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenActions
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenState
@@ -54,9 +59,9 @@ import kotlinx.coroutines.withContext
 
 private val line = LineColors.of(MetroLine.NETWORK)
 
-/** Own-network confirmation, scan stages, the router card and the host list grouped by kind. */
+/** Own-network confirmation, scan stages, the router card, the device census and the host list grouped by kind. */
 @Composable
-fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: NetworkGate) {
+fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: NetworkGate, census: CensusStore) {
     var generation by remember { mutableIntStateOf(0) }
     LifecycleResumeEffect(Unit) { generation++; onPauseOrDispose { } }
     val wifi = remember(generation, state.scan.running) { runCatching { gate.current() }.getOrDefault(WifiState.OFFLINE) }
@@ -69,6 +74,16 @@ fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: N
     }
     val scope = rememberCoroutineScope()
     val summary = remember(state.observations) { LanSummary.from(state.observations) }
+    var censusNote by remember { mutableStateOf<String?>(null) }
+    var confirmReset by remember { mutableStateOf(false) }
+    val tag = summary.networkTag
+
+    // A scan started here has stored its snapshot: move the census pin to the newest Home-network-only one now. (A scan
+    // started from Snapshots settles at the start of the next scan.) A failure is retried then; the list does not need the pin.
+    val storedSnapshot = state.lastResult?.takeIf { it.stored }?.snapshotId
+    LaunchedEffect(storedSnapshot, tag) {
+        if (storedSnapshot != null && tag != null) withContext(Dispatchers.IO) { runCatching { census.settle(tag) } }
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         NetworkCard(
@@ -90,6 +105,8 @@ fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: N
                 fingerprint?.let { fp ->
                     scope.launch {
                         val saved = withContext(Dispatchers.IO) { gate.forget(fp) }
+                        // A forgotten network's list goes with it: a reset also unpins its census snapshot.
+                        if (saved) withContext(Dispatchers.IO) { census.reset(fp.prefixTag) }
                         // If the list could not be changed the network may still be confirmed: read it again rather than guess.
                         confirmed = withContext(Dispatchers.IO) { gate.isConfirmed(fp) }
                         saveFailed = !saved
@@ -116,9 +133,53 @@ fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: N
         }
         if (summary.scanned) {
             summary.router?.let { RouterCard(it) }
-            HostsCard(summary)
+            if (summary.censusState != null) {
+                CensusCard(
+                    summary = summary,
+                    scanning = state.scan.running,
+                    note = censusNote,
+                    onAllMine = { actions.perform(allMine(census, tag)) },
+                    onReset = { confirmReset = true },
+                )
+            }
+            HostsCard(summary, onMine = { host -> actions.perform(mine(census, host)) })
         }
     }
+    if (confirmReset && tag != null) {
+        AlertDialog(
+            onDismissRequest = { confirmReset = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            title = { Text("Start the list again?") },
+            text = {
+                Text(
+                    "This forgets every device you added for this network. The next scan asks you to check them again. " +
+                        "Devices you added in the last 30 days that are not yet in a scan are forgotten too.",
+                    style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmReset = false
+                        scope.launch { censusNote = withContext(Dispatchers.IO) { census.reset(tag) } }
+                    },
+                ) { Text("Start again", color = StatusColors.blocker) }
+            },
+            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("Keep the list") } },
+        )
+    }
+}
+
+/** "These are all mine" for the network [tag]: the same action the set-up finding carries. */
+private fun allMine(census: CensusStore, tag: String?) = FindingAction.Perform(LanGuides.ALL_MINE_LABEL) {
+    if (tag == null) CensusMessages.NO_SCAN_FOR_SETUP else withContext(Dispatchers.IO) { census.setup(tag) }
+}
+
+/** "Mine" for one host row: the same action as its finding, built from the same subject so the finding is dismissed too. */
+private fun mine(census: CensusStore, host: LanHost) = FindingAction.Perform(LanGuides.MINE_LABEL) {
+    val primary = host.primaryId
+    if (primary == null) CensusMessages.NOT_IN_SCAN
+    else withContext(Dispatchers.IO) { census.ack(DeviceCensus.subject(host.censusTitle, primary)) }
 }
 
 @Composable
@@ -289,7 +350,56 @@ private fun FactRow(label: String, value: String, color: Color) {
 }
 
 @Composable
-private fun HostsCard(summary: LanSummary) {
+private fun CensusCard(summary: LanSummary, scanning: Boolean, note: String?, onAllMine: () -> Unit, onReset: () -> Unit) {
+    GlassPanel(Modifier.fillMaxWidth(), tint = if (summary.censusState == DeviceCensus.STATE_UNAVAILABLE) StatusColors.warn else line) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Device census", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            when (summary.censusState) {
+                DeviceCensus.STATE_SET -> {
+                    Text(
+                        "${summary.listedCount} on your list · ${summary.unknownCount} not on it",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (summary.unknownCount > 0) StatusColors.warn else StatusColors.ok,
+                    )
+                    if (summary.full) {
+                        Text(
+                            "The list is full (${DeviceCensus.MAX_KNOWN}): devices added after that stay \"not on your list\".",
+                            style = MaterialTheme.typography.bodySmall, color = StatusColors.warn,
+                        )
+                    }
+                    TextButton(onClick = onReset, enabled = !scanning) { Text("Start the list again", color = StatusColors.blocker) }
+                }
+                DeviceCensus.STATE_UNSET -> {
+                    val seen = summary.devicesSeen
+                    Text(
+                        "Not set up for this network: " + (if (seen == 1) "1 device" else "$seen devices") +
+                            " seen. Check them below, then tap These are all mine.",
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Button(onClick = onAllMine, enabled = seen > 0 && !scanning) { Text(LanGuides.ALL_MINE_LABEL) }
+                }
+                else -> Text(
+                    "The device list could not be read from Tunnels' encrypted store; nothing was judged.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = GlassColors.dim) }
+            Text(
+                "Only devices that announce themselves on the network (mDNS or SSDP) can be listed. Phones and other devices that " +
+                    "stay silent will not appear, and Tunnels does not sweep your network's addresses to look for them.",
+                style = MaterialTheme.typography.labelSmall, color = GlassColors.dim,
+            )
+            Text(
+                "The list is kept in one pinned Home network snapshot per network (see Snapshots). After tapping Mine, scan once " +
+                    "to save it there before you export.",
+                style = MaterialTheme.typography.labelSmall, color = GlassColors.dim,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HostsCard(summary: LanSummary, onMine: (LanHost) -> Unit) {
     GlassPanel(Modifier.fillMaxWidth(), tint = line) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Devices", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -297,6 +407,8 @@ private fun HostsCard(summary: LanSummary) {
                 summary.durationSec?.let { add("${it}s") }
                 if (summary.partialStages.isNotEmpty()) add("cut short: ${summary.partialStages.joinToString(", ")}")
                 if (summary.droppedOutOfScope > 0) add("${summary.droppedOutOfScope} outside this network ignored")
+                if (summary.linkLocalOnly > 0) add("${summary.linkLocalOnly} offered only a link-local address (not probed)")
+                if (summary.overCap > 0) add("Device cap (${LanScanner.MAX_HOSTS}) reached: ${summary.overCap} more not checked")
             }
             Text(
                 "${summary.totalHosts} found · ${summary.riskyHosts} with risky services" + tail.joinToString("") { " · $it" },
@@ -309,14 +421,14 @@ private fun HostsCard(summary: LanSummary) {
             summary.hostsByKind().forEach { (kind, hosts) ->
                 Spacer(Modifier.height(2.dp))
                 Text("${kind.title} · ${hosts.size}", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = GlassColors.dim)
-                hosts.forEach { HostRow(it) }
+                hosts.forEach { HostRow(it, onMine) }
             }
         }
     }
 }
 
 @Composable
-private fun HostRow(host: LanHost) {
+private fun HostRow(host: LanHost, onMine: (LanHost) -> Unit) {
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color.White.copy(alpha = 0.04f)).padding(horizontal = 10.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(host.title, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
@@ -335,6 +447,13 @@ private fun HostRow(host: LanHost) {
         }
         if (details.isNotEmpty()) {
             Text(details.joinToString(" · "), fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = GlassColors.dim)
+        }
+        if (host.listed == false) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("not on your list", style = MaterialTheme.typography.labelMedium, color = StatusColors.warn, modifier = Modifier.weight(1f))
+                // A host that gave nothing to recognise it by has no identity to add.
+                if (host.primaryId != null) TextButton(onClick = { onMine(host) }) { Text("Mine") }
+            }
         }
     }
 }

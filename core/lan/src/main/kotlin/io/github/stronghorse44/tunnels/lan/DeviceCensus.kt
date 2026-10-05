@@ -158,6 +158,7 @@ object CensusMessages {
     const val NOT_IN_SCAN = "Not in a recent scan of this network: scan again while it is connected, then tap Mine."
     const val NO_SCAN_FOR_SETUP = "No recent scan of this network: scan it while it is connected, then tap These are all mine."
     const val NOT_SAVED = "Tunnels' encrypted store could not be changed, so nothing was saved."
+    const val NOTHING_TO_ADD = "No device in the last scan gave anything to recognise it by, so nothing was added."
     const val RESET = "The list was cleared. Scan again to start it over."
 
     fun setupDone(added: Int, unrecognisable: Int): String {

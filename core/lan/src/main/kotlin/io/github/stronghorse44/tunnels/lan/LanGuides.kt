@@ -37,4 +37,7 @@ object LanGuides {
 
     /** Router-level kinds get an "Open router admin" action. */
     fun isRouterKind(kind: String) = kind == LanRules.UPNP_IGD_ENABLED || kind == LanRules.DNS_HIJACK
+
+    /** A stranger on the network is checked against the router's client list, so that finding opens the router admin page too. */
+    fun wantsRouterAdmin(kind: String) = isRouterKind(kind) || kind == LanRules.UNKNOWN_DEVICE
 }
