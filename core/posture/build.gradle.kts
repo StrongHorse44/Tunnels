@@ -13,8 +13,6 @@ kotlin {
 
 dependencies {
     api(project(":core:model"))
-    implementation(project(":core:attestation"))
-    implementation(project(":core:posture"))
-    implementation(project(":core:watchrules"))
+    api(project(":core:engine"))
     testImplementation(libs.junit)
 }

@@ -1,8 +1,9 @@
 # Release gate
 
-Two baselines record what each channel's APK can do. `baseline.json` is the **debug** build, published as
-"Debug build #N" (package `io.github.stronghorse44.tunnels.debug`, `debuggable: true`, signed with the public key
-committed in `app/debug.keystore`). `baseline.release.json` is the **release** build, published as `vX.Y.Z`
+Two baselines record what each build's APK can do. `baseline.json` is the **debug** build, no longer published
+(package `io.github.stronghorse44.tunnels.debug`, `debuggable: true`, signed with the public key committed in
+`app/debug.keystore`; CI builds and gates it on every run, and it was "Debug build #N" until the channel was
+retired). `baseline.release.json` is the **release** build, published as `vX.Y.Z`
 (package `io.github.stronghorse44.tunnels`, `debuggable: false`, no Compose `PreviewActivity`,
 `releaseRuntimeClasspath`, signed with the owner's release key, whose certificate is pinned in
 `signing.cert_sha256`). Each records permissions (with `maxSdkVersion` and `usesPermissionFlags`), components
@@ -26,10 +27,10 @@ so a match with `baseline.json`'s pin says nothing about who built the APK; it o
 change. The release key lives only in the `signing` environment's secrets, on the owner's phone and in the owner's own backups, so a match
 with `baseline.release.json`'s pin shows the APK was signed with it. `release.yml`'s `release-check` job runs
 `gate.py cert --baseline gate/baseline.release.json --require-pin` on the signed APK before the `publish` job
-(`ci.yml`'s runs `gate.py cert --require-pin` against `baseline.json` for the debug build): either refuses an
-APK that is unsigned or signed with another certificate. See `docs/RELEASING.md`.
+(`ci.yml`'s build job runs `gate.py cert --require-pin` against `baseline.json` for the debug build): either
+refuses an APK that is unsigned or signed with another certificate. See `docs/RELEASING.md`.
 
-The debug baseline records debug-specific content because it ships: `debuggable: true` and the `.debug`
+The debug baseline records debug-specific content because CI builds and gates it: `debuggable: true` and the `.debug`
 provider authorities. Compose's `PreviewActivity` (from `ui-tooling`, exported by its library manifest) is
 removed from the debug APK by `app/src/debug/AndroidManifest.xml`, so neither baseline has it.
 `DebugProbesKt.bin` in `extra_code` is not debug-only: it is a resource of kotlinx-coroutines-core-jvm 1.10.2

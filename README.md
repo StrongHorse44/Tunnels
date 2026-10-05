@@ -22,7 +22,7 @@ network and the updater), used only during sessions you start. The built APK is 
 | System | System packages | Knowledge base of AOSP/GrapheneOS packages, unknown packages, enabled-state changes, OTA detection |
 | System | Trust store | System vs user CAs, baseline on first scan, user-CA and distrusted-root findings |
 | System | Silicon | Hardware key attestation (StrongBox first): verified boot state and key, patch levels, chain check |
-| System | Deep mode | Via Shizuku: app-ops history (camera, mic, location, clipboard), hidden settings, direct revoke/disable |
+| System | Deep mode | Via Shizuku: app-ops history (camera, mic, location, clipboard), hidden settings, direct revoke/disable. GrapheneOS posture: auto reboot, USB-C, VPN lockdown, Private DNS, PIN scrambling, auto-off, clipboard, Sensors default (the USB-C port mode is a reminder: no app can read it on this build) |
 | Activity | Timeline | Usage and data per app over 30 days (Usage access), unused apps, background data |
 | Activity | Notifications | Counts and flags per app from a notification listener (never contents), noise and lock-screen exposure |
 | Network | Traffic | DNS-only VPN sessions you start: registrable domains per app, tracker domains, optional blocking of tracker lookups (answered "no such domain" on the phone); refuses while another VPN is up |
@@ -51,10 +51,11 @@ whole file before it changes anything. What is in it, what an import does and ho
 [docs/EXPORT.md](docs/EXPORT.md). An export from an earlier version (`.tsnap`) still imports.
 
 And **in-app updates** (home screen → update ›): when you tap Check, Tunnels asks this repository's GitHub
-releases for a newer build of its channel (debug builds follow "Debug build #N", release builds the vX.Y.Z
-tags), downloads it, checks that it is the same app, newer, signed with the same key and matching the published
-SHA-256, and hands it to Android's installer. The repository is public, so no token is needed; an optional
-read-only token (a higher GitHub request limit) is kept in the encrypted store.
+releases for a newer build (release builds follow the vX.Y.Z tags; an old debug install follows the retired
+"Debug build #N" tags and sees nothing new), downloads it, checks that it is the same app, newer, signed
+with the same key and matching the published SHA-256, and hands it to Android's installer. The repository is
+public, so no token is needed; an optional read-only token (a higher GitHub request limit) is kept in the
+encrypted store.
 
 ## Principles
 
@@ -65,11 +66,11 @@ no-egress claim can be verified. See [docs/HANDOFF.md](docs/HANDOFF.md).
 
 ## Building
 
-- Two release channels ([docs/RELEASING.md](docs/RELEASING.md)). Every push to the integration branch publishes
-  a numbered debug build (`Debug build #N`, package `...tunnels.debug`, signed with the public debug key) on the
-  Releases page. A `vX.Y.Z` release (package `...tunnels`, signed with the owner's release key) is cut on
-  demand by the Release workflow (a manual run only), after the owner approves it. The two install
-  side by side; the in-app updater follows only its own channel.
+- One release channel ([docs/RELEASING.md](docs/RELEASING.md)). A `vX.Y.Z` release (package `...tunnels`, signed
+  with the owner's release key) starts when a pull request that changes the `VERSION` file is merged into the
+  integration branch, and is published after the owner approves it. CI builds and gates the debug package
+  (`...tunnels.debug`, the public debug key) on every run but publishes nothing; the "Debug build #N" prereleases
+  are retired.
 - Android modules compile in GitHub Actions; the plain-Kotlin `core/*` modules also build and test
   locally with `scripts/jvm-check/run.sh :core:NAME:test`.
 - Layout, CI and conventions: [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md).

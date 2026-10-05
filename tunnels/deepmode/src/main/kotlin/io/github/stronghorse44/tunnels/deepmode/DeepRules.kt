@@ -6,6 +6,7 @@ import io.github.stronghorse44.tunnels.model.FindingDraft
 import io.github.stronghorse44.tunnels.model.FindingRule
 import io.github.stronghorse44.tunnels.model.Observation
 import io.github.stronghorse44.tunnels.model.Severity
+import io.github.stronghorse44.tunnels.posture.PostureRules
 
 /**
  * Findings of the deep_mode tunnel. State rules describe the current scan and clear with it; OPS_CHANGED
@@ -136,7 +137,7 @@ object DeepRules {
     val all: List<FindingRule> = listOf(
         micOrCameraRecent, backgroundSensorAccess, clipboardReader, adbEnabled, scanAlwaysEnabled,
         lockScreenPrivateContent, accessibilityServiceOn, opsChanged, deepUnavailable,
-    )
+    ) + PostureRules.all
 
     /**
      * Which tracked ops an app finding's evidence talks about, so actions can target them. Only the part

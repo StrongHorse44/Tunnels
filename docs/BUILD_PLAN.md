@@ -8,7 +8,7 @@ oracle. Integration branch: `ccr-dff99af5-ij1rle`. Final PR: integration → `ma
 | Branch | Purpose | CI |
 | --- | --- | --- |
 | `phase/<n>-<module>` | one agent's work on one module | `compile-check` (build + unit tests + permission checks, ~4 min) and that phase's `ci-phase-<n>` |
-| integration | merged phases | full `ci` incl. emulator smoke, publishes numbered debug builds |
+| integration | merged phases | full `ci` incl. emulator smoke (publishes nothing); a merge that changes `VERSION` starts `release.yml` |
 | `main` | Phase 0 now; receives the single PR | full `ci` |
 
 ## Modules
@@ -33,7 +33,7 @@ compile and test locally.
 | 3 | `tunnels:traffic` (INTERNET allowed) | `core:dns` | traffic |
 | 4 | `tunnels:surroundings` | `core:ble` | surroundings |
 | 5 | `tunnels:homenet` (INTERNET allowed) | `core:lan` | home_network |
-| 6 | `tunnels:deepmode` | — | deep_mode |
+| 6 | `tunnels:deepmode` | `core:posture` (B07: the posture allowlist, parser, readings, rules; also read by `core:devicecheck`) | deep_mode |
 | — | `tunnels:updater` (INTERNET allowed: user-started update checks) | `core:updates` | — |
 | — | `tunnels:crossroads` (derived: joins other tunnels, no system reads) | `core:crossrules` | crossroads |
 | — | `tunnels:watch` (findings inbox, background checks, notification) | `core:watchrules` | — |
@@ -89,10 +89,10 @@ tests; Maven Central rate-limits (HTTP 429) are transient, retry.
   push. The phase workflows are path-filtered, so the `[emulator]` commit must change a file under your module (an empty commit
   does not trigger a run).
 - `ci.yml`: integration, `main`, PRs, and manual runs (`workflow_dispatch`) on any branch. Full build,
-  all unit tests, permission checks, the release gate (`gate/`), app emulator smoke test, and a numbered
-  debug release on integration pushes only; pull requests and manual runs never publish.
-- `release.yml`: manual runs only (`workflow_dispatch`, a dry run unless `publish` is ticked), signing in a separate
-  `sign` job; see `docs/RELEASING.md`. `workflow-lint.yml`: zizmor on `.github/**` changes.
+  all unit tests, permission checks, the `VERSION` format check, the release gate (`gate/`) for the debug and
+  release builds, and the app emulator smoke test; it publishes nothing.
+- `release.yml`: a push to the integration branch that changes `VERSION`, or `workflow_dispatch` (a dry run unless
+  `publish` is ticked); a `plan` job first, signing in a separate `sign` job; see `docs/RELEASING.md`. `workflow-lint.yml`: zizmor on `.github/**` changes.
 - Every Gradle job runs with `--dependency-verification=strict` against `gradle/verification-metadata.xml`;
   every action is pinned to a commit SHA (`gate/README.md`).
 
