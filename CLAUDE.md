@@ -96,13 +96,14 @@ Google's Maven is not reachable from the cloud dev container: Android modules on
   `src/androidTest` that runs its `scan()` on the emulator.
 - Observations are summaries (counts, names, hashes, booleans), never raw payloads.
 - Every change goes up as a pull request from its own branch. Never push to the integration branch or
-  `main` directly. Two release channels exist, and neither publishes on merge:
+  `main` directly. Two release channels exist, and neither publishes without the owner's approval (a merge alone
+  never publishes):
   - "Debug build #N" prereleases (`ci.yml`): only a push to the integration branch publishes one, and
     only after the release gate (`gate/baseline.json`, pinned to the committed public debug key), the
     emulator smoke job and the certificate check pass; the `publish` environment then waits for the
     owner's approval. Manual `ci.yml` runs build and test only and never publish; agents still don't
     start them by hand, the program overseer may on a reviewed branch.
-  - `vX.Y.Z` releases (`release.yml`, since B02): started only by a manual run of `release.yml` with
+  - `vX.Y.Z` releases (`release.yml`, since #15): started only by a manual run of `release.yml` with
     `publish` ticked, from the integration branch or `main`, signed in the `sign` job under the
     `signing` environment (the owner's release key, no reviewer; the environment admits only those two
     branches) and gated against `gate/baseline.release.json`; the `publish` job waits for the owner's
