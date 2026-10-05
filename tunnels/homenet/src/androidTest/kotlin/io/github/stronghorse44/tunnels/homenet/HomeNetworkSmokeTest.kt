@@ -3,14 +3,19 @@ package io.github.stronghorse44.tunnels.homenet
 import android.content.Context
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import io.github.stronghorse44.tunnels.lan.ConfirmedNetworkBook
+import io.github.stronghorse44.tunnels.lan.ConfirmedNetworkCodec
+import io.github.stronghorse44.tunnels.lan.ConfirmedNetworkTable
 import io.github.stronghorse44.tunnels.lan.LanGuides
 import io.github.stronghorse44.tunnels.lan.LanKeys
 import io.github.stronghorse44.tunnels.lan.LanRules
 import io.github.stronghorse44.tunnels.lan.NetworkFingerprint
+import io.github.stronghorse44.tunnels.lan.NetworkMigration
 import io.github.stronghorse44.tunnels.model.FindingAction
 import io.github.stronghorse44.tunnels.model.FindingDraft
 import io.github.stronghorse44.tunnels.model.ScanProgress
 import io.github.stronghorse44.tunnels.model.Severity
+import io.github.stronghorse44.tunnels.store.TunnelsStore
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -32,7 +37,9 @@ class HomeNetworkSmokeTest {
         assertEquals(LanKeys.TUNNEL_ID, module.id)
         assertEquals(emptyList<String>(), module.requiredPermissions.map { it.permission })
         assertEquals(LanRules.all.size, module.rules.size)
-        NetworkGate(context).forgetAll()
+        // Opening the encrypted store (Keystore, SQLCipher) is not what this test times.
+        TunnelsStore.get(context)
+        assertTrue(NetworkGate(context).forgetAll())
 
         var reports = 0
         val started = System.nanoTime()
@@ -81,24 +88,75 @@ class HomeNetworkSmokeTest {
     }
 
     @Test
-    fun gateRemembersOnlyHashes() {
+    fun gateRemembersOnlyHashes() = runBlocking {
         val gate = NetworkGate(context)
-        gate.forgetAll()
+        assertTrue(gate.forgetAll())
         assertEquals(0, gate.confirmedCount())
         val home = NetworkFingerprint.of("192.168.1.1", "192.168.1.1", listOf("192.168.1.1"), "192.168.1.0/24", ssid = "Test Net")!!
         val other = NetworkFingerprint.of("192.168.0.1", "192.168.0.1", listOf("192.168.0.1"), "192.168.0.0/24")!!
         assertFalse(gate.isConfirmed(home))
-        gate.confirm(home)
+        assertTrue(gate.confirm(home))
         assertTrue(gate.isConfirmed(home))
         assertFalse(gate.isConfirmed(other))
         assertEquals(1, gate.confirmedCount())
-        val stored = context.getSharedPreferences(NetworkGate.PREFS, Context.MODE_PRIVATE).getStringSet(NetworkGate.KEY_CONFIRMED, emptySet())!!
-        assertEquals(setOf(home.hash), stored)
-        assertTrue(stored.none { it.contains("192.168") || it.contains("Test") })
-        gate.forget(home)
+        // The hashes live in the encrypted settings table, nowhere else.
+        val row = TunnelsStore.get(context).setting(ConfirmedNetworkCodec.KEY)!!
+        assertEquals(setOf(home.hash), ConfirmedNetworkCodec.decode(row))
+        assertTrue(row.lines().none { it.contains("192.168") || it.contains("Test") })
+        assertFalse("no plaintext preferences file", plaintextFile(ConfirmedNetworkBook.LEGACY_PREFS).exists())
+        assertTrue(gate.forget(home))
         assertFalse(gate.isConfirmed(home))
-        gate.forgetAll()
+        assertTrue(gate.forgetAll())
     }
+
+    /** An update from a build that kept the hashes in plaintext preferences: they move, once, and the file goes. */
+    @Test
+    fun oldPlaintextHashesMoveIntoTheEncryptedStore() = runBlocking {
+        val store = TunnelsStore.get(context)
+        val home = NetworkFingerprint.of("192.168.7.1", "192.168.7.1", listOf("192.168.7.1"), "192.168.7.0/24")!!
+        val other = NetworkFingerprint.of("10.7.0.1", "10.7.0.1", listOf("10.7.0.1"), "10.7.0.0/24")!!
+        store.putSetting(ConfirmedNetworkCodec.KEY, null) // as on a phone that never ran this build
+        val prefs = context.getSharedPreferences(ConfirmedNetworkBook.LEGACY_PREFS, Context.MODE_PRIVATE)
+        assertTrue(prefs.edit().putStringSet(ConfirmedNetworkBook.LEGACY_KEY, setOf(home.hash, "not-a-hash")).commit())
+        assertTrue(plaintextFile(ConfirmedNetworkBook.LEGACY_PREFS).exists())
+
+        val gate = NetworkGate(context)
+        // The start-up migration (HomeNetTunnels.create) may have got there first; either way it happened exactly once.
+        val moved = gate.migrate()
+        assertTrue(moved.toString(), moved == NetworkMigration.Moved(1) || moved == NetworkMigration.NothingToMove)
+        assertFalse("the plaintext file is deleted", plaintextFile(ConfirmedNetworkBook.LEGACY_PREFS).exists())
+        assertEquals(setOf(home.hash), ConfirmedNetworkCodec.decode(store.setting(ConfirmedNetworkCodec.KEY)))
+        assertTrue(gate.isConfirmed(home))
+        assertFalse(gate.isConfirmed(other))
+        assertEquals(1, gate.confirmedCount())
+        assertEquals("a second run has nothing to move", NetworkMigration.NothingToMove, gate.migrate())
+        assertTrue(gate.forgetAll())
+    }
+
+    /** With the table unusable nothing is confirmed, and the old file is neither read for the answer nor deleted. */
+    @Test
+    fun anUnavailableStoreFailsClosedAndKeepsTheOldFile() {
+        val name = "homenet_gate_failclosed_test"
+        val home = NetworkFingerprint.of("192.168.9.1", "192.168.9.1", listOf("192.168.9.1"), "192.168.9.0/24")!!
+        context.getSharedPreferences(name, Context.MODE_PRIVATE).edit().putStringSet(ConfirmedNetworkBook.LEGACY_KEY, setOf(home.hash)).commit()
+        try {
+            val broken = object : ConfirmedNetworkTable {
+                override fun read(): String? = throw java.io.IOException("store unavailable")
+                override fun write(text: String) = throw java.io.IOException("store unavailable")
+            }
+            val gate = NetworkGate(context, ConfirmedNetworkBook(broken, PrefsNetworkFile(context, name)))
+            assertFalse(gate.isConfirmed(home))
+            assertFalse(gate.confirm(home))
+            assertEquals(0, gate.confirmedCount())
+            assertTrue(gate.migrate() is NetworkMigration.Failed)
+            assertTrue("the old file is untouched", plaintextFile(name).exists())
+            assertEquals(setOf(home.hash), context.getSharedPreferences(name, Context.MODE_PRIVATE).getStringSet(ConfirmedNetworkBook.LEGACY_KEY, null))
+        } finally {
+            context.deleteSharedPreferences(name)
+        }
+    }
+
+    private fun plaintextFile(name: String) = java.io.File(java.io.File(context.dataDir, "shared_prefs"), "$name.xml")
 
     /** The emulator's virtual Wi-Fi has a gateway and a prefix, so the fingerprint path itself gets exercised. */
     @Test

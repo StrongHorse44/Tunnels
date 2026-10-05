@@ -27,6 +27,8 @@ import io.github.stronghorse44.tunnels.model.TunnelModule
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenActions
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenState
 import io.github.stronghorse44.tunnels.runtime.TunnelUi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Home network: which devices are on the Wi-Fi the user confirmed as theirs, which doors they leave
@@ -52,7 +54,8 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
 
     override suspend fun scan(progress: ScanProgress): List<Observation> {
         val started = System.nanoTime()
-        val decision = gate.check()
+        // The gate reads the encrypted store.
+        val decision = withContext(Dispatchers.IO) { gate.check() }
         val out = ArrayList<Observation>(64)
         fun add(subject: String, key: String, value: String) {
             if (value.isNotEmpty()) out += Observation(id, subject, key, value)

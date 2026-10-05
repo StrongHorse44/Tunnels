@@ -7,6 +7,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
+import io.github.stronghorse44.tunnels.lan.ConfirmedNetworkBook
 import io.github.stronghorse44.tunnels.lan.LanAddresses
 import io.github.stronghorse44.tunnels.lan.LanKeys
 import io.github.stronghorse44.tunnels.lan.NetworkFingerprint
@@ -89,12 +90,17 @@ sealed interface GateDecision {
 /**
  * Own-network gate: Tunnels scans only a Wi-Fi the user confirmed as theirs, once per network. A network is
  * identified by its [NetworkFingerprint] (gateway, DHCP server, DNS servers, prefix), not by its SSID, which
- * Android hides from apps without a location permission. Confirmed fingerprints are kept as SHA-256 hashes
- * in this module's own preferences (not sensitive, not observations).
+ * Android hides from apps without a location permission. Confirmed fingerprints are kept as SHA-256 hashes in the
+ * encrypted settings table (`homenet.confirmed_networks`, see [ConfirmedNetworkBook]); an older build kept them in a
+ * plaintext preferences file, which [migrate] moves and deletes.
+ *
+ * The confirmation functions read the database: call them off the main thread. If the store cannot be read the gate
+ * answers "not confirmed" and [check] refuses with [LanKeys.REASON_STORE_UNAVAILABLE]; it never falls back to the old file.
  */
-class NetworkGate(private val context: Context) {
-    private val prefs by lazy { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
-
+class NetworkGate(
+    private val context: Context,
+    private val book: ConfirmedNetworkBook = ConfirmedNetworkBook(StoreNetworkTable(context), PrefsNetworkFile(context)),
+) {
     /** Reads the current Wi-Fi network; cheap binder calls, safe from the main thread. */
     fun current(): WifiState {
         val cm = context.getSystemService(ConnectivityManager::class.java) ?: return WifiState.OFFLINE
@@ -142,36 +148,34 @@ class NetworkGate(private val context: Context) {
     @Suppress("DEPRECATION")
     private fun allNetworks(cm: ConnectivityManager): List<Network> = runCatching { cm.allNetworks.toList() }.getOrDefault(emptyList())
 
-    fun isConfirmed(fingerprint: NetworkFingerprint): Boolean = fingerprint.hash in confirmedHashes()
+    /** Moves hashes an older build kept in plaintext preferences into the encrypted store and deletes that file. Idempotent. */
+    fun migrate() = book.migrate()
 
-    fun confirm(fingerprint: NetworkFingerprint) {
-        prefs.edit().putStringSet(KEY_CONFIRMED, confirmedHashes() + fingerprint.hash).apply()
-    }
+    fun isConfirmed(fingerprint: NetworkFingerprint): Boolean = book.isConfirmed(fingerprint.hash)
 
-    fun forget(fingerprint: NetworkFingerprint) {
-        prefs.edit().putStringSet(KEY_CONFIRMED, confirmedHashes() - fingerprint.hash).apply()
-    }
+    /** False when the confirmation could not be saved (the store is unavailable); the network then stays unconfirmed. */
+    fun confirm(fingerprint: NetworkFingerprint): Boolean = book.confirm(fingerprint.hash)
 
-    fun forgetAll() = prefs.edit().remove(KEY_CONFIRMED).apply()
+    fun forget(fingerprint: NetworkFingerprint): Boolean = book.forget(fingerprint.hash)
 
-    fun confirmedCount(): Int = confirmedHashes().size
+    fun forgetAll(): Boolean = book.forgetAll()
 
-    private fun confirmedHashes(): Set<String> = prefs.getStringSet(KEY_CONFIRMED, emptySet()).orEmpty().toSet()
+    /** How many networks are confirmed; 0 when the store cannot be read. */
+    fun confirmedCount(): Int = book.count() ?: 0
 
-    /** Decides whether a scan may run right now. Never throws. */
+    /** Decides whether a scan may run right now. Never throws; reads the store, so call it off the main thread. */
     fun check(): GateDecision {
         val state = runCatching { current() }.getOrDefault(WifiState.OFFLINE)
         if (!state.onWifi) return GateDecision.Refused(LanKeys.REASON_NO_WIFI, state)
         val fingerprint = state.fingerprint ?: return GateDecision.Refused(LanKeys.REASON_NETWORK_UNKNOWN, state)
         // Scanning stays inside the link's prefixes; without any, there is nothing to stay inside.
         if (state.prefixes.isEmpty()) return GateDecision.Refused(LanKeys.REASON_NETWORK_UNKNOWN, state)
-        if (!isConfirmed(fingerprint)) return GateDecision.Refused(LanKeys.REASON_NOT_CONFIRMED, state)
+        // Last, so a phone that is not on a usable Wi-Fi never opens the store for this.
+        when (book.lookup(fingerprint.hash)) {
+            true -> Unit
+            false -> return GateDecision.Refused(LanKeys.REASON_NOT_CONFIRMED, state)
+            null -> return GateDecision.Refused(LanKeys.REASON_STORE_UNAVAILABLE, state)
+        }
         return GateDecision.Allowed(state, fingerprint)
-    }
-
-    companion object {
-        const val PREFS = "homenet_gate"
-        /** Fingerprint hashes. The first draft stored SSID hashes under another key; those are simply ignored. */
-        const val KEY_CONFIRMED = "confirmed_network_hashes"
     }
 }

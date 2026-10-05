@@ -11,6 +11,8 @@ import io.github.stronghorse44.tunnels.export.TunnelsData
 import io.github.stronghorse44.tunnels.export.fwx.FwxError
 import io.github.stronghorse44.tunnels.export.fwx.FwxException
 import io.github.stronghorse44.tunnels.export.fwx.FwxWriter
+import io.github.stronghorse44.tunnels.lan.ConfirmedNetworkBook
+import io.github.stronghorse44.tunnels.lan.ConfirmedNetworkCodec
 import io.github.stronghorse44.tunnels.store.ObservationEntity
 import io.github.stronghorse44.tunnels.store.SettingEntity
 import io.github.stronghorse44.tunnels.store.SnapshotEntity
@@ -19,6 +21,7 @@ import io.github.stronghorse44.tunnels.store.TunnelsDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
@@ -37,8 +40,9 @@ import javax.crypto.spec.SecretKeySpec
 
 /**
  * The CI round trip of the export (docs/EXPORT.md): export from one store, import into an empty one, compare; and
- * the refusals that must leave the store as it was. Throwaway in-memory Room databases and preference files stand in
- * for the encrypted store and Home network's list, through the same code the screen uses ([DataTransfer]).
+ * the refusals that must leave the store as it was. Throwaway in-memory Room databases stand in for the encrypted store
+ * (the confirmed networks are a row of its settings table), and throwaway preference files for the old plaintext list,
+ * through the same code the screen uses ([DataTransfer]).
  */
 @RunWith(AndroidJUnit4::class)
 class ExportImportRoundTripTest {
@@ -68,11 +72,18 @@ class ExportImportRoundTripTest {
 
     private fun db(): TunnelsDatabase = Room.inMemoryDatabaseBuilder(context, TunnelsDatabase::class.java).build().also { dbs += it }
 
-    private fun nets(name: String): ConfirmedNetworks {
+    /** The phone's confirmed networks for [dao]; its old plaintext file is a throwaway one of this test's, never the real one. */
+    private fun nets(dao: TunnelsDao): ConfirmedNetworks = ConfirmedNetworks(context, dao, legacyName())
+
+    private fun legacyName(): String {
+        val name = "snapshots_roundtrip_legacy_${prefs.size}"
         prefs += name
         context.deleteSharedPreferences(name)
-        return ConfirmedNetworks(context, name)
+        return name
     }
+
+    private fun setNetworks(dao: TunnelsDao, set: Set<String>) =
+        runBlocking { dao.putSetting(SettingEntity(ConfirmedNetworkCodec.KEY, ConfirmedNetworkCodec.encode(set))) }
 
     private fun file(name: String): File = File(context.cacheDir, "fwx-roundtrip-$name.fwx").also { files += it }
 
@@ -99,7 +110,7 @@ class ExportImportRoundTripTest {
         dao.putSetting(SettingEntity("watch.status", "run=99"))
         dao.putSetting(SettingEntity("pairing.verifierId", "00ff"))
         dao.putSetting(SettingEntity("pairing.pins", pinLine(1, 1_700_000_100_000)))
-        networks.restore(setOf(net1, net2))
+        setNetworks(dao, setOf(net1, net2))
     }
 
     /** What two phones must share after a restore (the pin included); row ids are the store's own. */
@@ -131,7 +142,7 @@ class ExportImportRoundTripTest {
     @Test
     fun exportThenImportIntoAnEmptyStoreCompares() {
         val a = db().dao()
-        val netsA = nets("rt_a")
+        val netsA = nets(a)
         seed(a, netsA)
         val out = file("a")
         val exported = export(a, netsA, out)
@@ -148,7 +159,7 @@ class ExportImportRoundTripTest {
         assertEquals(now, info.createdMs)
 
         val b = db().dao()
-        val netsB = nets("rt_b")
+        val netsB = nets(b)
         val summary = import(b, netsB, out)
         assertEquals(2, summary.snapshots)
         assertEquals(4, summary.observations)
@@ -177,13 +188,13 @@ class ExportImportRoundTripTest {
     fun anUnpinnedSnapshotImportsUnpinnedAndIsSubjectToRetention() {
         val moments = (0 until 14).map { 1_700_000_000_000 + it * 60_000L }
         val a = db().dao()
-        val netsA = nets("rt_ra")
+        val netsA = nets(a)
         seed(a, netsA, moments) // the first is pinned, the other thirteen are not
         val out = file("r")
         export(a, netsA, out)
 
         val b = db().dao()
-        import(b, nets("rt_rb"), out)
+        import(b, nets(b), out)
         runBlocking {
             val rows = b.snapshots().sortedBy { it.takenAt }
             assertEquals(listOf(true) + List(13) { false }, rows.map { it.pinned })
@@ -196,13 +207,13 @@ class ExportImportRoundTripTest {
     @Test
     fun importMergesIntoAPhoneThatHasData() {
         val a = db().dao()
-        val netsA = nets("rt_ma")
+        val netsA = nets(a)
         seed(a, netsA)
         val out = file("m")
         export(a, netsA, out)
 
         val b = db().dao()
-        val netsB = nets("rt_mb")
+        val netsB = nets(b)
         runBlocking {
             b.insertSnapshot(SnapshotEntity(takenAt = 1_700_000_000_000, pinned = false)) // the same moment as one in the file
             val newer = b.insertSnapshot(SnapshotEntity(takenAt = 1_800_000_000_000, pinned = false))
@@ -210,7 +221,7 @@ class ExportImportRoundTripTest {
             b.putSetting(SettingEntity("traffic.block", "on=false;kinds=ADS;exempt="))
             b.putSetting(SettingEntity("pairing.pins", pinLine(2, 1_700_000_500_000) + "\n" + pinLine(1, 1_700_000_900_000)))
         }
-        netsB.restore(setOf("c3".repeat(32)))
+        setNetworks(b, setOf("c3".repeat(32)))
 
         val summary = import(b, netsB, out)
         assertEquals(1, summary.snapshots)
@@ -237,14 +248,14 @@ class ExportImportRoundTripTest {
     @Test
     fun aWrongPassphraseAndADamagedFileChangeNothing() {
         val a = db().dao()
-        val netsA = nets("rt_wa")
+        val netsA = nets(a)
         seed(a, netsA)
         val out = file("w")
         export(a, netsA, out)
 
         // A populated phone: nothing below may change any of it.
         val b = db().dao()
-        val netsB = nets("rt_wb")
+        val netsB = nets(b)
         seed(b, netsB, moments = listOf(1_650_000_000_000))
         runBlocking { b.putSetting(SettingEntity("traffic.block", "on=false;kinds=ADS;exempt=")) }
         val empty = state(b, netsB)
@@ -267,7 +278,7 @@ class ExportImportRoundTripTest {
         lumen.writeBytes(otherAppBundle())
 
         val b = db().dao()
-        val netsB = nets("rt_lb")
+        val netsB = nets(b)
         try {
             runBlocking { DataTransfer(context, b, netsB, applyWatchSettings = {}).inspect(Uri.fromFile(lumen)) }
             fail("accepted")
@@ -282,15 +293,15 @@ class ExportImportRoundTripTest {
     @Test
     fun anOldTsnape1ExportStillImportsAndTouchesOnlySnapshots() {
         val a = db().dao()
-        val netsA = nets("rt_la")
+        val netsA = nets(a)
         seed(a, netsA, moments = listOf(1_700_000_000_000))
         val bundleText = runBlocking { io.github.stronghorse44.tunnels.export.BundleFormat.write(StoreBundles.read(a)) }
         val old = file("legacy").also { it.writeBytes(legacySeal(bundleText.toByteArray(), passphrase.toCharArray())) }
 
         val b = db().dao()
-        val netsB = nets("rt_lb2")
+        val netsB = nets(b)
         runBlocking { b.putSetting(SettingEntity("traffic.block", "on=false;kinds=ADS;exempt=")) }
-        netsB.restore(setOf(net1))
+        setNetworks(b, setOf(net1))
         val info = runBlocking { DataTransfer(context, b, netsB, applyWatchSettings = {}).inspect(Uri.fromFile(old)) }
         assertEquals(Inspected.Legacy, info)
         val summary = import(b, netsB, old)
@@ -306,18 +317,19 @@ class ExportImportRoundTripTest {
     }
 
     @Test
-    fun aFailedWriteKeepsNothingAndPutsTheNetworksBack() {
+    fun aFailedWriteKeepsNothingNetworksIncluded() {
         val a = db().dao()
-        val netsA = nets("rt_fa")
+        val netsA = nets(a)
         seed(a, netsA)
         val data = runBlocking { StoreBundles.gather(a, netsA.all()) }
 
-        // The store refuses the settings rows, which an import writes after the snapshots: the transaction must undo them.
+        // The store refuses the settings rows, which an import writes after the snapshots: the transaction must undo them,
+        // and the networks are one of those rows, so the phone's own list stays exactly as it was.
         val target = db()
-        target.openHelper.writableDatabase.execSQL("CREATE TRIGGER refuse_settings BEFORE INSERT ON settings BEGIN SELECT RAISE(ABORT, 'refused'); END")
         val dao = target.dao()
-        val netsC = nets("rt_fc")
-        netsC.restore(setOf("c3".repeat(32)))
+        val netsC = nets(dao)
+        setNetworks(dao, setOf("c3".repeat(32)))
+        target.openHelper.writableDatabase.execSQL("CREATE TRIGGER refuse_settings BEFORE INSERT ON settings BEGIN SELECT RAISE(ABORT, 'refused'); END")
         try {
             runBlocking { StoreBundles.commit(dao, netsC, data) }
             fail("committed to a store that refuses the settings")
@@ -327,10 +339,72 @@ class ExportImportRoundTripTest {
         assertEquals(setOf("c3".repeat(32)), netsC.all())
     }
 
+    /** A phone updated from the plaintext-preferences build, exporting before Home network has ever run its migration. */
+    @Test
+    fun exportMovesAndCarriesNetworksFromTheOldPlaintextFile() {
+        val a = db().dao()
+        val legacy = legacyName()
+        val netsA = ConfirmedNetworks(context, a, legacy)
+        seed(a, netsA, listOf(1_700_000_000_000))
+        runBlocking { a.deleteSetting(ConfirmedNetworkCodec.KEY) } // no row of its own yet: only the old file has them
+        context.getSharedPreferences(legacy, Context.MODE_PRIVATE).edit().putStringSet(ConfirmedNetworkBook.LEGACY_KEY, setOf(net1, net2)).commit()
+
+        val out = file("legacy-nets")
+        val exported = export(a, netsA, out)
+        assertEquals(2, exported.counts.networks)
+        runBlocking {
+            assertEquals(setOf(net1, net2), ConfirmedNetworkCodec.decode(a.setting(ConfirmedNetworkCodec.KEY)))
+        }
+        assertFalse("the old file is gone", File(File(context.dataDir, "shared_prefs"), "$legacy.xml").exists())
+
+        // And into a clean phone: the same two networks, from the table.
+        val b = db().dao()
+        val netsB = nets(b)
+        assertEquals(2, import(b, netsB, out).newNetworks)
+        assertEquals(setOf(net1, net2), netsB.all())
+    }
+
+    /** An import into a phone that still holds its own networks in the old file: they are moved first, then merged with the file's. */
+    @Test
+    fun importMovesTheOldPlaintextFileBeforeMerging() {
+        val a = db().dao()
+        val netsA = nets(a)
+        seed(a, netsA, listOf(1_700_000_000_000))
+        val out = file("merge-nets")
+        export(a, netsA, out)
+
+        val b = db().dao()
+        val legacy = legacyName()
+        val netsB = ConfirmedNetworks(context, b, legacy)
+        context.getSharedPreferences(legacy, Context.MODE_PRIVATE).edit().putStringSet(ConfirmedNetworkBook.LEGACY_KEY, setOf("c3".repeat(32))).commit()
+        val summary = import(b, netsB, out)
+        assertEquals(2, summary.newNetworks)
+        assertEquals(setOf(net1, net2, "c3".repeat(32)), netsB.all())
+        assertFalse(File(File(context.dataDir, "shared_prefs"), "$legacy.xml").exists())
+        runBlocking {
+            assertEquals(setOf(net1, net2, "c3".repeat(32)), ConfirmedNetworkCodec.decode(b.setting(ConfirmedNetworkCodec.KEY)))
+        }
+    }
+
+    /** A bundle with no networks (or an old TSNAPE1 file) must not create or change the row. */
+    @Test
+    fun anImportWithoutNetworksLeavesTheRowAlone() {
+        val a = db().dao()
+        val netsA = nets(a)
+        seed(a, netsA, listOf(1_700_000_000_000))
+        runBlocking { a.deleteSetting(ConfirmedNetworkCodec.KEY) }
+        val out = file("no-nets")
+        export(a, netsA, out)
+
+        val b = db().dao()
+        assertEquals(0, import(b, nets(b), out).newNetworks)
+        runBlocking { assertEquals(null, b.setting(ConfirmedNetworkCodec.KEY)) }
+    }
+
     @Test
     fun aRefusedExportLeavesAnExistingFileExactlyAsItWas() {
         val a = db().dao()
-        val netsA = nets("rt_xa")
+        val netsA = nets(a)
         seed(a, netsA)
         val out = file("x")
         out.writeBytes("keep!".toByteArray())
