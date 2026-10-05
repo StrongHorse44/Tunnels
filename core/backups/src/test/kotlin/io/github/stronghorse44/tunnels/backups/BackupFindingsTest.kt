@@ -386,7 +386,26 @@ class BackupFindingsTest {
         val out = findings(m, BackupSettings(seen = setOf("prikey")))
         assertEquals(listOf("backups|folder|BACKUP_SCAN_INCOMPLETE"), out.map { it.id })
         assertEquals(Severity.WARN, out.single().severity)
-        assertTrue(out.single().evidence, out.single().evidence.contains("A Prikey file could not be read"))
+        assertTrue(out.single().evidence, out.single().evidence.contains("A file that may be Prikey's could not be read, so Prikey is not judged"))
+        assertFalse(out.single().evidence.contains("A Prikey file"))
+        val row = BackupView.from(BackupObservations.build(FolderScanner.scan(m, now), BackupSettings(seen = setOf("prikey")), now, today)).apps.first { it.app.id == "prikey" }
+        assertEquals(AppStatus.UNREADABLE, row.status)
+        assertFalse("the failure was a folder, not a Prikey-named file", row.failedNamed)
+    }
+
+    @Test
+    fun anUnnamedFileThatFailsToOpenSaysItMayBeTheAppsAndANamedOneSaysItIs() {
+        val m = Fixtures.Memory().file("backup-001.fwx", bundle("prikey", 1))
+        m.failOpen["backup-001.fwx"] = IllegalStateException("provider")
+        val s = BackupSettings(seen = setOf("prikey"))
+        val f = findings(m, s).single()
+        assertTrue(f.evidence, f.evidence.contains("A file that may be Prikey's could not be read, so Prikey is not judged"))
+        val named = Fixtures.name("prikey", now - day)
+        val n = Fixtures.Memory().file(named, bundle("prikey", 1))
+        n.failOpen[named] = IllegalStateException("provider")
+        assertTrue(findings(n, s).single().evidence.contains("A Prikey file could not be read, so Prikey is not judged"))
+        val view = BackupView.from(BackupObservations.build(FolderScanner.scan(n, now), s, now, today))
+        assertTrue(view.apps.first { it.app.id == "prikey" }.failedNamed)
     }
 
     @Test
@@ -425,5 +444,141 @@ class BackupFindingsTest {
         assertEquals(listOf("backups|tunnels|BACKUP_STALE"), findings(alone, s).map { it.id })
         assertEquals(listOf("backups|tunnels|BACKUP_STALE"), findings(both, s).map { it.id })
         assertTrue(findings(both, s).single().evidence.contains("400 days ago"))
+    }
+
+    @Test
+    fun theUndatedLegacyProbeWithA400DayFwxBundleIsStaleNotUnknownDate() {
+        val m = Fixtures.Memory()
+            .file("tunnels-undated.tsnap", Fixtures.legacy(), modified = 0)
+            .file("tunnels-dated.tsnap", Fixtures.legacy(), modified = now - 100 * day)
+            .file(Fixtures.name("tunnels", now - 400 * day), bundle("tunnels", 400))
+        val s = BackupSettings(seen = setOf("tunnels"))
+        val f = findings(m, s).single()
+        assertEquals("backups|tunnels|BACKUP_STALE", f.id)
+        assertEquals(Severity.WARN, f.severity)
+        assertEquals(AppStatus.STALE, statusOf(m, s, "tunnels"))
+        assertTrue(f.evidence, f.evidence.contains("100 days ago"))
+        // Without the FWX header the undated file still keeps the dated one from being called stale.
+        val noHeader = Fixtures.Memory()
+            .file("tunnels-undated.tsnap", Fixtures.legacy(), modified = 0)
+            .file("tunnels-dated.tsnap", Fixtures.legacy(), modified = now - 100 * day)
+        assertEquals(AppStatus.UNKNOWN_DATE, statusOf(noHeader, s, "tunnels"))
+    }
+
+    private val pile = FolderScanner.MAX_PER_APP + 6
+
+    @Test
+    fun theNoticeDoesNotSayEveryAppWasJudgedWhenAWatchedAppHasNoDate() {
+        val m = Fixtures.Memory()
+        repeat(pile) { m.file(Fixtures.name("lumen", now - day - it * 3_600_000L), bundle("lumen", 1)) }
+        m.file("tunnels-undated.tsnap", Fixtures.legacy(), modified = 0)
+        m.file("tunnels-dated.tsnap", Fixtures.legacy(), modified = now - 100 * day)
+        val s = BackupSettings(seen = setOf("tunnels", "lumen"))
+        val f = findings(m, s).single { it.kind == BackupRules.SCAN_INCOMPLETE }
+        assertEquals(Severity.NOTICE, f.severity)
+        assertFalse(f.evidence, f.evidence.contains("Every app you watch"))
+        assertTrue(f.evidence, f.evidence.contains("Tunnels has an old-format file with no date that may be newer than its dated ones, so its age is not judged."))
+        assertFalse(f.evidence, f.evidence.contains("none says"))
+        assertTrue(f.evidence, f.evidence.contains("Every other app you watch was still judged from the newest file that was read."))
+    }
+
+    @Test
+    fun theNoticeNamesAnAppJudgedFromAFileNamedForAnotherApp() {
+        val m = Fixtures.Memory()
+        repeat(pile) { m.file(Fixtures.name("lumen", now - day - it * 3_600_000L), bundle("lumen", 1)) }
+        m.file(Fixtures.name("prikey", now - 40 * day), bundle("tunnels", 40))
+        val s = BackupSettings(seen = setOf("tunnels", "lumen"))
+        val out = findings(m, s)
+        assertEquals(setOf("backups|tunnels|BACKUP_STALE", "backups|folder|BACKUP_SCAN_INCOMPLETE"), out.map { it.id }.toSet())
+        val f = out.first { it.kind == BackupRules.SCAN_INCOMPLETE }
+        assertEquals(Severity.NOTICE, f.severity)
+        assertFalse(f.evidence, f.evidence.contains("Every app you watch"))
+        assertTrue(f.evidence, f.evidence.contains("Tunnels was judged from a file whose name says it is another app's"))
+        assertTrue(f.evidence, f.evidence.contains("Every other app you watch was still judged"))
+    }
+
+    @Test
+    fun theNoticeKeepsItsReassuranceWhenEveryWatchedAppWasJudgedFromItsOwnFiles() {
+        val m = Fixtures.Memory()
+        repeat(pile) { m.file(Fixtures.name("lumen", now - day - it * 3_600_000L), bundle("lumen", 1)) }
+        m.file(Fixtures.name("tunnels", now - 40 * day), bundle("tunnels", 40))
+        val f = findings(m, BackupSettings(seen = setOf("tunnels", "lumen"))).first { it.kind == BackupRules.SCAN_INCOMPLETE }
+        assertTrue(f.evidence, f.evidence.contains("Every app you watch was still judged from the newest file that was read."))
+    }
+
+    @Test
+    fun seventyFutureDatedFilesDoNotTurnAStaleAppIntoASuspiciousOne() {
+        val m = Fixtures.Memory()
+        repeat(pile) { m.file(Fixtures.name("prikey", now + (it + 2) * day), Fixtures.header("prikey", 1, now + (it + 2) * day)) }
+        m.file(Fixtures.name("prikey", now - 45 * day), bundle("prikey", 45))
+        m.file(Fixtures.name("prikey", now - 55 * day), bundle("prikey", 55))
+        val s = BackupSettings(seen = setOf("prikey"))
+        val out = findings(m, s)
+        assertEquals(setOf("backups|prikey|BACKUP_STALE", "backups|folder|BACKUP_SCAN_INCOMPLETE"), out.map { it.id }.toSet())
+        assertEquals(Severity.WARN, out.first { it.kind == BackupRules.STALE }.severity)
+        assertEquals(AppStatus.STALE, statusOf(m, s, "prikey"))
+    }
+
+    @Test
+    fun aPileOfFutureDatedFilesBeyondTheGlobalBoundIsIncompleteAndWarnsNotSuspicious() {
+        val m = Fixtures.Memory()
+        repeat(FolderScanner.MAX_HEADERS + 20) { m.file(Fixtures.name("prikey", now + (it + 2) * day), Fixtures.header("prikey", 1, now + (it + 2) * day)) }
+        val s = BackupSettings(seen = setOf("prikey"))
+        val out = findings(m, s)
+        assertEquals(listOf("backups|folder|BACKUP_SCAN_INCOMPLETE"), out.map { it.id })
+        assertEquals(Severity.WARN, out.single().severity)
+        assertTrue(out.single().evidence, out.single().evidence.contains("Prikey is not judged"))
+        assertEquals(AppStatus.INCOMPLETE, statusOf(m, s, "prikey"))
+    }
+
+    @Test
+    fun theNoticeSaysNothingIsDatedWhenAWatchedAppHasOnlyUndatedFiles() {
+        val m = Fixtures.Memory()
+        repeat(pile) { m.file(Fixtures.name("lumen", now - day - it * 3_600_000L), bundle("lumen", 1)) }
+        m.file("tunnels-undated.tsnap", Fixtures.legacy(), modified = 0)
+        val f = findings(m, BackupSettings(seen = setOf("tunnels", "lumen"))).single { it.kind == BackupRules.SCAN_INCOMPLETE }
+        assertTrue(f.evidence, f.evidence.contains("Tunnels has files but none says when it was made, so its age is not judged."))
+    }
+
+    @Test
+    fun theNoticeDoesNotClaimEveryAppWasJudgedWhenNoAppIsWatched() {
+        val name = Fixtures.name("prikey", now - day)
+        val m = Fixtures.Memory().file(name, bundle("prikey", 1))
+        m.failOpen[name] = IllegalStateException("provider")
+        val f = findings(m, BackupSettings()).single()
+        assertEquals(Severity.NOTICE, f.severity)
+        assertFalse(f.evidence, f.evidence.contains("Every app"))
+        assertFalse(f.evidence, f.evidence.endsWith(" "))
+    }
+
+    @Test
+    fun seventyFutureDatedFwxAndAnUndatedOldFormatFileStillReachTheUnreadFortyFiveDayBundle() {
+        val m = Fixtures.Memory()
+        repeat(pile) { m.file(Fixtures.name("tunnels", now + (it + 2) * day), Fixtures.header("tunnels", 1, now + (it + 2) * day)) }
+        m.file("tunnels-undated.tsnap", Fixtures.legacy(), modified = 0)
+        m.file(Fixtures.name("tunnels", now - 45 * day), bundle("tunnels", 45))
+        m.file(Fixtures.name("tunnels", now - 55 * day), bundle("tunnels", 55))
+        val s = BackupSettings(seen = setOf("tunnels"))
+        val out = findings(m, s)
+        assertEquals(setOf("backups|tunnels|BACKUP_STALE", "backups|folder|BACKUP_SCAN_INCOMPLETE"), out.map { it.id }.toSet())
+        assertEquals(Severity.WARN, out.first { it.kind == BackupRules.STALE }.severity)
+        assertEquals(AppStatus.STALE, statusOf(m, s, "tunnels"))
+    }
+
+    @Test
+    fun anUnnamedPileOfFutureDatedPrikeyHeadersHoldsOnlyPrikey() {
+        val m = Fixtures.Memory()
+        repeat(FolderScanner.MAX_HEADERS + 100) { m.file("backup-%03d.fwx".format(it), Fixtures.header("prikey", 1, now + (it + 2) * day)) }
+        m.file(Fixtures.name("mardigras", now - 100 * day), bundle("mardigras", 100))
+        val s = BackupSettings(seen = setOf("prikey", "mardigras"))
+        val out = findings(m, s)
+        assertEquals(setOf("backups|mardigras|BACKUP_STALE", "backups|folder|BACKUP_SCAN_INCOMPLETE"), out.map { it.id }.toSet())
+        assertEquals(Severity.WARN, out.first { it.kind == BackupRules.STALE }.severity)
+        val incomplete = out.first { it.kind == BackupRules.SCAN_INCOMPLETE }
+        assertEquals(Severity.WARN, incomplete.severity)
+        assertTrue(incomplete.evidence, incomplete.evidence.contains("Prikey is not judged"))
+        assertFalse(incomplete.evidence, incomplete.evidence.contains("Mardi Gras is not judged"))
+        assertEquals(AppStatus.STALE, statusOf(m, s, "mardigras"))
+        assertEquals(AppStatus.INCOMPLETE, statusOf(m, s, "prikey"))
     }
 }

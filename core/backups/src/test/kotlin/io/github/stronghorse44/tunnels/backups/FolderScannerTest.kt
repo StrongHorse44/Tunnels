@@ -363,4 +363,104 @@ class FolderScannerTest {
             dir.deleteRecursively()
         }
     }
+
+    private fun future(app: String, n: Int) = Fixtures.name(app, now + (n + 2) * day)
+
+    @Test
+    fun moreFutureDatedFilesThanTheGroupCapKeepReadingUntilADateAppears() {
+        val m = Fixtures.Memory()
+        repeat(FolderScanner.MAX_PER_APP + 6) { m.file(future("prikey", it), Fixtures.header("prikey", 1, now + (it + 2) * day)) }
+        m.file(Fixtures.name("prikey", now - 40 * day), bundle("prikey", 40))
+        m.file(Fixtures.name("prikey", now - 50 * day), bundle("prikey", 50))
+        val s = FolderScanner.scan(m, now)
+        val prikey = s.apps.getValue("prikey")
+        assertEquals(now - 40 * day, prikey.newestMs)
+        assertEquals(FolderScanner.MAX_PER_APP + 6, prikey.suspicious)
+        assertEquals("it stopped at the first file that dated something", FolderScanner.MAX_PER_APP + 7, m.opened.size)
+        assertEquals(AppStatus.STALE, Freshness.status(true, prikey, now, 30, s.holdOf("prikey")))
+    }
+
+    @Test
+    fun aGroupOfOnlyFutureDatedFilesThatNeverGaveADateHoldsItsAppWhenSomeWereNotRead() {
+        val m = Fixtures.Memory()
+        repeat(FolderScanner.MAX_HEADERS + 20) { m.file(future("prikey", it), Fixtures.header("prikey", 1, now + (it + 2) * day)) }
+        val s = FolderScanner.scan(m, now)
+        assertTrue(s.truncated)
+        assertEquals(FolderScanner.MAX_HEADERS, m.opened.size)
+        assertEquals(Hold.CUT, s.holdOf("prikey"))
+        assertEquals(AppStatus.INCOMPLETE, Freshness.status(true, s.apps.getValue("prikey"), now, 30, s.holdOf("prikey")))
+    }
+
+    @Test
+    fun fewFutureDatedFilesAreStillSuspiciousWhenAllWereRead() {
+        val m = Fixtures.Memory()
+        repeat(3) { m.file(future("prikey", it), Fixtures.header("prikey", 1, now + (it + 2) * day)) }
+        val s = FolderScanner.scan(m, now)
+        assertNull(s.holdOf("prikey"))
+        assertEquals(AppStatus.SUSPICIOUS, Freshness.status(true, s.apps.getValue("prikey"), now, 30, s.holdOf("prikey")))
+    }
+
+    @Test
+    fun theExtraReadsStopAtTheGlobalBoundAndOtherAppsKeepTheirTurn() {
+        val m = Fixtures.Memory()
+        repeat(FolderScanner.MAX_HEADERS) { m.file(future("mardigras", it), Fixtures.header("mardigras", 1, now + (it + 2) * day)) }
+        m.file(Fixtures.name("prikey", now - 2 * day), bundle("prikey", 2))
+        val s = FolderScanner.scan(m, now)
+        assertEquals("prikey was read in the first round, before the pile", now - 2 * day, s.apps.getValue("prikey").newestMs)
+        assertEquals(FolderScanner.MAX_HEADERS, m.opened.size)
+    }
+
+    @Test
+    fun aFailureOnAFileNamedForTheAppIsNamedAndOneOnAnUnnamedFileIsNot() {
+        val named = Fixtures.name("prikey", now - day)
+        val a = Fixtures.Memory().file(named, bundle("prikey", 1))
+        a.failOpen[named] = IllegalStateException("provider")
+        assertEquals(setOf("prikey"), FolderScanner.scan(a, now).failedNamed)
+
+        val b = Fixtures.Memory().file("backup-001.fwx", bundle("prikey", 1))
+        b.failOpen["backup-001.fwx"] = IllegalStateException("provider")
+        val sb = FolderScanner.scan(b, now)
+        assertTrue(sb.failedNamed.isEmpty())
+        assertEquals(Hold.FAILED, sb.holdOf("prikey"))
+    }
+
+    @Test
+    fun aFileNamedForAnotherAppIsNotedOnTheAppItHolds() {
+        val m = Fixtures.Memory()
+            .file(Fixtures.name("prikey", now - 40 * day), bundle("tunnels", 40))
+            .file(Fixtures.name("tunnels", now - 90 * day), bundle("tunnels", 90))
+        assertTrue(FolderScanner.scan(m, now).apps.getValue("tunnels").newestMisnamed)
+        val own = Fixtures.Memory().file(Fixtures.name("tunnels", now - 40 * day), bundle("tunnels", 40)).file("backup-1.fwx", bundle("tunnels", 90))
+        assertFalse(FolderScanner.scan(own, now).apps.getValue("tunnels").newestMisnamed)
+    }
+
+    @Test
+    fun anUndatedOldFormatReadDoesNotCountAsHavingDatedTheGroup() {
+        val m = Fixtures.Memory()
+        repeat(FolderScanner.MAX_PER_APP + 6) { m.file(future("tunnels", it), Fixtures.header("tunnels", 1, now + (it + 2) * day)) }
+        m.file("tunnels-undated.tsnap", Fixtures.legacy(), modified = 0)
+        m.file(Fixtures.name("tunnels", now - 45 * day), bundle("tunnels", 45))
+        val s = FolderScanner.scan(m, now)
+        val t = s.apps.getValue("tunnels")
+        assertEquals(now - 45 * day, t.newestMs)
+        assertEquals(1, t.undated)
+        assertEquals(AppStatus.STALE, Freshness.status(true, t, now, 30, s.holdOf("tunnels")))
+    }
+
+    @Test
+    fun anUnnamedGroupOfOneAppsFutureHeadersHoldsThatAppOnly() {
+        val m = Fixtures.Memory()
+        repeat(FolderScanner.MAX_HEADERS + 20) { m.file("backup-%03d.fwx".format(it), Fixtures.header("prikey", 1, now + (it + 2) * day)) }
+        val s = FolderScanner.scan(m, now)
+        assertEquals(Hold.CUT, s.holdOf("prikey"))
+        assertNull(s.holdOf("mardigras"))
+        assertNull(s.heldAll)
+    }
+
+    @Test
+    fun anUnnamedGroupOfMixedFutureHeadersStillHoldsEveryApp() {
+        val m = Fixtures.Memory()
+        repeat(FolderScanner.MAX_HEADERS + 20) { m.file("backup-%03d.fwx".format(it), Fixtures.header(if (it % 2 == 0) "prikey" else "tunnels", 1, now + (it + 2) * day)) }
+        assertEquals(Hold.CUT, FolderScanner.scan(m, now).heldAll)
+    }
 }

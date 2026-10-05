@@ -29,8 +29,9 @@ with `baseline.release.json`'s pin shows the APK was signed with it. `release.ym
 (`ci.yml`'s runs `gate.py cert --require-pin` against `baseline.json` for the debug build): either refuses an
 APK that is unsigned or signed with another certificate. See `docs/RELEASING.md`.
 
-The debug baseline records debug-specific content because it ships: `debuggable: true`, Compose's exported
-`PreviewActivity` and the `.debug` provider authorities. The release baseline has none of them.
+The debug baseline records debug-specific content because it ships: `debuggable: true` and the `.debug`
+provider authorities. Compose's `PreviewActivity` (from `ui-tooling`, exported by its library manifest) is
+removed from the debug APK by `app/src/debug/AndroidManifest.xml`, so neither baseline has it.
 `DebugProbesKt.bin` in `extra_code` is not debug-only: it is a resource of kotlinx-coroutines-core-jvm 1.10.2
 (not kotlinx-coroutines-debug), and both builds carry it (minification is off and there is no packaging
 exclude for it).
