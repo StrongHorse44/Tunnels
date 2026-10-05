@@ -1,6 +1,10 @@
 package io.github.stronghorse44.tunnels.devicecheck
 
 import io.github.stronghorse44.tunnels.attestation.SiliconKeys
+import io.github.stronghorse44.tunnels.posture.PostureKeys
+import io.github.stronghorse44.tunnels.posture.PostureReader
+import io.github.stronghorse44.tunnels.posture.PostureWhy
+import io.github.stronghorse44.tunnels.posture.Reading
 import io.github.stronghorse44.tunnels.watchrules.WatchSettings
 import io.github.stronghorse44.tunnels.watchrules.WatchStatus
 import java.time.Duration
@@ -42,6 +46,9 @@ object DeviceChecks {
     const val SETTINGS_VPN = "android.settings.VPN_SETTINGS"
     const val SETTINGS_NETWORK = "android.settings.WIRELESS_SETTINGS"
     const val SETTINGS_SECURITY = "android.settings.SECURITY_SETTINGS"
+
+    /** A posture reading older than this may no longer match a setting the user has since changed. */
+    val POSTURE_FRESH: Duration = Duration.ofMinutes(10)
 
     /** Stale attestation readings: Silicon should be rescanned after an OS update. */
     val SILICON_FRESH: Duration = Duration.ofDays(31)
@@ -188,6 +195,103 @@ object DeviceChecks {
         }
     }
 
+    /**
+     * From the latest Deep mode scan's posture readings (empty when it never read any) and when it was taken. Items that are
+     * only a reminder on this build (the USB-C port) are left out of the counts. Counts how
+     * many keys read, how many are not set on this phone (their built-in default applies, so Tunnels cannot tell) and how
+     * many failed to read or parse. Posture findings never depend on this check.
+     */
+    fun postureReadings(all: List<Reading>, takenAt: Instant?, now: Instant): CheckResult {
+        // A setting that cannot be read on this build (a reminder row) is not a reading that failed or is missing.
+        val readings = all.filter { it.item.reminder == null || it.item.confirmed }
+        val id = "posture_readings"
+        val title = "Posture readings"
+        val open = CheckAction.OpenTunnel(PostureKeys.TUNNEL_ID, "Open Deep mode")
+        if (readings.isEmpty() || takenAt == null) {
+            return CheckResult(
+                id, title, CheckStatus.TODO,
+                "Deep mode has not read posture yet. Start Shizuku, open Deep mode and scan: it reads GrapheneOS's settings through the same shell.",
+                open,
+            )
+        }
+        val absent = readings.filter { it.why == PostureWhy.ABSENT }
+        val failed = readings.count { it.why == PostureWhy.UNREADABLE || it.why == PostureWhy.MALFORMED }
+        val unconfirmed = readings.count { it.why == PostureWhy.UNCONFIRMED }
+        val read = readings.size - absent.size - failed
+        val names = absent.map { it.item.title }.let { if (it.size > 4) it.take(4).joinToString(", ") + " and ${it.size - 4} more" else it.joinToString(", ") }
+        val day = takenAt.atOffset(ZoneOffset.UTC).toLocalDate()
+        val stale = takenAt.isBefore(now.minus(SILICON_FRESH))
+        val asOf = if (stale) " (reading from $day: scan Deep mode again)" else ""
+        val text = buildString {
+            append("$read read")
+            if (unconfirmed > 0) append(" ($unconfirmed not confirmed on this phone yet)")
+            append(", ${absent.size} not set on this phone")
+            if (absent.isNotEmpty()) append(" ($names)")
+            append(", $failed failed.")
+            append(asOf)
+        }
+        return when {
+            failed > 0 -> CheckResult(id, title, CheckStatus.WARN, "$text Items that failed are shown as unknown and raise no finding.", open)
+            absent.isNotEmpty() -> CheckResult(
+                id, title, CheckStatus.NOTE,
+                "$text A key that was never written cannot be read: change the setting once in Settings, then scan again.", open,
+            )
+            else -> CheckResult(id, title, CheckStatus.PASS, text, if (stale) open else null)
+        }
+    }
+
+    /**
+     * Whether the Private DNS setting Deep mode read ([reading], from its `private_dns` item) agrees with what the network
+     * says ([dns]). A setting of off beside an encrypted network, or a named provider beside an unencrypted one, means the
+     * key or its parsing is wrong. The item is compared even while unconfirmed: this check is how its key gets confirmed.
+     * The reading is from the scan at [takenAt]; if it is older than [POSTURE_FRESH] the setting may since have changed, so a
+     * mismatch is only a note asking for a new scan, never a failure.
+     */
+    fun privateDnsAgrees(reading: Reading?, dns: PrivateDns, takenAt: Instant?, now: Instant): CheckResult {
+        val id = "private_dns_setting"
+        val title = "Private DNS setting matches the network"
+        val setting = reading?.value?.takeIf { it == PostureReader.OFF || it == PostureReader.DNS_AUTOMATIC || it == PostureReader.DNS_PROVIDER }
+        // A value exists only when the key was read and understood, whatever the item's own state.
+        if (setting == null) {
+            return CheckResult(id, title, CheckStatus.NOTE, "Deep mode has no Private DNS setting to compare: it was not read, or the key is not set on this phone.")
+        }
+        if (dns == PrivateDns.Unknown) {
+            return CheckResult(id, title, CheckStatus.NOTE, "No network is connected, so the Private DNS setting (\"$setting\") could not be compared.")
+        }
+        val network = when (dns) {
+            PrivateDns.Off -> "no encryption"
+            PrivateDns.Automatic -> "automatic encryption"
+            is PrivateDns.Strict -> "a named provider"
+            PrivateDns.Unknown -> "nothing"
+        }
+        val agree = (setting == PostureReader.OFF && dns == PrivateDns.Off) ||
+            (setting == PostureReader.DNS_AUTOMATIC && dns == PrivateDns.Automatic) ||
+            (setting == PostureReader.DNS_PROVIDER && dns is PrivateDns.Strict)
+        val contradicts = (setting == PostureReader.OFF && dns != PrivateDns.Off) || (setting == PostureReader.DNS_PROVIDER && dns == PrivateDns.Off)
+        val age = takenAt?.let { Duration.between(it, now) }
+        val fresh = age != null && !age.isNegative && age <= POSTURE_FRESH
+        return when {
+            agree -> CheckResult(id, title, CheckStatus.PASS, "The setting reads \"$setting\" and the network shows $network: they agree.")
+            !fresh -> CheckResult(
+                id, title, CheckStatus.NOTE,
+                "The setting read \"$setting\" in a scan ${if (age == null) "of unknown age" else "${ageText(age)} ago"} and the network shows " +
+                    "$network now. Scan Deep mode again to compare like with like.",
+                CheckAction.OpenTunnel(PostureKeys.TUNNEL_ID, "Open Deep mode"),
+            )
+            contradicts -> CheckResult(
+                id, title, CheckStatus.FAIL,
+                "The setting reads \"$setting\" but the network shows $network. The key or how Tunnels reads it is wrong, so Private DNS " +
+                    "findings are unreliable. If you changed Private DNS since that scan, scan Deep mode again.",
+                CheckAction.OpenSettings(SETTINGS_NETWORK, "Network settings"),
+            )
+            else -> CheckResult(
+                id, title, CheckStatus.NOTE,
+                "The setting reads \"$setting\" and the network shows $network. That can be normal (Automatic falls back to plain lookups " +
+                    "when a network offers no encrypted DNS), so it neither confirms nor contradicts the key.",
+            )
+        }
+    }
+
     /** One row per special access a tunnel uses. */
     fun specialAccess(tunnelId: String, tunnelTitle: String, accessId: String, label: String, granted: Boolean, restricted: Boolean, installedFromFile: Boolean): CheckResult {
         val id = "access_${tunnelId}_$accessId"
@@ -309,6 +413,11 @@ object DeviceChecks {
             CheckAction.OpenTunnel("traffic", "Open Traffic"),
         ),
     )
+
+    private fun ageText(d: Duration): String {
+        val minutes = d.toMinutes().coerceAtLeast(0)
+        return if (minutes < 120) "$minutes min" else hours(d)
+    }
 
     private fun onOff(b: Boolean) = if (b) "on" else "off"
 

@@ -23,6 +23,8 @@ class DeviceChecksSmokeTest {
         assertEquals(CheckStatus.NOTE, byId.getValue("toggle_network").status)
         assertEquals(CheckStatus.TODO, byId.getValue("verified_boot").status) // nothing scanned in this test app
         assertTrue(byId.containsKey("private_dns") && byId.containsKey("vpn"))
+        assertEquals(CheckStatus.TODO, byId.getValue("posture_readings").status) // Deep mode was never scanned in this test app
+        assertEquals(CheckStatus.NOTE, byId.getValue("private_dns_setting").status)
         assertTrue(groups.any { it.title == "By hand" })
         assertTrue(ChecksSummary.line(groups).isNotBlank())
     }

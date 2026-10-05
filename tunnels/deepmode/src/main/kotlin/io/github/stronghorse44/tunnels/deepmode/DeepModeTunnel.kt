@@ -15,18 +15,26 @@ import io.github.stronghorse44.tunnels.model.PermissionSpec
 import io.github.stronghorse44.tunnels.model.ScanProgress
 import io.github.stronghorse44.tunnels.model.SpecialAccess
 import io.github.stronghorse44.tunnels.model.TunnelModule
+import io.github.stronghorse44.tunnels.posture.PostureKeys
+import io.github.stronghorse44.tunnels.posture.PostureObservations
+import io.github.stronghorse44.tunnels.posture.PostureParser
+import io.github.stronghorse44.tunnels.posture.PostureReader
+import io.github.stronghorse44.tunnels.posture.PostureRules
+import io.github.stronghorse44.tunnels.posture.PostureTable
+import io.github.stronghorse44.tunnels.posture.TableRead
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenActions
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenState
 import io.github.stronghorse44.tunnels.runtime.TunnelUi
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Deep mode: app-ops history and hidden Settings through Shizuku (shell access the user grants in the
- * Shizuku app). Without Shizuku the scan reports only that deep mode is off and why. With it, every
- * command runs in a Shizuku user service; the text comes back here, is parsed into coarse summaries
+ * Deep mode: app-ops history, hidden Settings and the GrapheneOS posture allowlist through Shizuku (shell access
+ * the user grants in the Shizuku app). Without Shizuku the scan reports only that deep mode is off and why. With
+ * it, every command runs in a Shizuku user service; the text comes back here, is parsed into coarse summaries
  * (modes, day-granular ages, counts) and nothing else is kept.
  */
 class DeepModeTunnel(private val context: Context, val shell: ShizukuShell = ShizukuShell(context)) : TunnelModule, TunnelUi {
@@ -62,7 +70,50 @@ class DeepModeTunnel(private val context: Context, val shell: ShizukuShell = Shi
         val imes = inputMethodPackages()
         try {
             shell.withShell { sh ->
-                // 1. App ops, batched so one shell round trip covers several packages.
+                // 1. Hidden settings and posture first, so a long app-ops pass can never starve them of the budget.
+                // Each table's output is read once: the watched-settings parser and the posture parser share it.
+                progress.report(0, 2, "settings")
+                val tables = HashMap<PostureTable, TableRead>()
+                for (table in listOf(PostureTable.GLOBAL, PostureTable.SECURE)) {
+                    if (timeLeft() < MIN_BATCH_MILLIS) {
+                        tables[table] = PostureParser.notRun
+                        continue
+                    }
+                    val text = try {
+                        sh.run("settings list ${table.id}")
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        null
+                    }
+                    tables[table] = PostureParser.table(text, PostureKeys.keys(table))
+                    if (text == null) continue
+                    val values = try {
+                        SettingsParser.parseList(text)
+                    } catch (_: Exception) {
+                        continue
+                    }
+                    for ((key, value) in values.toSortedMap()) add(DeepKeys.SUBJECT_SETTINGS, DeepKeys.settingKey(table.id, key), value)
+                }
+                tables[PostureTable.PROPS] = if (timeLeft() < MIN_BATCH_MILLIS) {
+                    PostureParser.notRun
+                } else {
+                    PostureParser.props(
+                        try {
+                            sh.run(PostureKeys.PROPS_COMMAND)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            null
+                        },
+                    )
+                }
+                val readings = PostureReader.read(
+                    tables.getValue(PostureTable.GLOBAL), tables.getValue(PostureTable.SECURE), tables.getValue(PostureTable.PROPS),
+                )
+                out += PostureObservations.to(id, readings, tables)
+
+                // 2. App ops, batched so one shell round trip covers several packages.
                 val batches = targets.chunked(BATCH_SIZE)
                 var scanned = 0
                 var omitted = 0
@@ -101,7 +152,7 @@ class DeepModeTunnel(private val context: Context, val shell: ShizukuShell = Shi
                 add(DeepKeys.SUBJECT_DEEP, DeepKeys.APPS_SCANNED, scanned.toString())
                 if (omitted > 0) add(DeepKeys.SUBJECT_DEEP, DeepKeys.APPS_OMITTED, omitted.toString())
 
-                // 2. Background use of the sensor ops, from the detailed dump (foreground/background is only there).
+                // 3. Background use of the sensor ops, from the detailed dump (foreground/background is only there).
                 val targetNames = targets.mapTo(HashSet()) { it.packageName }
                 for ((index, op) in DeepKeys.SENSOR_OPS.withIndex()) {
                     progress.report(index, DeepKeys.SENSOR_OPS.size, "background $op")
@@ -114,18 +165,6 @@ class DeepModeTunnel(private val context: Context, val shell: ShizukuShell = Shi
                     for ((pkg, ago) in bg) {
                         if (pkg in targetNames) add(pkg, DeepKeys.bgLastKey(op), DeepKeys.coarseAge(ago))
                     }
-                }
-
-                // 3. Hidden settings worth knowing, allowlisted keys only.
-                progress.report(0, 2, "settings")
-                for (table in listOf(DeepKeys.GLOBAL, DeepKeys.SECURE)) {
-                    if (timeLeft() < MIN_BATCH_MILLIS) break
-                    val values = try {
-                        SettingsParser.parseList(sh.run("settings list $table"))
-                    } catch (_: Exception) {
-                        continue
-                    }
-                    for ((key, value) in values.toSortedMap()) add(DeepKeys.SUBJECT_SETTINGS, DeepKeys.settingKey(table, key), value)
                 }
 
                 // 4. Apps the user has disabled. The shell lists every disabled package (GrapheneOS ships
@@ -190,7 +229,7 @@ class DeepModeTunnel(private val context: Context, val shell: ShizukuShell = Shi
         // Cached: this runs for every finding on each emission of the findings flow, on the main thread.
         val granted = ShizukuStatus.cached(context).granted
         return when (draft.kind) {
-            DeepRules.DEEP_UNAVAILABLE -> {
+            DeepRules.DEEP_UNAVAILABLE, PostureRules.POSTURE_UNREAD -> {
                 val intent = ShizukuStatus.launchIntent(context) ?: return emptyList()
                 listOf(
                     FindingAction.Perform("Open Shizuku") {
@@ -213,6 +252,7 @@ class DeepModeTunnel(private val context: Context, val shell: ShizukuShell = Shi
                 add(FindingAction.OpenSettings(ACTION_NOTIFICATION_SETTINGS, "Notification settings"))
             }
             DeepRules.ACCESSIBILITY_SERVICE_ON -> listOf(FindingAction.OpenSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS, "Accessibility"))
+            in PostureRules.kinds -> PostureRules.actionsFor(draft)
             in DeepRules.appKinds -> appActions(draft, granted)
             else -> emptyList()
         }

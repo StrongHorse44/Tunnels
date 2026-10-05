@@ -1,6 +1,7 @@
 package io.github.stronghorse44.tunnels.deepmode
 
 import android.content.ActivityNotFoundException
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,6 +32,11 @@ import io.github.stronghorse44.tunnels.common.LineColors
 import io.github.stronghorse44.tunnels.common.StatusColors
 import io.github.stronghorse44.tunnels.model.MetroLine
 import io.github.stronghorse44.tunnels.model.Observation
+import io.github.stronghorse44.tunnels.posture.PostureKeys
+import io.github.stronghorse44.tunnels.posture.PostureObservations
+import io.github.stronghorse44.tunnels.posture.PostureState
+import io.github.stronghorse44.tunnels.posture.PostureText
+import io.github.stronghorse44.tunnels.posture.Reading
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenState
 import rikka.shizuku.Shizuku
 
@@ -39,11 +45,14 @@ const val SHIZUKU_REQUEST_CODE = 6001
 
 private const val MAX_RECENT_ROWS = 20
 
-/** Custom content of the deep_mode tunnel: Shizuku status, then which apps touched sensors lately. */
+/** Custom content of the deep_mode tunnel: Shizuku status, the posture card, then which apps touched sensors lately. */
 @Composable
 fun DeepModePanel(state: TunnelScreenState) {
+    val context = LocalContext.current
+    var status by remember { mutableStateOf(ShizukuStatus.cached(context)) }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        ShizukuStatusCard()
+        ShizukuStatusCard(onStatus = { status = it })
+        PostureCard(state.observations, status)
         RecentSensorAccess(state.observations)
     }
 }
@@ -53,13 +62,14 @@ fun DeepModePanel(state: TunnelScreenState) {
  * is not running, ask it for permission when it is. Re-reads status on resume and when the binder arrives.
  */
 @Composable
-fun ShizukuStatusCard(onGranted: (() -> Unit)? = null) {
+fun ShizukuStatusCard(onGranted: (() -> Unit)? = null, onStatus: ((ShizukuStatus) -> Unit)? = null) {
     val context = LocalContext.current
     var status by remember { mutableStateOf(ShizukuStatus.read(context)) }
     var note by remember { mutableStateOf<String?>(null) }
     fun refresh() {
         ShizukuStatus.invalidate()
         status = ShizukuStatus.read(context)
+        onStatus?.invoke(status)
         if (status.granted) onGranted?.invoke()
     }
     LifecycleResumeEffect(Unit) { refresh(); onPauseOrDispose { } }
@@ -146,6 +156,72 @@ private fun StatusRow(label: String, on: Boolean, offText: String = "no") {
             fontSize = 12.sp,
             color = if (on) StatusColors.ok else StatusColors.warn,
         )
+    }
+}
+
+/**
+ * The GrapheneOS posture readings of the last Deep mode scan, one row per item. Unknown is dim, never amber: it is not a
+ * finding. A setting no app can read (the duress PIN; the USB-C port on this build) is a reminder row with a Settings
+ * button, not a finding.
+ */
+@Composable
+private fun PostureCard(observations: List<Observation>, status: ShizukuStatus) {
+    val snapshot = remember(observations) { PostureObservations.from(observations) }
+    val line = LineColors.of(MetroLine.SYSTEM)
+    GlassPanel(Modifier.fillMaxWidth(), tint = line) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Posture", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            when {
+                !status.granted -> Text(PostureText.needsShizuku(status.reason), style = MaterialTheme.typography.bodyMedium, color = GlassColors.dim)
+                !snapshot.isEmpty -> snapshot.readings.forEach { reading ->
+                    val item = reading.item
+                    if (item.reminder != null && !item.confirmed) {
+                        ReminderRow(item.title, item.reminder!!, item.action ?: PostureKeys.ACTION_SECURITY)
+                    } else {
+                        PostureRow(reading)
+                    }
+                }
+                // Shizuku is granted but this snapshot holds no posture (an older scan ran without it): scan again.
+                else -> Text(PostureText.NOT_SCANNED, style = MaterialTheme.typography.bodyMedium, color = GlassColors.dim)
+            }
+            if (status.granted && !snapshot.isEmpty) ReminderRow("Duress PIN", PostureText.DURESS_NOTE, PostureKeys.ACTION_SECURITY)
+        }
+    }
+}
+
+/** A setting nobody can read: what to check by hand, and a button to the Settings screen. Never a finding. */
+@Composable
+private fun ReminderRow(title: String, text: String, action: String) {
+    val context = LocalContext.current
+    var note by remember { mutableStateOf<String?>(null) }
+    Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, style = MaterialTheme.typography.bodyMedium)
+        Text(text, style = MaterialTheme.typography.bodySmall, color = GlassColors.dim)
+        OutlinedButton(onClick = {
+            try {
+                context.startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                note = null
+            } catch (_: ActivityNotFoundException) {
+                note = "No screen on this phone handles that."
+            }
+        }) { Text("Open Security settings") }
+        note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = StatusColors.warn) }
+    }
+}
+
+@Composable
+private fun PostureRow(reading: Reading) {
+    val color = when (reading.state) {
+        PostureState.GOOD -> StatusColors.ok
+        PostureState.WEAK -> StatusColors.warn
+        PostureState.UNKNOWN, PostureState.NA -> GlassColors.dim
+    }
+    Column(Modifier.padding(top = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(reading.item.title, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Text(PostureText.stateWord(reading.state), fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = color)
+        }
+        Text(PostureText.detail(reading), style = MaterialTheme.typography.bodySmall, color = GlassColors.dim)
     }
 }
 

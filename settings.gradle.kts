@@ -43,6 +43,7 @@ include(
     ":core:devicecheck",
     ":core:pairing",
     ":core:backups",
+    ":core:posture",
     ":tunnels:installer",
     ":tunnels:unzip",
     ":tunnels:permissions",

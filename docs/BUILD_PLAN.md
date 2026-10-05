@@ -33,7 +33,7 @@ compile and test locally.
 | 3 | `tunnels:traffic` (INTERNET allowed) | `core:dns` | traffic |
 | 4 | `tunnels:surroundings` | `core:ble` | surroundings |
 | 5 | `tunnels:homenet` (INTERNET allowed) | `core:lan` | home_network |
-| 6 | `tunnels:deepmode` | — | deep_mode |
+| 6 | `tunnels:deepmode` | `core:posture` (B07: the posture allowlist, parser, readings, rules; also read by `core:devicecheck`) | deep_mode |
 | — | `tunnels:updater` (INTERNET allowed: user-started update checks) | `core:updates` | — |
 | — | `tunnels:crossroads` (derived: joins other tunnels, no system reads) | `core:crossrules` | crossroads |
 | — | `tunnels:watch` (findings inbox, background checks, notification) | `core:watchrules` | — |
