@@ -9,8 +9,7 @@
 #             refused unless the run is on the integration branch or main.
 #
 # Signing split (the program's spec 5.1). The four signing secrets are secrets of the `signing` environment
-# (restricted to the integration branch, main and, until the owner removes the policy, v* tags; no reviewers) and
-# are referenced in exactly one job, `sign`. That job checks out nothing and runs no repository or third-party
+# (restricted to the integration branch and main; no reviewers) and are referenced in exactly one job, `sign`. That job checks out nothing and runs no repository or third-party
 # code: only GitHub's own actions, gh, the runner's JDK 17 and its Android SDK tools. No job that runs this
 # repository's code references a secret. The release is built UNSIGNED by `build`, which also runs the release
 # gate (gate/gate.py against gate/baseline.release.json) and a signing rehearsal with a throwaway key.
@@ -268,7 +267,7 @@ jobs:
           echo "::endgroup::"
           gate/annotate-file.sh build/gate/baseline.generated.json baseline-release-generated 0
 
-      # The sign job signs exactly this file. 30 days, so a publish approved late still finds it.
+      # The sign job signs exactly this file. 30 days; only the signed APK (1 day) has to outlive the approval wait.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: unsigned-apk
@@ -313,7 +312,7 @@ jobs:
   # Signs the APK the build job built. The only job that references the signing secrets, so it checks out
   # nothing and runs no repository or third-party code: GitHub's own actions, gh and the runner's JDK 17 and
   # Android SDK tools only. The secrets are secrets of the `signing` environment, which only the integration
-  # branch, main and v* tags can use, whatever this file says. No reviewers on `signing`: the owner's one
+  # branch and main can use, whatever this file says. No reviewers on `signing`: the owner's one
   # approval is the `publish` environment's, at the end.
   sign:
     if: >-
@@ -591,7 +590,10 @@ jobs:
 
   # Publishes the release. Its environment waits for the owner's approval. It holds the only writing token and
   # runs no repository code and no script from the repository: gh and GitHub's own actions only. The concurrency
-  # group lives on this job alone, so builds and signing for later runs are not held while a publish waits.
+  # group is one constant for every ref, so a run from main and a run from the integration branch cannot publish
+  # at the same time (the order re-check below then sees the earlier one's release); it lives on this job alone, so
+  # builds and signing for later runs are not held while a publish waits. GitHub keeps one pending run per group:
+  # a run waiting behind another replaces an older waiting one, so start the replaced one again.
   publish:
     if: >-
       github.event_name == 'workflow_dispatch' && inputs.publish &&
@@ -601,7 +603,7 @@ jobs:
     timeout-minutes: 10
     environment: publish
     concurrency:
-      group: release-publish-${{ github.ref }}
+      group: release-publish
       cancel-in-progress: false
     permissions:
       contents: write # creates the tag and the release and uploads the APK
@@ -646,7 +648,8 @@ jobs:
       # Creates the tag at the built commit and the release with gh only: no third-party action runs next to the
       # writing token, and no repository code. The release is named by its tag, vX.Y.Z, which is what the in-app
       # updater follows. The version-order and existing-release checks are made again here, after the approval
-      # wait, because two runs may have been approved in either order.
+      # wait. The constant concurrency group makes publishes one at a time across refs, so this sees the release
+      # an earlier run just made, whichever branch it came from.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}

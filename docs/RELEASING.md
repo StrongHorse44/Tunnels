@@ -51,13 +51,14 @@ hold the same value). Then:
 ## The two environments
 
 Set up in the repository's **Settings → Environments** (the mobile browser works; the GitHub app has no
-environment settings). Both are limited to **Deployment branches and tags → Selected**:
-branch `ccr-dff99af5-ij1rle` and branch `main`. A run from any other ref cannot read either environment's
-secrets, whatever its workflow file says.
+environment settings). Each is limited to **Deployment branches and tags → Selected**:
+- `signing`: branch `ccr-dff99af5-ij1rle` and branch `main` only. No tag pattern: `release.yml` no longer runs
+  on tags, a tag can point at any commit with any workflow file, and with no reviewer on `signing` a tag policy
+  would let a pushed tag reach the key.
+- `publish`: the same two branches plus tag pattern `v*`, kept by the owner's choice (it has the required
+  reviewer, so a tag run still waits for approval).
 
-**Owner step: remove the `v*` tag policy from the `signing` environment** (and from `publish`, which no longer
-needs it either). `release.yml` no longer runs on tags, and a tag can point at any commit with any workflow
-file: with no reviewer on `signing`, a `v*` policy would let a pushed tag reach the key.
+A run from any other ref cannot read either environment's secrets, whatever its workflow file says.
 
 | Environment | Holds | Reviewers | Used by |
 | --- | --- | --- | --- |
