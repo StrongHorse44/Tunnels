@@ -6,7 +6,7 @@ import io.github.stronghorse44.tunnels.model.Observation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.time.LocalDate
+import java.time.Instant
 
 class DiffGroupsTest {
     private fun obs(tunnel: String, subject: String, key: String, value: String) = Observation(tunnel, subject, key, value)
@@ -70,7 +70,9 @@ class DiffGroupsTest {
     }
 
     @Test
-    fun exportFileNameUsesCompactDate() {
-        assertEquals("tunnels-snapshots-20261001.tsnap", exportFileName(LocalDate.of(2026, 10, 1)))
+    fun exportFileNameUsesTheUtcTime() {
+        assertEquals("tunnels-20261003-120000Z.fwx", exportFileName(Instant.ofEpochMilli(1_791_028_800_000L)))
+        // 23:59:59 UTC is still the same UTC day, whatever the phone's zone.
+        assertEquals("tunnels-20261003-235959Z.fwx", exportFileName(Instant.parse("2026-10-03T23:59:59Z")))
     }
 }

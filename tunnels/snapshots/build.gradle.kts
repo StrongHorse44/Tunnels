@@ -27,6 +27,8 @@ dependencies {
     implementation(project(":core:runtime"))
     implementation(project(":core:store"))
     implementation(project(":core:export"))
+    // An import that carries the background-check settings re-arms (or cancels) the scheduled job (WatchScheduler).
+    implementation(project(":tunnels:watch"))
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.junit)

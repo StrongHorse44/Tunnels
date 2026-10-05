@@ -1,7 +1,6 @@
 package io.github.stronghorse44.tunnels.export
 
 import java.security.GeneralSecurityException
-import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
 import javax.crypto.SecretKeyFactory
@@ -18,7 +17,9 @@ open class WrongPasswordOrCorrupt(message: String = "Wrong password, or the file
 class NotASealedFile : WrongPasswordOrCorrupt("Not a Tunnels snapshot export.")
 
 /**
- * TSNAPE1: password-sealed bytes.
+ * TSNAPE1: the password-sealed format Tunnels wrote before the FWX export container. It is read-only now: exports
+ * are written as FWX (`TunnelsBundle`), and this object stays only so that an old export still imports (export
+ * container spec, section 11). The tests keep their own sealer to produce legacy fixtures.
  *
  * ```
  * "TSNAPE1" (7 bytes ASCII) | salt (16 bytes) | IV (12 bytes) | AES-GCM ciphertext + 16-byte tag
@@ -45,16 +46,6 @@ object EncryptedFile {
     /** True when [bytes] carry the TSNAPE1 magic and are long enough to hold a sealed payload. */
     fun looksSealed(bytes: ByteArray): Boolean =
         bytes.size >= minLength && bytes.copyOfRange(0, magic.size).contentEquals(magic)
-
-    /** Seals [plain] under [password]; an empty password is refused with IllegalArgumentException. */
-    fun seal(plain: ByteArray, password: CharArray, random: SecureRandom = SecureRandom()): ByteArray {
-        require(password.isNotEmpty()) { "The password must not be empty" }
-        val salt = ByteArray(SALT_BYTES).also(random::nextBytes)
-        val iv = ByteArray(IV_BYTES).also(random::nextBytes)
-        val cipher = cipher(Cipher.ENCRYPT_MODE, password, salt, iv)
-        val body = cipher.doFinal(plain)
-        return magic + salt + iv + body
-    }
 
     /**
      * Throws [NotASealedFile] when the magic is missing and [WrongPasswordOrCorrupt] when authentication fails.

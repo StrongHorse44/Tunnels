@@ -56,6 +56,43 @@ abstract class TunnelsDao {
         return id
     }
 
+    /**
+     * An import in one transaction (container spec, section 5.2: stage, verify, then swap): each of [snapshots] whose
+     * moment the store does not already hold is inserted pinned, with its observations, and for every key in
+     * [settingKeys] the setting [resolveSetting] returns for it (given what is stored now) is written; null leaves a
+     * key as it is. If anything throws, nothing is kept. [resolveSetting] runs inside the transaction, so a merge
+     * sees the value it replaces.
+     */
+    @Transaction
+    open suspend fun importAll(
+        snapshots: List<StagedSnapshot>,
+        settingKeys: List<String>,
+        resolveSetting: (key: String, stored: String?) -> String?,
+    ): ImportOutcome {
+        val moments = snapshots().mapTo(HashSet()) { it.takenAt }
+        var inserted = 0
+        var observations = 0
+        var skipped = 0
+        for (s in snapshots) {
+            if (!moments.add(s.takenAt)) {
+                skipped++
+                continue
+            }
+            val id = insertSnapshot(SnapshotEntity(takenAt = s.takenAt, pinned = true))
+            val rows = s.observations.map { ObservationEntity(id, it.tunnelId, it.subject, it.key, it.value) }
+            if (rows.isNotEmpty()) insertObservations(rows)
+            inserted++
+            observations += rows.size
+        }
+        var written = 0
+        for (key in settingKeys) {
+            val value = resolveSetting(key, setting(key)) ?: continue
+            putSetting(SettingEntity(key, value))
+            written++
+        }
+        return ImportOutcome(inserted, observations, skipped, written)
+    }
+
     @Query("UPDATE snapshots SET pinned = :pinned WHERE id = :id")
     abstract suspend fun setPinned(id: Long, pinned: Boolean)
 
@@ -129,3 +166,11 @@ abstract class TunnelsDao {
     @Query("DELETE FROM settings WHERE `key` = :key")
     abstract suspend fun deleteSetting(key: String)
 }
+
+/** A snapshot an import adds: when it was taken and what it saw. Row ids are the store's to assign. */
+class StagedSnapshot(val takenAt: Long, val observations: List<StagedObservation>)
+
+class StagedObservation(val tunnelId: String, val subject: String, val key: String, val value: String)
+
+/** What [TunnelsDao.importAll] did. */
+data class ImportOutcome(val snapshots: Int, val observations: Int, val skipped: Int, val settingsWritten: Int)

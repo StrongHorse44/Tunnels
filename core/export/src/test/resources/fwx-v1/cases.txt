@@ -1,0 +1,73 @@
+# FWX v1 failure cases (spec section 9.4). Both test suites (Kotlin and tools/test_fwx.py) run every row.
+# Tab-separated: id, base file (<base>.fwx in this directory; C15 is over 1 MiB, so tests build it and check C15.json),
+# ops, passphrase, app, schema range, maxStreamBytes, code (OK: the file must open), and the number of entries
+# next() returns before the failure ('-': not checked). The failing entry itself is never returned.
+# C11b (data_len = 2^64-1) is an extra case beside the spec's C11; C15 has 4113 names of 255 bytes (over 1 MiB).
+# ops, applied in order (offsets into the bytes as they are at that step):
+#   flip:OFF:BIT  xor bit BIT of byte OFF        set:OFF:HEX  overwrite bytes at OFF
+#   cut:OFF:LEN   delete LEN bytes at OFF         trunc:LEN    keep the first LEN bytes
+#   append:HEX    add bytes at the end            dup:SRC:LEN:DEST  insert a copy of [SRC, SRC+LEN) at DEST
+# passphrase: '-' is the common one; utf8:HEX is UTF-8 bytes; utf16:HEX is UTF-16BE code units (lone surrogates).
+# app '-' opens with no expected app (as fwx.py does); schema 'A-B' is the importer's supported range.
+T1	V1	flip:0:0	-	-	-	-	NOT_AN_EXPORT	-
+T2	V1	set:8:0002	-	-	-	-	UNSUPPORTED_VERSION	-
+T3	V1	set:10:0054	-	-	-	-	MALFORMED_HEADER	-
+T4	V1	flip:19:0	-	tunnels	-	-	WRONG_APP	-
+T5	V1	flip:19:0	-	-	-	-	WRONG_PASSPHRASE	-
+T6	V1	flip:31:0	-	-	-	-	WRONG_PASSPHRASE	-
+T7	V1	set:51:000927bf	-	-	-	-	KDF_PARAMS	-
+T8	V1	set:51:000927c1	-	-	-	-	WRONG_PASSPHRASE	-
+T9	V1	set:51:00989681	-	-	-	-	KDF_PARAMS	-
+T10	V1	set:55:00,cut:56:16,set:10:0043	-	-	-	-	KDF_PARAMS	-
+T11a	V1	flip:60:0	-	-	-	-	WRONG_PASSPHRASE	-
+T11b	V1	flip:75:0	-	-	-	-	WRONG_PASSPHRASE	-
+T11c	V1	set:79:00002000	-	-	-	-	WRONG_PASSPHRASE	-
+T12	V1	set:79:00000bb8	-	-	-	-	MALFORMED_HEADER	-
+T13	V1	flip:90:0	-	-	-	-	WRONG_PASSPHRASE	-
+T14	V1	-	utf8:636f727265637420686f727365206261747465727920737461706c	-	-	-	WRONG_PASSPHRASE	-
+T15a	V1	flip:200:0	-	-	-	-	DAMAGED	-
+T15b	V1	flip:5000:0	-	-	-	-	DAMAGED	-
+T15c	V1	flip:9000:0	-	-	-	-	DAMAGED	-
+T16a	V1	flip:4220:0	-	-	-	-	DAMAGED	-
+T16b	V1	flip:10260:0	-	-	-	-	DAMAGED	-
+T17a	V1	trunc:4227	-	-	-	-	DAMAGED	-
+T17b	V1	trunc:8339	-	-	-	-	DAMAGED	-
+T18a	V1	trunc:10266	-	-	-	-	DAMAGED	-
+T18b	V1	trunc:115	-	-	-	-	DAMAGED	-
+T18c	V1	trunc:100	-	-	-	-	DAMAGED	-
+T18d	V1	trunc:7	-	-	-	-	NOT_AN_EXPORT	-
+T18e	V1	trunc:0	-	-	-	-	NOT_AN_EXPORT	-
+T19	V1	dup:4227:4112:115,cut:8339:4112	-	-	-	-	DAMAGED	-
+T20	V1	dup:4227:4112:8339	-	-	-	-	DAMAGED	-
+T21a	V1	append:00	-	-	-	-	DAMAGED	-
+T21b	V1	append:00000000000000000000000000000000	-	-	-	-	DAMAGED	-
+T21c	V1	dup:8339:1928:10267	-	-	-	-	DAMAGED	-
+T22	V3	append:00000000000000000000000000000000	-	-	-	-	DAMAGED	-
+T23	V1	-	-	lumen	-	-	WRONG_APP	-
+T24a	V1	-	-	tunnels	2-3	-	SCHEMA_TOO_OLD	-
+T24b	V7	-	-	lumen	1-6	-	SCHEMA_TOO_NEW	-
+T25	V1	-	utf16:006100620063d800006400650066006700680069006a006b006c006d006e	-	-	-	BAD_PASSPHRASE	-
+C1	C1	-	-	-	-	-	DAMAGED	-
+C2	C2	-	-	-	-	-	DAMAGED	-
+C3	C3	-	-	-	-	-	MALFORMED_PAYLOAD	1
+C4	C4	-	-	-	-	-	MALFORMED_PAYLOAD	1
+C5a	C5a	-	-	-	-	-	MALFORMED_PAYLOAD	-
+C5b	C5b	-	-	-	-	-	MALFORMED_PAYLOAD	-
+C5c	C5c	-	-	-	-	-	MALFORMED_PAYLOAD	-
+C5d	C5d	-	-	-	-	-	MALFORMED_PAYLOAD	-
+C5e	C5e	-	-	-	-	-	MALFORMED_PAYLOAD	-
+C5f	C5f	-	-	-	-	-	MALFORMED_PAYLOAD	-
+C5g	C5g	-	-	-	-	-	MALFORMED_PAYLOAD	-
+C6	C6	-	-	-	-	-	MALFORMED_PAYLOAD	1
+C7	C7	-	-	-	-	-	MALFORMED_PAYLOAD	-
+C8	C8	-	-	-	-	-	MALFORMED_PAYLOAD	-
+C9	C9	-	-	-	-	-	MALFORMED_PAYLOAD	-
+C10	C10	-	-	-	-	-	MALFORMED_PAYLOAD	-
+C11	C11	-	-	-	-	-	TOO_LARGE	0
+C11b	C11b	-	-	-	-	-	TOO_LARGE	0
+C12	V1	-	-	-	-	10000	TOO_LARGE	2
+C13a	C13a	-	-	-	-	-	MALFORMED_PAYLOAD	1
+C13b	C13b	-	-	-	-	-	MALFORMED_PAYLOAD	1
+C13c	C13c	-	-	-	-	-	MALFORMED_PAYLOAD	1
+C14	C14	-	-	-	-	-	OK	2
+C15	C15	-	-	-	-	-	MALFORMED_PAYLOAD	4112

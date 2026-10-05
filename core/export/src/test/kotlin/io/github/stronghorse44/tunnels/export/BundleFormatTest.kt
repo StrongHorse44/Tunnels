@@ -120,4 +120,39 @@ class BundleFormatTest {
         } catch (_: BundleFormatException) {
         }
     }
+
+    @Test
+    fun writeToAppendableMatchesWrite() {
+        val sb = StringBuilder()
+        BundleFormat.writeTo(sample, sb)
+        assertEquals(BundleFormat.write(sample), sb.toString())
+    }
+
+    @Test
+    fun parseStopsAtTheCaps() {
+        val limits = ParseLimits(maxSnapshots = 2, maxObservations = 2, maxLineChars = 40)
+        // Within the caps.
+        assertEquals(2, BundleFormat.parse("TSNAP1\nsnapshot\t1\t1\t0\tx\nsnapshot\t2\t2\t0\tx\n".reader(), limits).snapshots.size)
+        // A third snapshot.
+        assertFails("TSNAP1\nsnapshot\t1\t1\t0\tx\nsnapshot\t2\t2\t0\tx\nsnapshot\t3\t3\t0\tx\n", limits)
+        // A third observation.
+        assertFails("TSNAP1\nsnapshot\t1\t1\t0\tx\nobs\t1\tx\ts\tk\t1\nobs\t1\tx\ts\tk2\t1\nobs\t1\tx\ts\tk3\t1\n", limits)
+        // A line longer than the cap, with no line break to stop it.
+        assertFails("TSNAP1\nsnapshot\t1\t1\t0\t" + "x".repeat(100), limits)
+        assertFails("TSNAP1\n" + "#".repeat(41), limits)
+    }
+
+    @Test
+    fun theImportLimitsAreGenerousButFinite() {
+        assertTrue(ParseLimits.IMPORT.maxObservations in 100_000..1_000_000)
+        assertTrue(ParseLimits.IMPORT.maxSnapshots in 100..10_000)
+    }
+
+    private fun assertFails(text: String, limits: ParseLimits) {
+        try {
+            BundleFormat.parse(text.reader(), limits)
+            fail("accepted")
+        } catch (_: BundleFormatException) {
+        }
+    }
 }

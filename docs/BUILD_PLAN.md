@@ -27,7 +27,7 @@ compile and test locally.
 | 1 | `tunnels:syspackages` | `core:syspkg` (package knowledge base) | system_packages |
 | 1 | `tunnels:silicon` | `core:attestation` | silicon |
 | 1, 4 | `tunnels:explore` | — | sensors, cameras (1); satellites, radio (4) |
-| 1 | `tunnels:snapshots` (snapshot list, pin, diff viewer, export/import, app lock) | `core:export` (file format, crypto) | — |
+| 1 | `tunnels:snapshots` (snapshot list, pin, diff viewer, export/import, app lock) | `core:export` (FWX v1 codec copy, the Tunnels bundle `docs/EXPORT.md`, the old `TSNAPE1` reader) | — |
 | 2 | `tunnels:timeline` | — | timeline |
 | 2 | `tunnels:notifications` | `core:notifrules` | notifications |
 | 3 | `tunnels:traffic` (INTERNET allowed) | `core:dns` | traffic |

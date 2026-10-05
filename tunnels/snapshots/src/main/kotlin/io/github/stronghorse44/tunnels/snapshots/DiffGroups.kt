@@ -1,7 +1,8 @@
 package io.github.stronghorse44.tunnels.snapshots
 
 import io.github.stronghorse44.tunnels.model.DiffEntry
-import java.time.LocalDate
+import java.time.Instant
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 /** How many observations appeared, disappeared or changed value. */
@@ -55,6 +56,6 @@ object DiffGroups {
     }
 }
 
-/** `tunnels-snapshots-YYYYMMDD.tsnap` */
-fun exportFileName(date: LocalDate = LocalDate.now()): String =
-    "tunnels-snapshots-${date.format(DateTimeFormatter.BASIC_ISO_DATE)}.tsnap"
+/** `tunnels-YYYYMMDD-HHMMSSZ.fwx`, the time in UTC (container spec, section 5.3). The name says nothing about what is inside. */
+fun exportFileName(at: Instant = Instant.now()): String =
+    "tunnels-${DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss'Z'").withZone(ZoneOffset.UTC).format(at)}.fwx"

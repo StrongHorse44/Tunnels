@@ -42,7 +42,12 @@ Sensors toggles, verified boot, the store key, package visibility, background-ch
 for Traffic, every special access), with the checks only a person with a tracker tag can make.
 
 Plus a **Snapshots** screen: on-demand full snapshot of every tunnel, history with pinning, a diff viewer
-between any two snapshots, encrypted export/import (PBKDF2 + AES-GCM), and the optional app lock.
+between any two snapshots, passphrase-encrypted export/import, and the optional app lock. An export is one `.fwx`
+file (the program's FWX v1 container: PBKDF2-HMAC-SHA256, AES-256-GCM) that holds the snapshots, the settings you
+chose (Traffic blocking and resolver, background checks), the second phones you paired and the Wi-Fi networks you
+confirmed; it is written and read back through the system file picker with no permission, and an import verifies the
+whole file before it changes anything. What is in it, what an import does and how to check one on the phone:
+[docs/EXPORT.md](docs/EXPORT.md). An export from an earlier version (`.tsnap`) still imports.
 
 And **in-app updates** (home screen → update ›): when you tap Check, Tunnels asks this repository's GitHub
 releases for a newer build of its channel (debug builds follow "Debug build #N", release builds the vX.Y.Z

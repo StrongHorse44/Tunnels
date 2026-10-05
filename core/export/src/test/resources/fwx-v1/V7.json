@@ -1,0 +1,42 @@
+{
+  "id": "V7",
+  "description": "app lumen, schema 7, 600001 iterations, 32-byte salt",
+  "inputs": {
+    "passphrase_code_points": ["U+0063", "U+006F", "U+0072", "U+0072", "U+0065", "U+0063", "U+0074", "U+0020", "U+0068", "U+006F", "U+0072", "U+0073", "U+0065", "U+0020", "U+0062", "U+0061", "U+0074", "U+0074", "U+0065", "U+0072", "U+0079", "U+0020", "U+0073", "U+0074", "U+0061", "U+0070", "U+006C", "U+0065"],
+    "passphrase_utf8_hex": "636f727265637420686f727365206261747465727920737461706c65",
+    "app_id": "lumen",
+    "schema_version": 7,
+    "created_ms": 1791028800000,
+    "kdf_iterations": 600001,
+    "salt_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "nonce_prefix_hex": "a0a1a2a3a4a5a6",
+    "chunk_size": 4096,
+    "entries": [
+      {"name": "manifest.json", "length": 28, "data": {"hex": "7b22617070223a2274756e6e656c73222c22736368656d61223a317d"}, "sha256": "4311c925aee99d357097ffd2fc5d341bd029fefb1ebffa230a2d37f921fccccd"},
+      {"name": "empty.bin", "length": 0, "data": {"hex": ""}, "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+      {"name": "data/pattern.bin", "length": 10000, "data": {"pattern": 10000}, "sha256": "0cd0bf930677960951dda8588edcb6b293c0c3b26ef3ba72cddff4ddfc6822c7"}
+    ]
+  },
+  "outputs": {
+    "P_hex": "636f727265637420686f727365206261747465727920737461706c65",
+    "ikm_hex": "16c5793b114d24d813d7e396dd2bda8d99533fa2f0daf8ee4fe5b410f46b1003",
+    "prk_hex": "776d0357a79484b04803906104c253277cb4ffe9f7cf21652ca79aafa412c3cc",
+    "k_hdr_hex": "da71c9fa2a3fd28ba1f2d89506ebcc5ba5880a4ed469b4cf43e13b3a60a9fde2",
+    "k_enc_hex": "020f32a120fa8fc10d8c835a797f9bbf3fec70c135d7da21d44502de6a1f6ecb",
+    "header_length": 97,
+    "header_hex": "894657580d0a1a0a00010061056c756d656e00000007000001a101a2aa001270626b6466322d686d61632d736861323536000927c120000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1fa0a1a2a3a4a5a600001000",
+    "header_mac_hex": "33c5ac0e518bdfb6d33b210cfe959a74f9de64e987cbd539b0bf97e9657cfce8",
+    "plaintext_stream_length": 10104,
+    "plaintext_stream_sha256": "c08422f487735588caeb7f9ef5b536f257a72f70a8c83da197ea68193290e2d4",
+    "chunk_count": 3,
+    "chunks": [
+      {"index": 0, "offset": 129, "plaintext_length": 4096, "nonce_hex": "a0a1a2a3a4a5a60000000000", "sealed_sha256": "348f1c22fff6ec74bb9b652a19494e26e9008976c4ad71888a2dfb12c80e6e54"},
+      {"index": 1, "offset": 4241, "plaintext_length": 4096, "nonce_hex": "a0a1a2a3a4a5a60000000100", "sealed_sha256": "4b4eb53905d4230c73064032634aa81745438ca8d79661f68651970af3356549"},
+      {"index": 2, "offset": 8353, "plaintext_length": 1912, "nonce_hex": "a0a1a2a3a4a5a60000000201", "sealed_sha256": "09c68bd2f1b241336e6dfdc905f1cfaef2e20bdceff1ee7fb40c302fc1b69305"}
+    ],
+    "file_length": 10281,
+    "file_sha256": "d4a5f0700e2fef7de3d23f5f5c4dc33b010484f92c42bde21bdfc2acbacf784f",
+    "file": "V7.fwx",
+    "list_output": "FWX v1 bundle, header verified\napp_id          lumen (Lumen)\nschema_version  7\ncreated         2026-10-03T12:00:00.000Z (created_ms 1791028800000)\nkdf             pbkdf2-hmac-sha256, 600001 iterations, 32-byte salt\nchunk_size      4096\n0\t28\t4311c925aee99d357097ffd2fc5d341bd029fefb1ebffa230a2d37f921fccccd\tmanifest.json\n1\t0\te3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\tempty.bin\n2\t10000\t0cd0bf930677960951dda8588edcb6b293c0c3b26ef3ba72cddff4ddfc6822c7\tdata/pattern.bin\nOK 3 entries, 10104 plaintext bytes\n"
+  }
+}
