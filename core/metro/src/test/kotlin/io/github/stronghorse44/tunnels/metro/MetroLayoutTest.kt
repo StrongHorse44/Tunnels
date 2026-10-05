@@ -14,7 +14,8 @@ class MetroLayoutTest {
         val ids = MetroLayout.stations.map { it.second.tunnelId }
         assertEquals("no station twice", ids.size, ids.toSet().size)
         // Crossroads joins the other tunnels: on the map it is Central itself, where the lines meet, not a station.
-        assertEquals(TunnelCatalog.all.map { it.id }.toSet() - TunnelCatalog.CROSSROADS, ids.toSet())
+        // Backups is only on the well home: this older map has no free spot on the Files line for another label.
+        assertEquals(TunnelCatalog.all.map { it.id }.toSet() - TunnelCatalog.CROSSROADS - TunnelCatalog.BACKUPS, ids.toSet())
         MetroLayout.stations.forEach { (line, s) ->
             assertEquals("${s.tunnelId} sits on its catalog line", TunnelCatalog.byId(s.tunnelId)!!.line, line.line)
         }

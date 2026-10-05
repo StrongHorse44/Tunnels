@@ -17,6 +17,7 @@ on:
       - 'tunnels/silicon/**'
       - 'tunnels/explore/**'
       - 'tunnels/snapshots/**'
+      - 'tunnels/backups/**'
       - 'core/permrules/**'
       - 'core/trackers/**'
       - 'core/elf/**'
@@ -24,6 +25,7 @@ on:
       - 'core/syspkg/**'
       - 'core/attestation/**'
       - 'core/export/**'
+      - 'core/backups/**'
       - '.github/workflows/ci-phase-1.yml'
   pull_request:
     paths:
@@ -36,6 +38,7 @@ on:
       - 'tunnels/silicon/**'
       - 'tunnels/explore/**'
       - 'tunnels/snapshots/**'
+      - 'tunnels/backups/**'
       - 'core/permrules/**'
       - 'core/trackers/**'
       - 'core/elf/**'
@@ -43,6 +46,7 @@ on:
       - 'core/syspkg/**'
       - 'core/attestation/**'
       - 'core/export/**'
+      - 'core/backups/**'
       - '.github/workflows/ci-phase-1.yml'
   workflow_dispatch:
 
@@ -76,7 +80,7 @@ jobs:
       - name: Unit tests and permission checks
         env:
           VERIFY: ${{ steps.verify.outputs.flag }}
-        run: ./gradlew --no-daemon $VERIFY :tunnels:permissions:testDebugUnitTest :tunnels:permissions:verifyPermissions :tunnels:apk:testDebugUnitTest :tunnels:apk:verifyPermissions :tunnels:hardening:testDebugUnitTest :tunnels:hardening:verifyPermissions :tunnels:doors:testDebugUnitTest :tunnels:doors:verifyPermissions :tunnels:truststore:testDebugUnitTest :tunnels:truststore:verifyPermissions :tunnels:syspackages:testDebugUnitTest :tunnels:syspackages:verifyPermissions :tunnels:silicon:testDebugUnitTest :tunnels:silicon:verifyPermissions :tunnels:explore:testDebugUnitTest :tunnels:explore:verifyPermissions :tunnels:snapshots:testDebugUnitTest :tunnels:snapshots:verifyPermissions :core:permrules:test :core:trackers:test :core:elf:test :core:certs:test :core:syspkg:test :core:attestation:test :core:export:test
+        run: ./gradlew --no-daemon $VERIFY :tunnels:permissions:testDebugUnitTest :tunnels:permissions:verifyPermissions :tunnels:apk:testDebugUnitTest :tunnels:apk:verifyPermissions :tunnels:hardening:testDebugUnitTest :tunnels:hardening:verifyPermissions :tunnels:doors:testDebugUnitTest :tunnels:doors:verifyPermissions :tunnels:truststore:testDebugUnitTest :tunnels:truststore:verifyPermissions :tunnels:syspackages:testDebugUnitTest :tunnels:syspackages:verifyPermissions :tunnels:silicon:testDebugUnitTest :tunnels:silicon:verifyPermissions :tunnels:explore:testDebugUnitTest :tunnels:explore:verifyPermissions :tunnels:snapshots:testDebugUnitTest :tunnels:snapshots:verifyPermissions :tunnels:backups:testDebugUnitTest :tunnels:backups:verifyPermissions :core:permrules:test :core:trackers:test :core:elf:test :core:certs:test :core:syspkg:test :core:attestation:test :core:export:test :core:backups:test
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
@@ -155,7 +159,7 @@ jobs:
           disk-size: 4096M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: ./gradlew --no-daemon $VERIFY :tunnels:permissions:connectedDebugAndroidTest :tunnels:apk:connectedDebugAndroidTest :tunnels:hardening:connectedDebugAndroidTest :tunnels:doors:connectedDebugAndroidTest :tunnels:truststore:connectedDebugAndroidTest :tunnels:syspackages:connectedDebugAndroidTest :tunnels:silicon:connectedDebugAndroidTest :tunnels:explore:connectedDebugAndroidTest :tunnels:snapshots:connectedDebugAndroidTest
+          script: ./gradlew --no-daemon $VERIFY :tunnels:permissions:connectedDebugAndroidTest :tunnels:apk:connectedDebugAndroidTest :tunnels:hardening:connectedDebugAndroidTest :tunnels:doors:connectedDebugAndroidTest :tunnels:truststore:connectedDebugAndroidTest :tunnels:syspackages:connectedDebugAndroidTest :tunnels:silicon:connectedDebugAndroidTest :tunnels:explore:connectedDebugAndroidTest :tunnels:snapshots:connectedDebugAndroidTest :tunnels:backups:connectedDebugAndroidTest
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:

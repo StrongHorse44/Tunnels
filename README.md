@@ -14,6 +14,7 @@ network and the updater), used only during sessions you start. The built APK is 
 | --- | --- | --- |
 | Files | Installer | Inspect an APK or bundle before installing: signer vs installed copy, ABI, SDK levels, real failure reasons |
 | Files | Unzip | zip (incl. password), 7z, tar, tar.gz/xz/bz2, gz, xz, bz2; zip-slip and archive-bomb guards |
+| Files | Backups | Watches the folder you keep your exports in: reads only each bundle's plaintext header (never a passphrase) to find when each app's newest export was made, flags one that is older than your limit or gone, with "Open <app>"; reminds you to do a restore drill every 90 days. See [docs/BACKUPS.md](docs/BACKUPS.md) |
 | Inspect | Permissions | Declared vs granted per app, GrapheneOS Network/Sensors toggles, risky combinations, changes since last scan |
 | Inspect | APK excavation | 167-SDK curated tracker catalog matched in each app's dex, signing certs with lineage, installer, native ABIs |
 | Inspect | Doors | Exported components, unprotected exports, link and share handlers |
@@ -32,7 +33,7 @@ network and the updater), used only during sessions you start. The built APK is 
 
 **Findings** (home → findings ›): every open finding from every tunnel in one list, most severe first, each with
 its actions, new ones marked since your last visit. It also holds the opt-in **background checks**: a scheduled,
-offline re-check of Permissions, Trust store, System packages and Silicon (plus APK excavation, Doors and Hardening
+offline re-check of Permissions, Trust store, System packages, Silicon and Backups (plus APK excavation, Doors and Hardening
 when apps changed, after a restart, or once a day) that stores a snapshot only when something changed and can notify
 you about new findings. The notification names tunnels and kinds, never apps; the lock screen shows only "New
 findings to review".

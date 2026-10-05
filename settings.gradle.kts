@@ -42,6 +42,7 @@ include(
     ":core:watchrules",
     ":core:devicecheck",
     ":core:pairing",
+    ":core:backups",
     ":tunnels:installer",
     ":tunnels:unzip",
     ":tunnels:permissions",
@@ -64,4 +65,5 @@ include(
     ":tunnels:watch",
     ":tunnels:devicecheck",
     ":tunnels:pairing",
+    ":tunnels:backups",
 )
