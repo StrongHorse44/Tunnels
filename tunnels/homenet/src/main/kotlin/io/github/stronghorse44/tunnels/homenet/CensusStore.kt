@@ -61,7 +61,7 @@ class CensusStore(context: Context) {
 
     /**
      * The list for a scan of the network [tag]: pins first (a failure there never touches the list, and is retried at the
-     * next scan), then the baseline and the events folded by [DeviceCensus.compute]. Throws when the store cannot be read.
+     * next scan), then the baseline and the events folded by [DeviceCensus.compute]. Throws when the store cannot be read; the scan then records `census:state` as `unavailable`, never an empty list.
      */
     fun census(tag: String): DeviceCensus.Census = runBlocking {
         try {
