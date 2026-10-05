@@ -83,7 +83,7 @@ Google's Maven is not reachable from the cloud dev container: Android modules on
 - Work on your assigned branch (`phase/<n>-<name>`); push; read the `compile-check` run for
   that branch via the GitHub tools; fix; repeat until green. Never push to another branch.
   Put `[emulator]` in the message of your final commit so the phase emulator job runs once
-  for your branch (Actions minutes are limited; do not tag every push).
+  for your branch (the repo is public and unmetered, but emulator runs are slow; do not tag every push).
 - Touch only the modules you own plus their `permissions.allow`. Shared files
   (`settings.gradle.kts`, `app/`, `core/common`, `core/runtime`, `core/model`, the catalog,
   CI) are owned by the lead; ask instead of editing them.
@@ -95,8 +95,9 @@ Google's Maven is not reachable from the cloud dev container: Android modules on
 - Every change goes up as a pull request from its own branch. Never push to the integration branch or
   `main` directly. Only a push to the integration branch publishes a "Debug build #N" prerelease, and
   only after the release gate, the emulator smoke job and the certificate check pass; the `publish`
-  environment then waits for the owner's approval. Manual `ci.yml` runs build and test only and never
-  publish. Builder and reviewer agents never merge. The overseer may merge a PR only when review passed,
+  environment then waits for the owner's approval (the certificate check pins the public debug key until
+  B02). Manual `ci.yml` runs build and test only and never publish; agents still don't start them by
+  hand, the program overseer may on a reviewed branch. Builder and reviewer agents never merge. The overseer may merge a PR only when review passed,
   CI is green and the PR has no gate change (no new or changed permission, network host, runtime
   dependency, native library, build type, signing config or release workflow); a PR with a gate change
   waits for the owner to merge. Never publish from `main`.
