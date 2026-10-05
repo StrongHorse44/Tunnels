@@ -510,7 +510,7 @@
     },
     {
       "value": "[Landroid/net/Network;",
-      "note": "return type of ConnectivityManager.getAllNetworks, called by tunnels/homenet NetworkGate, tunnels/devicecheck Probes and tunnels/traffic VpnStatus for read-only state queries (find the Wi-Fi network, find a VPN already up); no sockets, no egress"
+      "note": "return type of ConnectivityManager.getAllNetworks. Callers: homenet NetworkGate: finds the Wi-Fi network under a VPN, which the user-started LAN scan binds its sockets to (own-network gate); traffic VpnStatus: finds the underlying network whose resolvers a user-started session forwards to; devicecheck Probes (DeviceCheckRunner): read-only capability and link-property reads"
     },
     {
       "value": "[Ljava/net/URL;",
@@ -673,7 +673,7 @@
     },
     {
       "value": ".example.com",
-      "note": "core/lan DnsProbe.probeName: the random label plus \".example.com\" for the Home network DNS-hijack check, asked of the router only during a user-started scan; the IANA-reserved name, same as the example.com entry"
+      "note": "core/lan DnsProbe.probeName: the random label plus \".example.com\" for the Home network DNS-hijack check. The query goes to the resolver the phone was configured with (LanScanner.pickResolver), usually but not necessarily the router, and only when LanScope.accepts puts it inside the confirmed LAN prefix, during a user-started scan; the IANA-reserved name, same as the example.com entry"
     },
     {
       "value": ".githubusercontent.com",

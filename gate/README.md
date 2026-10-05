@@ -97,8 +97,11 @@ regenerated baselines: CI is red until they match.
 - `provider_resources`: for every provider `<meta-data android:resource>` (FileProvider's paths file)
   `{provider, meta, sha256, elements}`, so a widened sharing boundary is a baseline change. Tunnels has none.
   The canonical form of the compiled XML is frozen: one JSON array per element or text node
-  (`[DEPTH,"tag",[["key","value"],...]]`, attributes sorted by key; a key is `android:NAME` for a resource ID the
-  gate knows, whatever its namespace, else the plain name or `{namespace URI}NAME`; a value is the raw string,
+  (`[DEPTH,"tag",[["key","value"],...]]`, attributes sorted by key; a key is `android:NAME` for an attribute whose
+  resource ID the gate knows, whatever its namespace (a name that disagrees with its known ID is exit 2), and
+  also for an attribute in the Android namespace with no known ID (exit 2 if its name is a known one with a
+  missing or different ID); any other attribute is its plain `NAME` without a namespace and `{namespace URI}NAME`
+  in any other namespace; a value is the raw string,
   else `true`/`false`, an unsigned integer, `null` for a reference, or `(type 0xTT)0xDDDDDDDD`). An element with
   two attributes that read as one key, a string attribute with no raw copy or with differing copies, and a
   reference that also carries a raw string are exit 2. `sha256` is the digest of the lines joined by newlines;
