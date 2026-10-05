@@ -22,7 +22,7 @@ network and the updater), used only during sessions you start. The built APK is 
 | System | System packages | Knowledge base of AOSP/GrapheneOS packages, unknown packages, enabled-state changes, OTA detection |
 | System | Trust store | System vs user CAs, baseline on first scan, user-CA and distrusted-root findings |
 | System | Silicon | Hardware key attestation (StrongBox first): verified boot state and key, patch levels, chain check |
-| System | Deep mode | Via Shizuku: app-ops history (camera, mic, location, clipboard), hidden settings, direct revoke/disable |
+| System | Deep mode | Via Shizuku: app-ops history (camera, mic, location, clipboard), hidden settings, direct revoke/disable. GrapheneOS posture: auto reboot, USB-C, VPN lockdown, Private DNS, PIN scrambling, auto-off, clipboard, Sensors default |
 | Activity | Timeline | Usage and data per app over 30 days (Usage access), unused apps, background data |
 | Activity | Notifications | Counts and flags per app from a notification listener (never contents), noise and lock-screen exposure |
 | Network | Traffic | DNS-only VPN sessions you start: registrable domains per app, tracker domains, optional blocking of tracker lookups (answered "no such domain" on the phone); refuses while another VPN is up |

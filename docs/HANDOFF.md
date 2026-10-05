@@ -140,7 +140,7 @@ GitHub Actions builds a signed release APK on tag.
 - **Phase 3:** Traffic (VpnService, getConnectionOwnerUid, adds INTERNET). DNS logging per app first, then per-connection. Sessions only.
 - **Phase 4:** Surroundings. BLE tracker detection, Wi-Fi security and evil twins, cell tower changes. BLUETOOTH_SCAN, NEARBY_WIFI_DEVICES, ACCESS_FINE_LOCATION; background location as separate opt-in. Satellites (Explore) rides along.
 - **Phase 5:** Home network. Own-network gate, then LAN discovery (NsdManager, SSDP with MulticastLock), then TCP connect port scan, then router checks (UPnP, DNS rewriting).
-- **Phase 6:** Deep mode via Shizuku. Sensor/mic/camera/clipboard access history (appops), hidden Settings keys (apps targeting API 31+ can't read them otherwise).
+- **Phase 6:** Deep mode via Shizuku. Sensor/mic/camera/clipboard access history (appops), hidden Settings keys (apps targeting API 31+ can't read them otherwise), plus the GrapheneOS posture of those keys (B07, `core:posture`): a fixed allowlist read from the same shell, each item good, weak, unknown or n/a, with a Settings deep link for each weak one.
 - **Explore:** Satellites (GnssStatus, GNSS measurements), Sensors (SensorManager), Cameras (CameraCharacteristics). No actions, curiosity only.
 - **Backlog:** NFC (display only, never stored), ultrasonic beacon listener, SDR (receive-only, public broadcasts), OBD-II, packet path, leak test, breach footprint.
 
