@@ -167,11 +167,6 @@ private fun StatusRow(label: String, on: Boolean, offText: String = "no") {
 @Composable
 private fun PostureCard(observations: List<Observation>, status: ShizukuStatus) {
     val snapshot = remember(observations) { PostureObservations.from(observations) }
-    // Why the last scan could not run, when it could not: Shizuku was off, or its shell did not start.
-    val scanReason = remember(observations) {
-        val off = observations.any { it.subject == DeepKeys.SUBJECT_DEEP && it.key == DeepKeys.AVAILABLE && it.value == "false" }
-        if (off) observations.firstOrNull { it.subject == DeepKeys.SUBJECT_DEEP && it.key == DeepKeys.REASON }?.value else null
-    }
     val line = LineColors.of(MetroLine.SYSTEM)
     GlassPanel(Modifier.fillMaxWidth(), tint = line) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -186,7 +181,7 @@ private fun PostureCard(observations: List<Observation>, status: ShizukuStatus) 
                         PostureRow(reading)
                     }
                 }
-                scanReason != null -> Text(PostureText.needsShizuku(scanReason), style = MaterialTheme.typography.bodyMedium, color = GlassColors.dim)
+                // Shizuku is granted but this snapshot holds no posture (an older scan ran without it): scan again.
                 else -> Text(PostureText.NOT_SCANNED, style = MaterialTheme.typography.bodyMedium, color = GlassColors.dim)
             }
             if (status.granted && !snapshot.isEmpty) ReminderRow("Duress PIN", PostureText.DURESS_NOTE, PostureKeys.ACTION_SECURITY)

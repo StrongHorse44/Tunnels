@@ -91,7 +91,7 @@ object DeviceCheckRunner {
                 "Posture (Deep mode)",
                 listOf(
                     DeviceChecks.postureReadings(posture?.first?.readings.orEmpty(), posture?.second, now),
-                    DeviceChecks.privateDnsAgrees(posture?.first?.reading(PostureKeys.PRIVATE_DNS), dns),
+                    DeviceChecks.privateDnsAgrees(posture?.first?.reading(PostureKeys.PRIVATE_DNS), dns, posture?.second, now),
                 ),
             ),
             CheckGroup("Access you granted", access),

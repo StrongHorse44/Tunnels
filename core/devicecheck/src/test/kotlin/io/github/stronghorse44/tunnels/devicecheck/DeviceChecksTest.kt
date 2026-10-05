@@ -176,7 +176,7 @@ class DeviceChecksTest {
     @Test
     fun privateDnsSettingDisagreeingWithTheNetworkFails() {
         fun dns(value: String?, net: PrivateDns) =
-            DeviceChecks.privateDnsAgrees(value?.let { reading("private_dns", PostureState.GOOD, it) }, net)
+            DeviceChecks.privateDnsAgrees(value?.let { reading("private_dns", PostureState.GOOD, it) }, net, now, now)
         assertEquals(CheckStatus.FAIL, dns("off", PrivateDns.Automatic).status)
         assertEquals(CheckStatus.FAIL, dns("off", PrivateDns.Strict("resolver")).status)
         assertEquals(CheckStatus.FAIL, dns("provider", PrivateDns.Off).status)
@@ -188,13 +188,30 @@ class DeviceChecksTest {
         // Either side unknown: a note, never a verdict.
         assertEquals(CheckStatus.NOTE, dns("off", PrivateDns.Unknown).status)
         assertEquals(CheckStatus.NOTE, dns(null, PrivateDns.Off).status)
-        assertEquals(CheckStatus.NOTE, DeviceChecks.privateDnsAgrees(reading("private_dns", PostureState.UNKNOWN, null, PostureWhy.ABSENT), PrivateDns.Automatic).status)
+        assertEquals(CheckStatus.NOTE, DeviceChecks.privateDnsAgrees(reading("private_dns", PostureState.UNKNOWN, null, PostureWhy.ABSENT), PrivateDns.Automatic, now, now).status)
         // An unconfirmed item is still compared: that is how its key gets confirmed.
         assertEquals(
             CheckStatus.PASS,
-            DeviceChecks.privateDnsAgrees(reading("private_dns", PostureState.UNKNOWN, "automatic", PostureWhy.UNCONFIRMED), PrivateDns.Automatic).status,
+            DeviceChecks.privateDnsAgrees(reading("private_dns", PostureState.UNKNOWN, "automatic", PostureWhy.UNCONFIRMED), PrivateDns.Automatic, now, now).status,
         )
         // The network's hostname never reaches the text.
         assertTrue("resolver" !in dns("off", PrivateDns.Strict("resolver")).detail)
+    }
+
+    @Test
+    fun aStalePrivateDnsReadingNeverFails() {
+        val off = reading("private_dns", PostureState.WEAK, "off")
+        // Fresh contradiction: FAIL. The same contradiction from a scan an hour old: the setting may have changed since.
+        assertEquals(CheckStatus.FAIL, DeviceChecks.privateDnsAgrees(off, PrivateDns.Automatic, now.minus(Duration.ofMinutes(9)), now).status)
+        val stale = DeviceChecks.privateDnsAgrees(off, PrivateDns.Automatic, now.minus(Duration.ofMinutes(60)), now)
+        assertEquals(CheckStatus.NOTE, stale.status)
+        assertTrue(stale.detail, stale.detail.contains("60 min ago") && stale.detail.contains("Scan Deep mode again"))
+        assertEquals(CheckAction.OpenTunnel("deep_mode", "Open Deep mode"), stale.action)
+        assertEquals(CheckStatus.NOTE, DeviceChecks.privateDnsAgrees(off, PrivateDns.Automatic, null, now).status)
+        // Agreement still passes when stale.
+        assertEquals(CheckStatus.PASS, DeviceChecks.privateDnsAgrees(off, PrivateDns.Off, now.minus(Duration.ofDays(2)), now).status)
+        val provider = reading("private_dns", PostureState.GOOD, "provider")
+        assertEquals(CheckStatus.NOTE, DeviceChecks.privateDnsAgrees(provider, PrivateDns.Off, now.minus(Duration.ofHours(5)), now).status)
+        assertEquals(CheckStatus.FAIL, DeviceChecks.privateDnsAgrees(provider, PrivateDns.Off, now, now).status)
     }
 }

@@ -47,6 +47,9 @@ object DeviceChecks {
     const val SETTINGS_NETWORK = "android.settings.WIRELESS_SETTINGS"
     const val SETTINGS_SECURITY = "android.settings.SECURITY_SETTINGS"
 
+    /** A posture reading older than this may no longer match a setting the user has since changed. */
+    val POSTURE_FRESH: Duration = Duration.ofMinutes(10)
+
     /** Stale attestation readings: Silicon should be rescanned after an OS update. */
     val SILICON_FRESH: Duration = Duration.ofDays(31)
 
@@ -241,8 +244,10 @@ object DeviceChecks {
      * Whether the Private DNS setting Deep mode read ([reading], from its `private_dns` item) agrees with what the network
      * says ([dns]). A setting of off beside an encrypted network, or a named provider beside an unencrypted one, means the
      * key or its parsing is wrong. The item is compared even while unconfirmed: this check is how its key gets confirmed.
+     * The reading is from the scan at [takenAt]; if it is older than [POSTURE_FRESH] the setting may since have changed, so a
+     * mismatch is only a note asking for a new scan, never a failure.
      */
-    fun privateDnsAgrees(reading: Reading?, dns: PrivateDns): CheckResult {
+    fun privateDnsAgrees(reading: Reading?, dns: PrivateDns, takenAt: Instant?, now: Instant): CheckResult {
         val id = "private_dns_setting"
         val title = "Private DNS setting matches the network"
         val setting = reading?.value?.takeIf { it == PostureReader.OFF || it == PostureReader.DNS_AUTOMATIC || it == PostureReader.DNS_PROVIDER }
@@ -263,8 +268,16 @@ object DeviceChecks {
             (setting == PostureReader.DNS_AUTOMATIC && dns == PrivateDns.Automatic) ||
             (setting == PostureReader.DNS_PROVIDER && dns is PrivateDns.Strict)
         val contradicts = (setting == PostureReader.OFF && dns != PrivateDns.Off) || (setting == PostureReader.DNS_PROVIDER && dns == PrivateDns.Off)
+        val age = takenAt?.let { Duration.between(it, now) }
+        val fresh = age != null && !age.isNegative && age <= POSTURE_FRESH
         return when {
             agree -> CheckResult(id, title, CheckStatus.PASS, "The setting reads \"$setting\" and the network shows $network: they agree.")
+            !fresh -> CheckResult(
+                id, title, CheckStatus.NOTE,
+                "The setting read \"$setting\" in a scan ${if (age == null) "of unknown age" else "${ageText(age)} ago"} and the network shows " +
+                    "$network now. Scan Deep mode again to compare like with like.",
+                CheckAction.OpenTunnel(PostureKeys.TUNNEL_ID, "Open Deep mode"),
+            )
             contradicts -> CheckResult(
                 id, title, CheckStatus.FAIL,
                 "The setting reads \"$setting\" but the network shows $network. The key or how Tunnels reads it is wrong, so Private DNS " +
@@ -400,6 +413,11 @@ object DeviceChecks {
             CheckAction.OpenTunnel("traffic", "Open Traffic"),
         ),
     )
+
+    private fun ageText(d: Duration): String {
+        val minutes = d.toMinutes().coerceAtLeast(0)
+        return if (minutes < 120) "$minutes min" else hours(d)
+    }
 
     private fun onOff(b: Boolean) = if (b) "on" else "off"
 

@@ -160,7 +160,7 @@ class PostureParserTest {
     }
 
     @Test
-    fun continuationLineNeverMatchesAKey() {
+    fun indentedContinuationNeverMatchesAndAnUnindentedLookalikeMakesTheItemMalformed() {
         val text = "note=first line\n  settings_reboot_after_timeout=0\nwifi_on=2\nsome words settings_reboot_after_timeout=0"
         val table = PostureParser.table(text) as TableRead.Ok
         assertFalse("settings_reboot_after_timeout" in table.values)
@@ -168,6 +168,15 @@ class PostureParserTest {
         val eq = PostureParser.table("settings_reboot_after_timeout=a=b") as TableRead.Ok
         assertEquals("a=b", eq.values["settings_reboot_after_timeout"])
         assertEquals(PostureWhy.ABSENT, read(global = text).of(PostureKeys.AUTO_REBOOT).why)
+        // An indented line never overrides the real one.
+        assertEquals(
+            PostureState.GOOD,
+            read(global = "settings_reboot_after_timeout=43200000\n  settings_reboot_after_timeout=0").of(PostureKeys.AUTO_REBOOT).state,
+        )
+        // The documented limit: an unindented lookalike inside a multi-line value conflicts with the real line (malformed, safe).
+        val lookalike = read(global = "note=first\nsettings_reboot_after_timeout=0\nsettings_reboot_after_timeout=43200000").of(PostureKeys.AUTO_REBOOT)
+        assertEquals(PostureState.UNKNOWN, lookalike.state)
+        assertEquals(PostureWhy.MALFORMED, lookalike.why)
     }
 
     @Test
