@@ -20,12 +20,36 @@ class ConfirmedNetworkBookTest {
         var corruptWrites = false
         var writes = 0
 
+        /** When set, read/write called outside [update] fail: a change must be one atomic update, never a read then a write. */
+        var forbidSplitAccess = false
+        private var inUpdate = false
+
+        /** Thrown instead of an IOException when set (an Error such as the missing SQLCipher library, or a cancellation). */
+        var failure: Throwable? = null
+
         override fun read(): String? {
+            failure?.let { throw it }
             if (unavailable) throw IOException("store unavailable")
+            if (forbidSplitAccess && !inUpdate) throw AssertionError("a change read the row outside the atomic update")
             return row
         }
 
+        @Synchronized
+        override fun update(transform: (String?) -> String) {
+            failure?.let { throw it }
+            if (unavailable || failWrites) throw IOException("store unavailable")
+            inUpdate = true
+            try {
+                row = transform(row)
+                writes++
+            } finally {
+                inUpdate = false
+            }
+        }
+
         override fun write(text: String) {
+            failure?.let { throw it }
+            if (forbidSplitAccess && !inUpdate) throw AssertionError("a change wrote the row outside the atomic update")
             if (unavailable || failWrites) throw IOException("store unavailable")
             writes++
             row = if (corruptWrites) "tampered" else text
@@ -144,6 +168,110 @@ class ConfirmedNetworkBookTest {
         assertTrue(book(table, file).migrate() is NetworkMigration.Failed)
         assertTrue(file.present)
         assertEquals(0, file.deletes)
+    }
+
+    /** The row a failed read-back left behind is not "moved": the next run copies again and deletes only after a verified read-back. */
+    @Test
+    fun aMismatchingRowIsCopiedAgainNotTrusted() {
+        val table = FakeTable().apply { corruptWrites = true }
+        val file = FakePlaintext(present = true, held = setOf(a, b))
+        val book = book(table, file)
+        assertTrue(book.migrate() is NetworkMigration.Failed)
+        assertEquals("tampered", table.row)
+        assertTrue("never confirmed from a row that is not the set", !book.isConfirmed(a))
+
+        table.corruptWrites = false
+        assertEquals(NetworkMigration.Moved(2), book.migrate())
+        assertEquals("$a\n$b\n", table.row)
+        assertFalse(file.present)
+        assertEquals(setOf(a, b), book.hashes())
+    }
+
+    @Test
+    fun aRowThatIsNotCanonicalIsCopiedOverAndKeepsWhatItDecodes() {
+        // Half a write: one good hash, then junk. The old file's hashes are added, the decodable one is kept.
+        val table = FakeTable(row = "$c\njunk-without-newline")
+        val file = FakePlaintext(present = true, held = setOf(a))
+        assertEquals(NetworkMigration.Moved(1), book(table, file).migrate())
+        assertEquals("$a\n$c\n", table.row)
+        assertFalse(file.present)
+        // A canonical row, even an empty one, is trusted (the forgotten network must not come back).
+        val table2 = FakeTable(row = "")
+        val file2 = FakePlaintext(present = true, held = setOf(a))
+        assertEquals(NetworkMigration.Moved(0), book(table2, file2).migrate())
+        assertEquals("", table2.row)
+    }
+
+    /** The reviewer's probe: another writer (an import's merge) between a change's read and write must not be lost, because there is no gap. */
+    @Test
+    fun aChangeIsOneAtomicUpdateSoAConcurrentMergeIsNotLost() {
+        val table = FakeTable(row = "$a\n").apply { forbidSplitAccess = true }
+        val book = book(table, FakePlaintext(present = false))
+        assertTrue(book.confirm(b))
+        assertTrue(book.forget(a))
+        assertTrue(book.forgetAll())
+        assertTrue(book.confirm(c))
+        assertEquals("$c\n", table.row)
+
+        // Many confirms against many merges on another thread (what an import's transaction does): every hash survives.
+        val hashes = (0 until 60).map { "%064x".format(it + 1) }
+        val merges = (60 until 120).map { "%064x".format(it + 1) }
+        val t2 = FakeTable()
+        val book2 = book(t2, FakePlaintext(present = false))
+        val merger = Thread { merges.forEach { h -> t2.update { stored -> ConfirmedNetworkCodec.merge(stored, listOf(h)).first } } }
+        merger.start()
+        hashes.forEach { assertTrue(book2.confirm(it)) }
+        merger.join()
+        assertEquals((hashes + merges).toSet(), book2.hashes())
+    }
+
+    @Test
+    fun aMissingLibraryErrorMeansUnavailableNotACrash() {
+        val table = FakeTable(row = "$a\n").apply { failure = UnsatisfiedLinkError("dlopen failed: libsqlcipher.so") }
+        val file = FakePlaintext(present = true, held = setOf(b))
+        val book = book(table, file)
+        assertEquals(null, book.lookup(a))
+        assertFalse(book.isConfirmed(a))
+        assertFalse(book.confirm(a))
+        assertFalse(book.forget(a))
+        assertFalse(book.forgetAll())
+        assertEquals(null, book.count())
+        val migrated = book.migrate()
+        assertTrue(migrated is NetworkMigration.Failed && migrated.cause is UnsatisfiedLinkError)
+        assertTrue("the old file is untouched", file.present && file.deletes == 0)
+        try {
+            book.hashes()
+            fail("answered without the store")
+        } catch (e: ConfirmedNetworksUnavailable) {
+            assertTrue(e.cause is UnsatisfiedLinkError)
+        }
+        // And when the file is already gone, a store that dies later is the same answer.
+        val table2 = FakeTable(row = "$a\n")
+        val book2 = book(table2, FakePlaintext(present = false))
+        assertTrue(book2.isConfirmed(a))
+        table2.failure = UnsatisfiedLinkError("x")
+        assertEquals(null, book2.lookup(a))
+        assertFalse(book2.confirm(b))
+    }
+
+    @Test
+    fun cancellationAndInterruptionAreNotSwallowed() {
+        for (control in listOf<Throwable>(kotlin.coroutines.cancellation.CancellationException("cancelled"), InterruptedException("interrupted"))) {
+            val table = FakeTable(row = "$a\n").apply { failure = control }
+            val book = book(table, FakePlaintext(present = false))
+            try {
+                book.isConfirmed(a)
+                fail("swallowed $control")
+            } catch (e: Throwable) {
+                assertTrue(e === control)
+            }
+            try {
+                book.confirm(b)
+                fail("swallowed $control")
+            } catch (e: Throwable) {
+                assertTrue(e === control)
+            }
+        }
     }
 
     @Test

@@ -141,8 +141,9 @@ class HomeNetworkSmokeTest {
         context.getSharedPreferences(name, Context.MODE_PRIVATE).edit().putStringSet(ConfirmedNetworkBook.LEGACY_KEY, setOf(home.hash)).commit()
         try {
             val broken = object : ConfirmedNetworkTable {
-                override fun read(): String? = throw java.io.IOException("store unavailable")
+                override fun read(): String? = throw UnsatisfiedLinkError("libsqlcipher.so missing")
                 override fun write(text: String) = throw java.io.IOException("store unavailable")
+                override fun update(transform: (String?) -> String) = throw UnsatisfiedLinkError("libsqlcipher.so missing")
             }
             val gate = NetworkGate(context, ConfirmedNetworkBook(broken, PrefsNetworkFile(context, name)))
             assertFalse(gate.isConfirmed(home))

@@ -1,5 +1,7 @@
 package io.github.stronghorse44.tunnels.lan
 
+import kotlin.coroutines.cancellation.CancellationException
+
 /**
  * The text form of the confirmed-network set in the encrypted settings table (rule 5): one SHA-256 of a network's
  * [NetworkFingerprint] per line, lowercase hex, sorted. The same lines are `networks.txt` in an export.
@@ -32,12 +34,19 @@ object ConfirmedNetworkCodec {
     }
 }
 
-/** The settings-table row, read and written as text. Both throw when the encrypted store cannot be used. */
+/** The settings-table row, read and written as text. All three throw when the encrypted store cannot be used. */
 interface ConfirmedNetworkTable {
     /** The row's value, or null when there is no row. */
     fun read(): String?
 
     fun write(text: String)
+
+    /**
+     * Replaces the row with [transform] of its current value (null when there is no row), **atomically**: the read and
+     * the write are one database transaction, so a concurrent writer (an import's merge) can neither be lost nor lose
+     * this change. Every change of the set after the migration goes through here.
+     */
+    fun update(transform: (stored: String?) -> String)
 }
 
 /** The old plaintext preferences file (`homenet_gate`), which exists only to be moved into the table and deleted. */
@@ -77,11 +86,14 @@ class ConfirmedNetworksUnavailable(cause: Throwable? = null) : Exception("The co
  * - **Never both.** [migrate] copies the old preferences file's hashes into the table, reads the row back, and only
  *   then deletes the file. If the copy fails the file is untouched (and still unused); if only the deletion fails the
  *   hashes are not merged in again later (a network the user forgot in between must stay forgotten), only the
- *   deletion is retried. The row's existence marks "moved".
+ *   deletion is retried. A well-formed row (exactly what [ConfirmedNetworkCodec.encode] writes) marks "moved"; a row
+ *   that is not (a failed attempt's leftover) is copied over again and the file deleted only after a verified read-back.
  * - **Fail closed.** The file is never read for a decision. When the table cannot be read, or a pending migration could
  *   not complete, [lookup] answers null and [isConfirmed] false: no scan opens.
- * - Every call blocks (it reads the database): call off the main thread. A process-wide lock keeps the Home network gate
- *   and the Snapshots import from interleaving their read-modify-write steps.
+ * - Every call blocks (it reads the database): call off the main thread. A process-wide lock serialises the book's own
+ *   calls (the migration, and the changes of the Home network gate); every change of the row is one atomic
+ *   [ConfirmedNetworkTable.update], the same kind of database transaction as the Snapshots import's merge, so neither
+ *   can overwrite the other.
  */
 class ConfirmedNetworkBook(private val table: ConfirmedNetworkTable, private val plaintext: PlaintextNetworkFile) {
     /** Moves the plaintext file's hashes into the table. Safe to call any number of times; with no file it only checks that. */
@@ -114,12 +126,14 @@ class ConfirmedNetworkBook(private val table: ConfirmedNetworkTable, private val
     /** Forgets every network. The row stays, empty: its presence is what says the old file has been dealt with. */
     fun forgetAll(): Boolean = change { emptySet() }
 
+    /** One atomic read-modify-write of the row ([ConfirmedNetworkTable.update]); false when the store or the migration failed. */
     private fun change(edit: (Set<String>) -> Set<String>): Boolean = synchronized(LOCK) {
         try {
-            val next = edit(loadLocked())
-            table.write(ConfirmedNetworkCodec.encode(next))
+            if (migrateLocked() is NetworkMigration.Failed) return@synchronized false
+            table.update { stored -> ConfirmedNetworkCodec.encode(edit(ConfirmedNetworkCodec.decode(stored))) }
             true
-        } catch (e: Exception) {
+        } catch (t: Throwable) {
+            rethrowIfControl(t)
             false
         }
     }
@@ -129,26 +143,42 @@ class ConfirmedNetworkBook(private val table: ConfirmedNetworkTable, private val
         if (moved is NetworkMigration.Failed) throw ConfirmedNetworksUnavailable(moved.cause)
         return try {
             ConfirmedNetworkCodec.decode(table.read())
-        } catch (e: Exception) {
-            throw ConfirmedNetworksUnavailable(e)
+        } catch (t: Throwable) {
+            rethrowIfControl(t)
+            throw ConfirmedNetworksUnavailable(t)
         }
     }
 
+    /**
+     * A row counts as "moved" only when it is exactly what [ConfirmedNetworkCodec.encode] writes. Anything else (a
+     * half-written or mismatching row from an earlier failed attempt) is copied over again: the old file's hashes
+     * and whatever hashes the row still decodes to are written, read back, and only then is the file deleted.
+     */
     private fun migrateLocked(): NetworkMigration {
         try {
             if (!plaintext.exists()) return NetworkMigration.NothingToMove
             var copied = 0
-            if (table.read() == null) {
+            val stored = table.read()
+            if (stored == null || ConfirmedNetworkCodec.encode(ConfirmedNetworkCodec.decode(stored)) != stored) {
                 val old = ConfirmedNetworkCodec.valid(plaintext.hashes())
-                val text = ConfirmedNetworkCodec.encode(old)
+                val text = ConfirmedNetworkCodec.encode(old + ConfirmedNetworkCodec.decode(stored))
                 table.write(text)
                 if (table.read() != text) return NetworkMigration.Failed(IllegalStateException("The row did not read back as written."))
                 copied = old.size
             }
             return if (plaintext.delete()) NetworkMigration.Moved(copied) else NetworkMigration.MovedKeptFile(copied)
-        } catch (e: Exception) {
-            return NetworkMigration.Failed(e)
+        } catch (t: Throwable) {
+            rethrowIfControl(t)
+            return NetworkMigration.Failed(t)
         }
+    }
+
+    /**
+     * Any failure of the store reads as "unavailable", including an Error such as the UnsatisfiedLinkError of a missing
+     * SQLCipher library, so the gate refuses instead of crashing. Only cancellation and interruption pass through.
+     */
+    private fun rethrowIfControl(t: Throwable) {
+        if (t is CancellationException || t is InterruptedException) throw t
     }
 
     companion object {

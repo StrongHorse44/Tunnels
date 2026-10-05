@@ -3,6 +3,7 @@ package io.github.stronghorse44.tunnels.snapshots
 import android.content.Context
 import io.github.stronghorse44.tunnels.lan.ConfirmedNetworkBook
 import io.github.stronghorse44.tunnels.lan.ConfirmedNetworkCodec
+import io.github.stronghorse44.tunnels.lan.ConfirmedNetworksUnavailable
 import io.github.stronghorse44.tunnels.lan.ConfirmedNetworkTable
 import io.github.stronghorse44.tunnels.lan.NetworkMigration
 import io.github.stronghorse44.tunnels.lan.PlaintextNetworkFile
@@ -43,7 +44,7 @@ class ConfirmedNetworks(
     /** The well-formed hashes the phone has confirmed: what an export carries. Throws if they cannot be read. */
     fun all(): Set<String> = try {
         book.hashes()
-    } catch (e: Exception) {
+    } catch (e: ConfirmedNetworksUnavailable) {
         throw IOException("The confirmed networks couldn't be read.", e)
     }
 
@@ -51,21 +52,30 @@ class ConfirmedNetworks(
         override fun read(): String? = runBlocking { dao.setting(ConfirmedNetworkCodec.KEY) }
 
         override fun write(text: String) = runBlocking { dao.putSetting(SettingEntity(ConfirmedNetworkCodec.KEY, text)) }
+
+        /** One Room transaction (importAll with no snapshots and this key), as in Home network's adapter. */
+        override fun update(transform: (String?) -> String) = runBlocking {
+            dao.importAll(emptyList(), listOf(ConfirmedNetworkCodec.KEY)) { _, stored -> transform(stored) }
+            Unit
+        }
     }
 
-    /** Same file, same rules as Home network's own adapter (tunnels/homenet cannot be depended on from here). */
+    /**
+     * Mirror of `PrefsNetworkFile` in tunnels/homenet `GateStorage.kt` (this module cannot depend on that one): change both
+     * together. `homenet_gate.xml.bak` counts as the file, and `deleteSharedPreferences`' return value (it removes the
+     * file and its backup and says whether neither is left) is the answer to delete().
+     */
     private class LegacyFile(private val app: Context, private val name: String) : PlaintextNetworkFile {
-        private val file: File get() = File(File(app.dataDir, "shared_prefs"), "$name.xml")
+        private val dir: File get() = File(app.dataDir, "shared_prefs")
 
-        override fun exists(): Boolean = file.exists()
+        override fun exists(): Boolean = File(dir, "$name.xml").exists() || File(dir, "$name.xml.bak").exists()
 
         override fun hashes(): Set<String> =
             app.getSharedPreferences(name, Context.MODE_PRIVATE).getStringSet(ConfirmedNetworkBook.LEGACY_KEY, emptySet()).orEmpty().toSet()
 
         override fun delete(): Boolean {
             app.getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear().commit()
-            app.deleteSharedPreferences(name)
-            return !file.exists()
+            return app.deleteSharedPreferences(name)
         }
     }
 }

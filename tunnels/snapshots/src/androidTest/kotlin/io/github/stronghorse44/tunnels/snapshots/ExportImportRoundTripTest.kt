@@ -323,20 +323,58 @@ class ExportImportRoundTripTest {
         seed(a, netsA)
         val data = runBlocking { StoreBundles.gather(a, netsA.all()) }
 
-        // The store refuses the settings rows, which an import writes after the snapshots: the transaction must undo them,
-        // and the networks are one of those rows, so the phone's own list stays exactly as it was.
+        // The store refuses only the networks row, which is the last thing the import writes: the transaction must undo the
+        // snapshots and settings it already wrote, and the phone's own list stays exactly as it was.
         val target = db()
         val dao = target.dao()
         val netsC = nets(dao)
         setNetworks(dao, setOf("c3".repeat(32)))
-        target.openHelper.writableDatabase.execSQL("CREATE TRIGGER refuse_settings BEFORE INSERT ON settings BEGIN SELECT RAISE(ABORT, 'refused'); END")
+        target.openHelper.writableDatabase.execSQL("CREATE TRIGGER refuse_networks BEFORE INSERT ON settings WHEN NEW.\"key\" = '${ConfirmedNetworkCodec.KEY}' BEGIN SELECT RAISE(ABORT, 'refused'); END")
         try {
             runBlocking { StoreBundles.commit(dao, netsC, data) }
             fail("committed to a store that refuses the settings")
         } catch (_: ImportCommitFailed) {
         }
-        runBlocking { assertTrue("no snapshot survives a failed import", dao.snapshots().isEmpty()) }
+        runBlocking {
+            assertTrue("no snapshot survives a failed import", dao.snapshots().isEmpty())
+            assertEquals("the settings written before the networks row are undone too", null, dao.setting("traffic.block"))
+        }
         assertEquals(setOf("c3".repeat(32)), netsC.all())
+    }
+
+    /** The reviewer's probe on the real store: confirms and forgets on other threads while imports merge networks: nothing is lost. */
+    @Test
+    fun confirmsDuringImportsAreNotLostToTheMerge() {
+        val a = db().dao()
+        val netsA = nets(a)
+        seed(a, netsA, listOf(1_700_000_000_000))
+        val data = runBlocking { StoreBundles.gather(a, netsA.all()) } // carries net1 and net2
+
+        val dao = db().dao()
+        val book = io.github.stronghorse44.tunnels.lan.ConfirmedNetworkBook(
+            object : io.github.stronghorse44.tunnels.lan.ConfirmedNetworkTable {
+                override fun read(): String? = runBlocking { dao.setting(ConfirmedNetworkCodec.KEY) }
+                override fun write(text: String) = runBlocking { dao.putSetting(SettingEntity(ConfirmedNetworkCodec.KEY, text)) }
+                override fun update(transform: (String?) -> String) = runBlocking {
+                    dao.importAll(emptyList(), listOf(ConfirmedNetworkCodec.KEY)) { _, stored -> transform(stored) }
+                    Unit
+                }
+            },
+            object : io.github.stronghorse44.tunnels.lan.PlaintextNetworkFile {
+                override fun exists() = false
+                override fun hashes(): Set<String> = emptySet()
+                override fun delete() = true
+            },
+        )
+        val mine = (1..40).map { "%064x".format(it) }
+        val confirmer = Thread { mine.forEach { check(book.confirm(it)) } }
+        val netsD = nets(dao)
+        confirmer.start()
+        repeat(10) { runBlocking { StoreBundles.commit(dao, netsD, data.copy(networks = data.networks + "%064x".format(1000 + it))) } }
+        confirmer.join()
+        val have = netsD.all()
+        assertTrue("every confirm survived the imports", have.containsAll(mine))
+        assertTrue("every imported network survived the confirms", have.containsAll(setOf(net1, net2) + (0 until 10).map { "%064x".format(1000 + it) }))
     }
 
     /** A phone updated from the plaintext-preferences build, exporting before Home network has ever run its migration. */
