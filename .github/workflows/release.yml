@@ -1,56 +1,149 @@
+# Builds, checks and publishes a signed release when a v* tag is pushed (docs/RELEASING.md).
+#
+# Signing needs four secrets: KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD. They are
+# environment secrets of the `publish` environment (restricted to the release branches and v* tags), which the
+# build job, the one that reads them, runs in. They are decoded only after the tag's commit is shown to be on a
+# release branch, and only in the build job. The environment's required reviewers therefore approve the build
+# job as well as the publish job.
+# The release gate (gate/gate.py) compares the signed release APK with gate/baseline.release.json, and the
+# release-check job checks its certificate against the one pinned there, so a build signed with another key is
+# never offered as an update. gate/baseline.release.json does not exist yet: until the release baseline is added
+# (the build that moves the app to release builds), this workflow stops at its first step.
+#
+# No job that runs this repository's build code holds a token that can write anything: publishing is in its own
+# job, which runs no repository code.
+
 name: Release
 
 on:
   push:
     tags: ["v*"]
 
-permissions:
-  contents: write
+permissions: {}
+
+# Releases go one at a time and are never cancelled half way.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    # The signing job: the four signing secrets are `publish` environment secrets, so only a run from a branch
+    # or tag the environment allows can read them, whatever this workflow file says.
+    environment: publish
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+      name: ${{ steps.version.outputs.name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-java@v4
+      - id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # Fails closed before anything is built or decoded: no release without a reviewed release baseline.
+      - name: Require the release baseline
+        run: |
+          if [ ! -f gate/baseline.release.json ]; then
+            echo "::error::gate/baseline.release.json is missing, so there is no reviewed record of what a release build may do. It is added with the build that moves the app from debug to release builds; until then a v* tag does not publish."
+            exit 1
+          fi
+
+      # A tag can name any commit. Only a commit that is on a release branch is built and signed; this runs
+      # before any build code, and the branch is resolved to its SHA first so a tag can't stand in for it.
+      - name: Check the tag's commit is on a release branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for branch in ccr-dff99af5-ij1rle main; do
+            head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" --jq .object.sha) || continue
+            status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$head...$GITHUB_SHA" --jq .status) || continue
+            if [ "$status" = "identical" ] || [ "$status" = "behind" ]; then
+              echo "$GITHUB_SHA is on $branch."
+              exit 0
+            fi
+          done
+          echo "::error::$GITHUB_SHA is not on ccr-dff99af5-ij1rle or main, so it is not built or signed."
+          exit 1
+
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin
           java-version: "17"
 
-      - uses: gradle/actions/setup-gradle@v4
+      # No build cache in the job that holds the signing key: a poisoned cache entry must not reach a signed release.
+      - uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
+        with:
+          cache-disabled: true
+
+      - name: Check the Gradle wrapper against Gradle's published checksums
+        run: |
+          props=gradle/wrapper/gradle-wrapper.properties
+          version=$(sed -n 's#^distributionUrl=.*/gradle-\(.*\)-bin\.zip$#\1#p' "$props")
+          published=$(curl -fsSL "https://services.gradle.org/distributions/gradle-$version-bin.zip.sha256")
+          pinned=$(sed -n 's/^distributionSha256Sum=//p' "$props")
+          if [ "$published" != "$pinned" ]; then
+            echo "::error::distributionSha256Sum ($pinned) is not Gradle's published checksum ($published)"
+            exit 1
+          fi
+          published=$(curl -fsSL "https://services.gradle.org/distributions/gradle-$version-wrapper.jar.sha256")
+          actual=$(sha256sum gradle/wrapper/gradle-wrapper.jar | cut -d' ' -f1)
+          if [ "$published" != "$actual" ]; then
+            echo "::error::gradle-wrapper.jar ($actual) is not Gradle's published $version wrapper ($published)"
+            exit 1
+          fi
+          echo "Gradle $version wrapper and distribution checksums match gradle.org"
 
       - name: Version from tag
         id: version
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          tag="${GITHUB_REF_NAME}"
-          name="${tag#v}"
+          name="${TAG#v}"
           if [[ ! "$name" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-            echo "::error::Tag must look like v1.2.3, got $tag"; exit 1
+            echo "::error::Tag must look like v1.2.3, got $TAG"; exit 1
           fi
           code=$(( BASH_REMATCH[1] * 1000000 + BASH_REMATCH[2] * 1000 + BASH_REMATCH[3] ))
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "code=$code" >> "$GITHUB_OUTPUT"
 
+      # A tag push is the only trigger, and the commit was shown to be on a release branch above. The secrets
+      # are environment secrets of `publish` (this job's environment), not repository secrets.
       - name: Decode keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
           if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "::error::Repository secret KEYSTORE_BASE64 is not set. See docs/RELEASING.md."; exit 1
+            echo "::error::Environment secret KEYSTORE_BASE64 is not set in the publish environment. See docs/RELEASING.md."; exit 1
           fi
-          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Dependency verification mode
+        id: verify
+        run: .github/scripts/verify-mode.sh
 
       - name: Build signed release
         env:
+          VERIFY: ${{ steps.verify.outputs.flag }}
           TUNNELS_KEYSTORE: ${{ runner.temp }}/release.jks
           TUNNELS_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           TUNNELS_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           TUNNELS_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: >
-          ./gradlew --no-daemon test verifyPermissions assembleRelease
-          -Ptunnels.versionCode=${{ steps.version.outputs.code }}
-          -Ptunnels.versionName=${{ steps.version.outputs.name }}
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace $VERIFY \
+            --init-script gate/file-dependencies.init.gradle -Pgate.configuration=releaseRuntimeClasspath \
+            -Ptunnels.versionCode="$VERSION_CODE" -Ptunnels.versionName="$VERSION_NAME" \
+            test verifyPermissions assembleRelease \
+            :app:dependencies --configuration releaseRuntimeClasspath gateFileDependencies | tee "$RUNNER_TEMP/gradle.log"
 
       - name: Check permissions and signature
         run: |
@@ -58,20 +151,170 @@ jobs:
           scripts/check-apk-permissions.sh "$apk" release
           build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           "$build_tools/apksigner" verify --print-certs "$apk"
-          out="tunnels-${{ steps.version.outputs.name }}.apk"
-          cp "$apk" "$out"
-          sha256sum "$out" > "$out.sha256"
 
-      - name: Publish GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: >
-          gh release create "$GITHUB_REF_NAME"
-          "tunnels-${{ steps.version.outputs.name }}.apk"
-          "tunnels-${{ steps.version.outputs.name }}.apk.sha256"
-          --title "Tunnels ${{ steps.version.outputs.name }}"
-          --generate-notes
+      - name: Release gate (compare the release APK with gate/baseline.release.json)
+        id: gate
+        run: |
+          python3 gate/gate.py check --baseline gate/baseline.release.json --require-tools --require-pin \
+            --apk app/build/outputs/apk/release/app-release.apk --deps "$RUNNER_TEMP/gradle.log" \
+            --generated build/gate/baseline.generated.json
+          python3 -m unittest discover -s gate
+
+      - name: Print the baseline this APK would need
+        if: failure() && steps.gate.outcome == 'failure' && hashFiles('build/gate/baseline.generated.json') != ''
+        run: |
+          echo "::group::build/gate/baseline.generated.json"
+          cat build/gate/baseline.generated.json
+          echo "::endgroup::"
+          gate/annotate-file.sh build/gate/baseline.generated.json baseline-generated 0
 
       - name: Remove keystore
         if: always()
         run: rm -f "$RUNNER_TEMP/release.jks"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tunnels-release-apk
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: build-reports
+          path: |
+            app/build/reports/
+            build/gate/
+          retention-days: 14
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always() && steps.verify.outputs.written == 'true'
+        with:
+          name: verification-metadata-release
+          path: gradle/verification-metadata.xml
+          retention-days: 14
+
+      - name: Print the written metadata as annotations, part 1 (for sessions that cannot download artifacts)
+        if: always() && steps.verify.outputs.written == 'true'
+        run: gate/annotate-file.sh gradle/verification-metadata.xml verification-metadata-release 0
+
+      - name: Print the written metadata as annotations, part 2
+        if: always() && steps.verify.outputs.written == 'true'
+        run: gate/annotate-file.sh gradle/verification-metadata.xml verification-metadata-release 10
+
+      - name: Print the written metadata as annotations, part 3
+        if: always() && steps.verify.outputs.written == 'true'
+        run: gate/annotate-file.sh gradle/verification-metadata.xml verification-metadata-release 20
+
+      - name: Fail until the dependency verification metadata is committed
+        if: steps.verify.outputs.written == 'true'
+        run: |
+          echo "::error::Dependencies were not verified: commit the gradle/verification-metadata.xml the jobs wrote (the union of every job's verification-metadata-* artifact; see gate/README.md)."
+          exit 1
+
+  # Read-only checks before publishing: the commit is on a release branch and the APK is signed by the
+  # certificate pinned in gate/baseline.release.json. They run the repository's gate/ script, so they live in a
+  # job without a writing token; the publish job below runs no repository code.
+  release-check:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      apk_sha256: ${{ steps.cert.outputs.apk_sha256 }}
+    steps:
+      # Only the gate files: the baseline of the commit the APK was built from, and the script.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.build.outputs.sha }}
+          persist-credentials: false
+          sparse-checkout: gate
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: tunnels-release-apk
+          path: apks
+
+      - name: Check the commit is on a release branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ needs.build.outputs.sha }}
+        run: |
+          for branch in ccr-dff99af5-ij1rle main; do
+            head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" --jq .object.sha) || continue
+            status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$head...$TARGET" --jq .status) || continue
+            if [ "$status" = "identical" ] || [ "$status" = "behind" ]; then
+              echo "$TARGET is on $branch."
+              exit 0
+            fi
+          done
+          echo "::error::$TARGET is not on ccr-dff99af5-ij1rle or main, so it is not published."
+          exit 1
+
+      # Fails on an unsigned APK or a certificate other than the one pinned, so a build signed with a
+      # different key is never offered as an update.
+      - name: Check the signing certificate against gate/baseline.release.json
+        id: cert
+        run: |
+          apk=apks/app-release.apk
+          python3 gate/gate.py cert --baseline gate/baseline.release.json --require-pin --apk "$apk"
+          echo "apk_sha256=$(sha256sum "$apk" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: [build, release-check]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Required reviewers on this environment make each publish wait for RJ's approval (docs/RELEASING.md).
+    environment: publish
+    permissions:
+      contents: write # creates the release and uploads the APK
+      id-token: write # signs the build provenance attestation
+      attestations: write # stores the attestation next to the repository
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: tunnels-release-apk
+          path: apks
+
+      # Publishes exactly the APK release-check checked.
+      - name: Check the APK is the one that was checked
+        env:
+          CHECKED: ${{ needs.release-check.outputs.apk_sha256 }}
+        run: |
+          actual=$(sha256sum apks/app-release.apk | cut -d' ' -f1)
+          if [ -z "$CHECKED" ] || [ "$actual" != "$CHECKED" ]; then
+            echo "::error::apks/app-release.apk ($actual) is not the APK release-check checked ($CHECKED)"
+            exit 1
+          fi
+
+      - name: Name the APK for the release
+        env:
+          NAME: ${{ needs.build.outputs.name }}
+        run: |
+          build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$build_tools/apksigner" verify apks/app-release.apk
+          version=$("$build_tools/aapt2" dump badging apks/app-release.apk | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -n 1)
+          if [ "$version" != "$NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match the APK's versionName $version"
+            exit 1
+          fi
+          cp apks/app-release.apk "tunnels-$NAME.apk"
+          sha256sum "tunnels-$NAME.apk" > "tunnels-$NAME.apk.sha256"
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: tunnels-${{ needs.build.outputs.name }}.apk
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NAME: ${{ needs.build.outputs.name }}
+        run: >
+          gh release create "$GITHUB_REF_NAME"
+          "tunnels-$NAME.apk"
+          "tunnels-$NAME.apk.sha256"
+          --title "Tunnels $NAME"
+          --generate-notes

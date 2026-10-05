@@ -1,0 +1,6 @@
+# zizmor configuration (.github/workflows/workflow-lint.yml). Every action must be pinned to a commit SHA.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "*": hash-pin
