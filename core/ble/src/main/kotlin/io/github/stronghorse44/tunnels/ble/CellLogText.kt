@@ -6,6 +6,7 @@ object CellLogText {
     const val OFF = "Cell logbook is off. It learns which towers your phone uses at places you scan often, as keyed hashes only."
     /** The line for a row that cannot be read; only Clear replaces it. */
     const val UNREADABLE = "The logbook could not be read. Clear it to start again."
+    /** The line for a row that exists when no scan has judged anything since it was started. */
     const val ON_NO_SCAN = "Cell logbook is on. Scan to start learning."
     const val NO_PLACE = "No place this scan (location is off / no fix / no permission): the logbook did not look."
     const val NO_CELL_ID = "The cell did not report its identity this scan."
