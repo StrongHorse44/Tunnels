@@ -110,7 +110,10 @@ object SurroundingsKeys {
     const val CELL_CHANGED = "cell:changedSinceLast"
     const val CELL_DOWNGRADES_RECORDED = "cell:downgradesRecorded"
 
-    // The cell logbook (subject [CELL_SUMMARY]). Summaries only: no place hash, cell token or code is an observation.
+    // The cell logbook (subject [CELL_SUMMARY]). Summaries only. What is emitted: a state word, counts, and for an
+    // unfamiliar verdict the first 8 hex of one keyed cell token ([LOG_TOWER]), the judged cell's technology slug
+    // ([LOG_TECH]) and its operator code `mcc-mnc` ([LOG_OPERATOR]), which a cell check already keeps. No place hash,
+    // full cell token, tracking area, cell id or other cell identity is an observation.
     const val LOG_STATE = "log:state"
     const val LOG_VERDICT = "log:verdict"
     const val LOG_SIGNALS = "log:signals"
