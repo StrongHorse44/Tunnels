@@ -281,7 +281,7 @@ object DeviceChecks {
             contradicts -> CheckResult(
                 id, title, CheckStatus.FAIL,
                 "The setting reads \"$setting\" but the network shows $network. The key or how Tunnels reads it is wrong, so Private DNS " +
-                    "findings are unreliable.",
+                    "findings are unreliable. If you changed Private DNS since that scan, scan Deep mode again.",
                 CheckAction.OpenSettings(SETTINGS_NETWORK, "Network settings"),
             )
             else -> CheckResult(

@@ -208,6 +208,11 @@ class DeviceChecksTest {
         assertTrue(stale.detail, stale.detail.contains("60 min ago") && stale.detail.contains("Scan Deep mode again"))
         assertEquals(CheckAction.OpenTunnel("deep_mode", "Open Deep mode"), stale.action)
         assertEquals(CheckStatus.NOTE, DeviceChecks.privateDnsAgrees(off, PrivateDns.Automatic, null, now).status)
+        // A fresh FAIL tells the user why it may be wrong.
+        assertTrue(DeviceChecks.privateDnsAgrees(off, PrivateDns.Automatic, now, now).detail.endsWith("If you changed Private DNS since that scan, scan Deep mode again."))
+        // A scan time in the future (clock moved) is not fresh: a note, never a failure.
+        val future = DeviceChecks.privateDnsAgrees(off, PrivateDns.Automatic, now.plus(Duration.ofMinutes(5)), now)
+        assertEquals(CheckStatus.NOTE, future.status)
         // Agreement still passes when stale.
         assertEquals(CheckStatus.PASS, DeviceChecks.privateDnsAgrees(off, PrivateDns.Off, now.minus(Duration.ofDays(2)), now).status)
         val provider = reading("private_dns", PostureState.GOOD, "provider")

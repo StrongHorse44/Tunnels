@@ -39,7 +39,9 @@ object PostureParser {
      * first `=` of a line that starts at column 0, so an indented continuation line of a multi-line value never matches.
      * Limit: `settings list` prints multi-line values unindented, so a continuation line that itself looks like
      * `allowed_key=value` cannot be told from a real line. It is still safe: if it differs from the real value of that
-     * key, the pair conflicts and the item is malformed (unknown, never a finding); if it equals it, nothing changes.
+     * key, the pair conflicts and the item is malformed (unknown, never a finding); if it equals it, nothing changes. When the
+     * real key is absent, though, an unindented lookalike line is read as that key's value, so it can show ok or raise a
+     * finding. Writing such a value needs secure-settings access, which is why the limit is accepted.
      */
     fun table(output: String?, allow: Set<String> = PostureKeys.SETTINGS_KEYS): TableRead {
         if (output == null) return TableRead.Failed(ERROR)
