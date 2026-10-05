@@ -44,8 +44,12 @@ data class ServingCell(
     fun operatorInput(): String? = if (mcc == null || mnc == null) null else "op:v1|$mcc|$mnc"
 }
 
-/** A serving cell's three keyed hashes (32 lowercase hex each) and its technology's rank. Built from a [ServingCell]; holds no raw identity. */
-data class CellTokens(val cell: String, val area: String?, val operator: String?, val rank: Int)
+/**
+ * A serving cell's three keyed hashes (32 lowercase hex each) and its technology's rank. Built from a [ServingCell];
+ * holds no cell identity. [tech] and [operatorCode] (`310-260`) are what a cell check already keeps; they ride along in
+ * memory so a finding can name the judged cell's own technology and operator (never written to the row).
+ */
+data class CellTokens(val cell: String, val area: String?, val operator: String?, val rank: Int, val tech: CellTech? = null, val operatorCode: String? = null)
 
 /** One place: the keyed hash of its anchor grid cell, how often it was scanned (1-99), the best rank seen, and what the phone used there. */
 data class PlaceEntry(
@@ -90,6 +94,9 @@ data class CellJudgement(
     val places: Int = 0,
     /** The book was started again because the Keystore key changed. */
     val restarted: Boolean = false,
+    /** The judged cell's own technology and operator (`310-260`), only for [TowerVerdict.UNFAMILIAR], so the finding names the right cell on a dual SIM. */
+    val tech: CellTech? = null,
+    val operatorCode: String? = null,
 )
 
 /** The logbook row. [keyId] says which Keystore key made the hashes. */
@@ -216,7 +223,10 @@ object CellLog {
     /** The tokens of the cells in [cells] that have an id, [hmac] being the keyed hash (32 lowercase hex). Cells without an id cannot be judged and are left out. */
     fun tokensOf(cells: List<ServingCell>, hmac: (String) -> String): List<CellTokens> =
         cells.filter { it.cellId != null }
-            .map { CellTokens(hmac(it.cellInput()), it.areaInput()?.let(hmac), it.operatorInput()?.let(hmac), it.tech.rank) }
+            .map {
+                val code = if (it.mcc != null && it.mnc != null) "${it.mcc}-${it.mnc}" else null
+                CellTokens(hmac(it.cellInput()), it.areaInput()?.let(hmac), it.operatorInput()?.let(hmac), it.tech.rank, it.tech, code)
+            }
             .distinctBy { it.cell }
 
     /**
@@ -301,6 +311,8 @@ object CellLog {
             placeCells = entry.cells.size,
             places = next.places.size,
             restarted = restarted,
+            tech = if (unfamiliar) worst.third.tech else null,
+            operatorCode = if (unfamiliar) worst.third.operatorCode else null,
         )
         return next to judgement
     }

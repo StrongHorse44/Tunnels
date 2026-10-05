@@ -185,7 +185,12 @@ object SurroundingsRules {
         listOf(
             FindingDraft(
                 ctx.tunnelId, SurroundingsKeys.towerSubject(tower), UNFAMILIAR_TOWER, Severity.NOTICE,
-                unfamiliarTowerEvidence(signals, CellTech.bySlug(obs.v(SurroundingsKeys.CELL_TYPE)), obs.v(SurroundingsKeys.CELL_OPERATOR)),
+                unfamiliarTowerEvidence(
+                    signals,
+                    // The judged cell's own technology and operator (the unfamiliar cell may be the other SIM's); the first registered cell's only for older rows.
+                    CellTech.bySlug(obs.v(SurroundingsKeys.LOG_TECH) ?: obs.v(SurroundingsKeys.CELL_TYPE)),
+                    obs.v(SurroundingsKeys.LOG_OPERATOR) ?: obs.v(SurroundingsKeys.CELL_OPERATOR),
+                ),
                 sticky = true,
             ),
         )

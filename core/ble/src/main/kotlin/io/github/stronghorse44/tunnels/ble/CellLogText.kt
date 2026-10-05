@@ -25,18 +25,34 @@ object CellLogText {
         else -> CellLogbook.decode(raw)?.let { Row.On(it.places.size) } ?: Row.Unreadable
     }
 
-    /** One line: the row first (off and unreadable need no scan), else the last scan's `log:*` observations ([obs] maps key to value). */
+    /**
+     * One line: the live row first. Off and unreadable need no scan, and a row that is on with no places yet (just
+     * started) says so: the last scan's facts may predate it (a Clear then Start leaves them behind), so they are not
+     * read. Otherwise the last scan's `log:*` observations ([obs] maps key to value).
+     */
     fun line(row: Row, obs: Map<String, String>): String = when (row) {
         Row.Off -> OFF
         Row.Unreadable -> UNREADABLE
-        is Row.On -> when (obs[SurroundingsKeys.LOG_STATE]) {
+        is Row.On -> if (row.places == 0) ON_NO_SCAN else when (obs[SurroundingsKeys.LOG_STATE]) {
             null, SurroundingsKeys.LOG_OFF -> ON_NO_SCAN
             SurroundingsKeys.LOG_NO_PLACE -> NO_PLACE
             SurroundingsKeys.LOG_NO_CELL_ID -> NO_CELL_ID
             SurroundingsKeys.LOG_UNREADABLE -> UNREADABLE
             SurroundingsKeys.LOG_RESTARTED -> RESTARTED
-            else -> placeLine(obs, row.places) ?: if (obs[SurroundingsKeys.LOG_STATE] == SurroundingsKeys.LOG_FAILED) FAILED else ON_NO_SCAN
+            // The write failed: the counts are of a book that was not saved, so only the verdict is shown.
+            SurroundingsKeys.LOG_FAILED -> verdictLine(obs)?.let { "$it $NOT_SAVED" } ?: FAILED
+            else -> placeLine(obs, row.places) ?: ON_NO_SCAN
         }
+    }
+
+    const val NOT_SAVED = "(not saved this scan)"
+
+    private fun verdictLine(obs: Map<String, String>): String? = when (TowerVerdict.bySlug(obs[SurroundingsKeys.LOG_VERDICT])) {
+        TowerVerdict.LEARNING -> "Learning this place"
+        TowerVerdict.FAMILIAR -> "Familiar place, known tower"
+        TowerVerdict.NEW_NORMAL -> "Familiar place, new tower that looks normal"
+        TowerVerdict.UNFAMILIAR -> "Unfamiliar tower at a familiar place"
+        null -> null
     }
 
     private fun placeLine(obs: Map<String, String>, places: Int): String? {

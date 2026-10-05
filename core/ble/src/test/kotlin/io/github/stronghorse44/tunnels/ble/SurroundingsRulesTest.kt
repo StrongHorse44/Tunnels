@@ -481,6 +481,18 @@ class SurroundingsRulesTest {
     }
 
     @Test
+    fun theEvidenceNamesTheJudgedCellNotTheFirstRegisteredOne() {
+        // The first registered cell is LTE on 310-260; the unfamiliar one is a 3G cell of another operator.
+        val obs = logObs("unfamiliar", "downgrade,operator", tower = "0a1b2c3d", tech = "LTE", operator = "310-260") + listOf(
+            Observation(t, SurroundingsKeys.CELL_SUMMARY, SurroundingsKeys.LOG_TECH, "UMTS"),
+            Observation(t, SurroundingsKeys.CELL_SUMMARY, SurroundingsKeys.LOG_OPERATOR, "262-01"),
+        )
+        val text = evaluate(obs).single { it.kind == SurroundingsRules.UNFAMILIAR_TOWER }.evidence
+        assertTrue(text, text.contains("the connection dropped to 3G (UMTS) and the operator 262-01 is new here."))
+        assertFalse(text, text.contains("310-260"))
+    }
+
+    @Test
     fun noFindingForLearningFamiliarOrNewNormal() {
         for (v in listOf("learning", "familiar", "new-normal")) {
             assertTrue(v, evaluate(logObs(v, tower = "0a1b2c3d")).of(SurroundingsRules.UNFAMILIAR_TOWER).isEmpty())

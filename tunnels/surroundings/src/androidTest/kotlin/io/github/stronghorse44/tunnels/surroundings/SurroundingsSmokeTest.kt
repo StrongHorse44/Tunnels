@@ -247,6 +247,9 @@ class SurroundingsSmokeTest {
             assertEquals(TowerVerdict.UNFAMILIAR, j!!.verdict)
             assertEquals(setOf(Signal.AREA), j.signals)
             assertEquals(8, j.towerId!!.length)
+            // The judgement names the judged cell's own technology and operator (never part of the row).
+            assertEquals(CellTech.LTE, j.tech)
+            assertEquals("310-260", j.operatorCode)
             assertEquals(TowerVerdict.UNFAMILIAR, log.judge(block, listOf(odd), 3).second!!.verdict)
 
             // The row holds hashes, counts and ranks only: none of the identity above, and it reads back.

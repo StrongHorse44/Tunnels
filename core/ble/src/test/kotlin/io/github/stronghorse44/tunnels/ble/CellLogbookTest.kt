@@ -114,6 +114,22 @@ class CellLogbookTest {
     }
 
     @Test
+    fun aDropCountsOnlyFromLteOrBetter() {
+        // A place seen only on 3G, so the place's own best rank gives no signal. A new 2G cell after a 3G scan is
+        // a step down, but not from 4G/5G: no downgrade signal. After a 4G scan it is one.
+        val threeG = learned(cells = arrayOf(umts(1000)))
+        val g = gsm(1001)
+        assertEquals(TowerVerdict.NEW_NORMAL, scan(threeG, block(1), g, previousRank = 2).second.verdict)
+        assertEquals(TowerVerdict.NEW_NORMAL, scan(threeG, block(1), g, previousRank = 1).second.verdict)
+        assertEquals(TowerVerdict.NEW_NORMAL, scan(threeG, block(1), g, previousRank = 0).second.verdict)
+        assertEquals(setOf(Signal.DOWNGRADE), signalsOf(threeG, g, previousRank = 3))
+        assertEquals(setOf(Signal.DOWNGRADE), signalsOf(threeG, g, previousRank = 4))
+        // An unknown technology (rank 0) is never a downgrade, even after 4G.
+        val unknown = ServingCell(CellTech.UNKNOWN, "310", "260", null, 1002, null, null)
+        assertEquals(TowerVerdict.NEW_NORMAL, scan(learned(), block(1), unknown, previousRank = 4).second.verdict)
+    }
+
+    @Test
     fun unfamiliarCellWithNewOperatorRaises() {
         // With the tracking area unknown the operator is the only new thing.
         assertEquals(setOf(Signal.OPERATOR), signalsOf(learned(), lte(1001, area = null, mnc = "480")))
@@ -154,6 +170,36 @@ class CellLogbookTest {
         val newest = tokens(ids.last()).single().cell
         assertTrue(book.held.any { it.cell == newest })
         assertEquals(book.held.map { it.cell }.toSet().size, book.held.size)
+        // Exactly which one goes: with 8 held, the next unfamiliar tower pushes out the one with the lowest tower id.
+        var eight = learned()
+        (0 until CellLog.MAX_HELD).forEach { i -> eight = scan(eight, block(1), lte(3000L + i, area = 800L + i)).first }
+        assertEquals(CellLog.MAX_HELD, eight.held.size)
+        val lowest = eight.held.minWith(compareBy<HeldTower> { it.towerId }.thenBy { it.cell })
+        val ninth = lte(4000, area = 850)
+        val after = scan(eight, block(1), ninth).first
+        assertEquals(CellLog.MAX_HELD, after.held.size)
+        assertFalse(after.held.any { it.cell == lowest.cell })
+        assertEquals((eight.held.map { it.cell }.toSet() - lowest.cell) + tokens(ninth).single().cell, after.held.map { it.cell }.toSet())
+        // A tower already held is replaced in place, and nothing is pushed out.
+        val replaced = scan(eight, block(1), lte(3003, area = 803)).first
+        assertEquals(eight.held.map { it.cell }.toSet(), replaced.held.map { it.cell }.toSet())
+    }
+
+    @Test
+    fun theJudgementNamesTheJudgedCellsOwnTechAndOperator() {
+        // Dual SIM: a known 4G cell of one operator and an unfamiliar 3G cell of another. The notice is about the second.
+        val own = lte(1000)
+        val other = ServingCell(CellTech.UMTS, "262", "01", 55, 9001, 3, 10564)
+        val (book, j) = scan(learned(), block(1), own, other)
+        assertEquals(TowerVerdict.UNFAMILIAR, j.verdict)
+        assertEquals(CellTech.UMTS, j.tech)
+        assertEquals("262-01", j.operatorCode)
+        val map = SurroundingsKeys.logObservations("on", j, book).associate { it.key to it.value }
+        assertEquals("UMTS", map[SurroundingsKeys.LOG_TECH])
+        assertEquals("262-01", map[SurroundingsKeys.LOG_OPERATOR])
+        // Only for an unfamiliar verdict, and never in the row.
+        assertNull(scan(learned(), block(1), own).second.tech)
+        assertFalse(book.encode().contains("262"))
     }
 
     @Test
@@ -546,6 +592,17 @@ class CellLogbookTest {
         assertEquals("Familiar place · 7 towers known here · 12 places", CellLogText.line(on, obs(SurroundingsKeys.LOG_STATE to "on", SurroundingsKeys.LOG_PLACE_SCANS to "9", SurroundingsKeys.LOG_PLACE_CELLS to "7")))
         assertEquals("Familiar place · 1 tower known here · 1 place", CellLogText.line(CellLogText.Row.On(1), obs(SurroundingsKeys.LOG_STATE to "on", SurroundingsKeys.LOG_PLACE_SCANS to "4", SurroundingsKeys.LOG_PLACE_CELLS to "1")))
         assertEquals(CellLogText.FAILED, CellLogText.line(on, obs(SurroundingsKeys.LOG_STATE to "failed")))
+        // A write that failed shows the verdict only, never counts from a book that was not saved.
+        assertEquals(
+            "Unfamiliar tower at a familiar place (not saved this scan)",
+            CellLogText.line(on, obs(SurroundingsKeys.LOG_STATE to "failed", SurroundingsKeys.LOG_VERDICT to "unfamiliar", SurroundingsKeys.LOG_PLACE_SCANS to "9", SurroundingsKeys.LOG_PLACE_CELLS to "7")),
+        )
+        // A row that is on with no places yet (just started, maybe after a Clear) ignores scan facts that predate it.
+        val stale = obs(SurroundingsKeys.LOG_STATE to "on", SurroundingsKeys.LOG_PLACE_SCANS to "9", SurroundingsKeys.LOG_PLACE_CELLS to "7")
+        assertEquals(CellLogText.ON_NO_SCAN, CellLogText.line(CellLogText.Row.On(0), stale))
+        assertEquals(CellLogText.ON_NO_SCAN, CellLogText.line(CellLogText.Row.On(0), obs(SurroundingsKeys.LOG_STATE to "unreadable")))
+        assertEquals(CellLogText.ON_NO_SCAN, CellLogText.line(CellLogText.Row.On(0), obs(SurroundingsKeys.LOG_STATE to "no-place")))
+        assertEquals(CellLogText.OFF, CellLogText.line(CellLogText.Row.Off, stale))
         assertEquals(CellLogText.Row.Off, CellLogText.row(null))
         assertEquals(CellLogText.Row.Unreadable, CellLogText.row("junk"))
         assertEquals(CellLogText.Row.On(0), CellLogText.row(CellLogbook(kid).encode()))

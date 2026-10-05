@@ -116,6 +116,9 @@ object SurroundingsKeys {
     const val LOG_SIGNALS = "log:signals"
     /** The first 8 hex of the unfamiliar cell's keyed token: 32 bits of a hash that only this phone can compute. */
     const val LOG_TOWER = "log:tower"
+    /** The unfamiliar cell's own technology slug and operator (`310-260`), only when unfamiliar: what a cell check keeps, not an identity. */
+    const val LOG_TECH = "log:tech"
+    const val LOG_OPERATOR = "log:operator"
     const val LOG_PLACES = "log:places"
     const val LOG_PLACE_SCANS = "log:placeScans"
     const val LOG_PLACE_CELLS = "log:placeCells"
@@ -335,6 +338,8 @@ object SurroundingsKeys {
             add(LOG_VERDICT, judgement.verdict.slug)
             add(LOG_SIGNALS, if (judgement.signals.isEmpty()) NONE else judgement.signals.sortedBy { it.ordinal }.joinToString(",") { it.slug })
             judgement.towerId?.let { add(LOG_TOWER, it) }
+            judgement.tech?.let { add(LOG_TECH, it.slug) }
+            judgement.operatorCode?.let { add(LOG_OPERATOR, it) }
             add(LOG_PLACES, judgement.places.toString())
             add(LOG_PLACE_SCANS, judgement.placeScans.toString())
             add(LOG_PLACE_CELLS, judgement.placeCells.toString())
