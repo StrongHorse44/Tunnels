@@ -60,20 +60,6 @@
   "components": [
     {
       "type": "activity",
-      "name": "androidx.compose.ui.tooling.PreviewActivity",
-      "exported": true,
-      "permission": null,
-      "read_permission": null,
-      "write_permission": null,
-      "grant_uri_permissions": null,
-      "authorities": [],
-      "foreground_service_type": null,
-      "actions": [],
-      "categories": [],
-      "data": []
-    },
-    {
-      "type": "activity",
       "name": "io.github.stronghorse44.tunnels.MainActivity",
       "exported": true,
       "permission": null,
