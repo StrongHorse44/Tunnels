@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Release gate: compares what a built APK can do with the checked-in gate/baseline.json.
 
-A change to what the app can do (permissions, components and their intent filters, package queries,
-native code, extra code, network APIs, host literals, runtime and file dependencies, SDK levels,
-debuggable, backup and network flags, signing certificate) must come with a change to
-gate/baseline.json in the same pull request, so the owner sees it before merging.
+A change to what the app can do (permissions, uses-features, application meta-data, components and their
+intent filters, the resources their providers point at, package queries, native code, extra code, network
+APIs, host literals, model and data assets, runtime and file dependencies, SDK levels, debuggable, backup
+and network flags, signing certificate) must come with a change to gate/baseline.json in the same pull
+request, so the owner sees it before merging.
 
   gate.py generate    --apk APK --deps LOG [--baseline FILE] [--out FILE] [--require-tools]
   gate.py check       --apk APK --deps LOG [--baseline FILE] [--generated FILE] [--require-tools]
@@ -12,6 +13,7 @@ gate/baseline.json in the same pull request, so the owner sees it before merging
   gate.py cert        --apk APK [--baseline FILE] [--require-pin]
   gate.py inspect     --apk APK [--require-tools]
   gate.py fingerprint --apk APK
+  gate.py --version
 
 LOG is Gradle output holding `<module>:dependencies --configuration <c>` and the gateFileDependencies
 task from gate/file-dependencies.init.gradle. Exit codes: 0 match, 1 differences (or a signing problem),
@@ -32,6 +34,7 @@ import zipfile
 import zlib
 
 SCHEMA = 2
+GATE_VERSION = "2.1"
 ANDROID_NS = "http://schemas.android.com/apk/res/android"
 
 
@@ -64,7 +67,7 @@ ATTR_IDS = {
     "allowBackup": 0x01010280, "required": 0x0101028E, "fullBackupContent": 0x010104EB,
     "usesCleartextTraffic": 0x010104EC, "networkSecurityConfig": 0x01010527,
     "foregroundServiceType": 0x01010599, "dataExtractionRules": 0x0101063E,
-    "usesPermissionFlags": 0x01010644,
+    "usesPermissionFlags": 0x01010644, "value": 0x01010024, "resource": 0x01010025, "glEsVersion": 0x01010281, "version": 0x01010519,
 }
 ID_TO_ATTR = {v: k for k, v in ATTR_IDS.items()}
 TYPE_REFERENCE, TYPE_STRING, TYPE_INT_DEC, TYPE_INT_HEX, TYPE_BOOLEAN = 0x01, 0x03, 0x10, 0x11, 0x12
@@ -169,7 +172,25 @@ def axml_elements(b):
                 a = body + attr_start + i * attr_size
                 ns, name_index, raw = u32(b, a), u32(b, a + 4), u32(b, a + 8)
                 dtype, data = b[a + 15], u32(b, a + 16)
-                attrs[attr_key(strings, rmap, ns, name_index, tag)] = (dtype, data, strings[raw] if raw != 0xFFFFFFFF else None)
+                # The platform reads attributes two ways: PackageParser through TypedArray (the typed value) and
+                # FileProvider, the network security config and the like through getAttributeValue (the raw
+                # string; none gives null). A string whose two copies differ, or that has no raw copy, and a
+                # reference that also carries a raw string (getAttributeValue returns that string, not the
+                # reference) would show the gate one thing and the platform another, so they are refused.
+                if dtype == TYPE_REFERENCE and raw != 0xFFFFFFFF:
+                    raise GateError(f"<{tag}> attribute {strings[name_index]!r} is a resource reference that also "
+                                    f"carries the raw string {strings[raw]!r}, so the gate can't tell which "
+                                    "value the platform reads")
+                if dtype == TYPE_STRING and (raw == 0xFFFFFFFF or strings[raw] != strings[data]):
+                    shown = "no raw string" if raw == 0xFFFFFFFF else f"raw {strings[raw]!r} but typed {strings[data]!r}"
+                    raise GateError(f"<{tag}> attribute {strings[name_index]!r} is a string with {shown}, so the "
+                                    "gate can't tell which value the platform reads")
+                text = strings[raw] if raw != 0xFFFFFFFF else None
+                key = attr_key(strings, rmap, ns, name_index, tag)
+                if key in attrs:
+                    raise GateError(f"<{tag}> has two attributes that read as {key}, so the gate can't tell "
+                                    "which one the platform sees")
+                attrs[key] = (dtype, data, text)
             yield tuple(parents), tag, attrs
             parents.append(tag)
         elif ctype == 0x0103:
@@ -188,7 +209,9 @@ def attr_key(strings, rmap, ns, name_index, tag):
     rid = rmap[name_index] if name_index < len(rmap) else None
     android_ns = ns != 0xFFFFFFFF and strings[ns] == ANDROID_NS
     if rid not in ID_TO_ATTR and not android_ns:
-        return name
+        # An attribute in another namespace is not the plain one of the same name: the platform reads
+        # getAttributeValue(null, "path") and ignores {urn:x}path, so the namespace stays in the key.
+        return name if ns == 0xFFFFFFFF else "{" + strings[ns] + "}" + name
     if rid in ID_TO_ATTR:
         known = ID_TO_ATTR[rid]
         if name and name != known:
@@ -281,11 +304,44 @@ def permission_flags(flags):
     return "|".join(names)
 
 
+def feature_text(attrs, tag):
+    """`<uses-feature>`: `NAME;required=true` (a GL version is `glEsVersion=0x30000;required=true`, a feature
+    with a version such as Vulkan's `NAME;version=0x400003;required=true`). Required defaults to true."""
+    name, gl, version = attr_str(attrs, "name"), attr_int(attrs, "glEsVersion", tag), attr_int(attrs, "version", tag)
+    if not name and gl is None:
+        raise GateError(f"<{tag}> has neither android:name nor android:glEsVersion")
+    for label, number in (("glEsVersion", gl), ("version", version)):
+        if number is not None and not isinstance(number, int):
+            raise GateError(f"<{tag}> android:{label} is not a number ({number!r})")
+    parts = [name] if name else []
+    parts += [f"glEsVersion=0x{gl:x}"] if gl is not None else []
+    parts += [f"version=0x{version:x}"] if version is not None else []
+    return ";".join(parts + [f"required={str(attr_bool(attrs, 'required', True, tag)).lower()}"])
+
+
+def meta_items(attrs, tag):
+    """What a `<meta-data>` holds, as (name, kind, payload): a literal value is final text `NAME;value=…` (kind
+    "literal"); a reference is (name, "value" or "resource", resource ID) for apk_facts to resolve; with
+    neither attribute the entry is just the name."""
+    name = required_name(attrs, tag)
+    out = []
+    for key in ("value", "resource"):
+        v = attr(attrs, key)
+        if v is None:
+            continue
+        if v[0] == TYPE_REFERENCE:
+            out.append((name, key, v[1]))
+        else:
+            out.append((f"{name};{key}={attr_text(v)}", "literal", None))
+    return out or [(name, "literal", None)]
+
+
 def manifest_facts(manifest):
     package = shared_user_id = None
     sdk = {"min": None, "target": None}
     app = None
     requested, declared, queries, native_libraries = set(), set(), set(), set()
+    features, app_meta = set(), []
     components, current, query_intents = [], None, []
 
     for parents, tag, attrs in axml_elements(manifest):
@@ -309,6 +365,8 @@ def manifest_facts(manifest):
                 if flags:
                     item += f";usesPermissionFlags={flags}"
                 requested.add(item)
+            elif tag == "uses-feature":
+                features.add(feature_text(attrs, tag))
             elif tag == "permission":
                 level = attr_int(attrs, "protectionLevel", tag)
                 declared.add(required_name(attrs, tag) + ("" if level is None else f";protectionLevel=0x{level:x}"))
@@ -330,13 +388,18 @@ def manifest_facts(manifest):
             if tag == "uses-native-library":
                 native_libraries.add(f"{required_name(attrs, tag)};required={str(attr_bool(attrs, 'required', True, tag)).lower()}")
             elif tag in COMPONENT_TAGS:
-                current = {"type": tag, "attrs": attrs, "filters": 0, "actions": set(), "categories": set(), "data": set()}
+                current = {"type": tag, "attrs": attrs, "filters": 0, "actions": set(), "categories": set(), "data": set(),
+                           "meta": []}
                 components.append(current)
             else:
                 current = None
+                if tag == "meta-data":
+                    app_meta += meta_items(attrs, tag)
         elif len(parents) == 3 and parents[:2] == ("manifest", "application") and parents[2] in COMPONENT_TAGS:
             if tag == "intent-filter" and current is not None:
                 current["filters"] += 1
+            elif tag == "meta-data" and current is not None and current["type"] == "provider":
+                current["meta"] += [m for m in meta_items(attrs, tag) if m[1] == "resource"]
         elif len(parents) == 4 and parents[:2] == ("manifest", "application") and parents[3] == "intent-filter":
             if current is not None:
                 if tag == "action":
@@ -354,7 +417,7 @@ def manifest_facts(manifest):
     target = sdk["target"]
     effective_target = target if isinstance(target, int) else (10000 if isinstance(target, str) else min_sdk)
 
-    out_components = []
+    out_components, provider_meta = [], []
     for c in components:
         attrs, tag = c["attrs"], c["type"]
         name = required_name(attrs, tag)
@@ -364,6 +427,7 @@ def manifest_facts(manifest):
         exported = attr_bool(attrs, "exported", default, tag)
         if not exported and tag in ("activity", "activity-alias"):
             continue  # an unexported activity adds nothing another app or the system can reach
+        provider_meta += [(name, meta, rid) for meta, _, rid in c["meta"]]
         fgs = attr_int(attrs, "foregroundServiceType", tag) if tag == "service" else None
         out_components.append({
             "type": tag,
@@ -413,17 +477,23 @@ def manifest_facts(manifest):
         "permissions": {"requested": sorted(requested), "declared": sorted(declared)},
         "queries": sorted(queries),
         "uses_native_libraries": sorted(native_libraries),
+        "uses_features": sorted(features),
+        # Literal values are final; references are resolved through resources.arsc by apk_facts.
+        "meta_data": sorted(m[0] for m in app_meta if m[1] == "literal"),
+        "meta_refs": [m for m in app_meta if m[1] != "literal"],
         "components": out_components,
+        "provider_meta": provider_meta,
     }
 
 
 # ---- Resource files and the network security config ---------------------------------------------
 
 
-def resource_files(table, rid):
-    """Every file path resources.arsc maps resource rid to (one per configuration that has it)."""
+def resource_entries(table, rid, entry):
+    """Applies entry(table, type chunk, header size, size, index, global strings) to every configuration of
+    resource rid in resources.arsc and returns the union of the sets it returns."""
     _, hsize, size = chunk_header(table, 0, len(table))
-    strings, paths = None, set()
+    strings, found = None, set()
     o = hsize
     while o + 8 <= size:
         ctype, chsize, csize = chunk_header(table, o, size)
@@ -434,13 +504,19 @@ def resource_files(table, rid):
             while c + 8 <= o + csize:
                 ttype, thsize, tsize = chunk_header(table, c, o + csize)
                 if ttype == 0x0201 and table[c + 8] == (rid >> 16) & 0xFF:
-                    paths |= type_entry_files(table, c, thsize, tsize, rid & 0xFFFF, strings)
+                    found |= entry(table, c, thsize, tsize, rid & 0xFFFF, strings)
                 c += tsize
         o += csize
-    return sorted(paths)
+    return found
 
 
-def type_entry_files(b, t, hsize, size, index, strings):
+def resource_files(table, rid):
+    """Every file path resources.arsc maps resource rid to (one per configuration that has it)."""
+    return sorted(resource_entries(table, rid, type_entry_files))
+
+
+def type_entry_raw(b, t, hsize, size, index):
+    """(value type, data) of entry `index` of one type chunk, "bag" for a complex entry, None if absent."""
     flags, count, start = b[t + 9], u32(b, t + 12), u32(b, t + 16)
     offset = None
     if flags & 0x01:  # sparse: (index, offset / 4) pairs
@@ -453,20 +529,68 @@ def type_entry_files(b, t, hsize, size, index, strings):
     elif index < count and u32(b, t + hsize + 4 * index) != 0xFFFFFFFF:
         offset = u32(b, t + hsize + 4 * index)
     if offset is None:
-        return set()
+        return None
     e = t + start + offset
     if e + 8 > t + size:
         raise GateError(f"resource entry 0x{index:04x} runs past its type chunk")
     entry_size, entry_flags = u16(b, e), u16(b, e + 2)
     if entry_flags & 0x0008:  # compact entry: value type in the flags' high byte, data after the key
-        dtype, data = entry_flags >> 8, u32(b, e + 4)
-    elif entry_flags & 0x0001:
+        return entry_flags >> 8, u32(b, e + 4)
+    if entry_flags & 0x0001:
+        return "bag"
+    return b[e + entry_size + 3], u32(b, e + entry_size + 4)
+
+
+def type_entry_files(b, t, hsize, size, index, strings):
+    raw = type_entry_raw(b, t, hsize, size, index)
+    if raw is None:
+        return set()
+    if raw == "bag":
         raise GateError(f"resource entry 0x{index:04x} is a bag, not a file")
-    else:
-        dtype, data = b[e + entry_size + 3], u32(b, e + entry_size + 4)
+    dtype, data = raw
     if dtype != TYPE_STRING or strings is None:
         raise GateError(f"resource entry 0x{index:04x} is not a file path")
     return {strings[data]}
+
+
+def type_entry_values(b, t, hsize, size, index, strings):
+    """(value type, data, text) of one entry in every configuration; text is the string for string values."""
+    raw = type_entry_raw(b, t, hsize, size, index)
+    if raw is None:
+        return set()
+    if raw == "bag":
+        raise GateError(f"resource entry 0x{index:04x} is a complex resource, not a plain value or file")
+    dtype, data = raw
+    return {(dtype, data, strings[data] if dtype == TYPE_STRING and strings is not None else None)}
+
+
+def resolve_reference(table, rid, apk_paths, depth=0):
+    """What a resource reference in the manifest points at: ("file", sorted APK paths) when it is a file the
+    APK holds, else ("value", sorted texts), one per configuration. Aliases are followed a few levels;
+    a framework resource (0x01......) is its ID, which is stable. A complex or unresolvable resource is an
+    error, never a skip."""
+    if rid >> 24 == 0x01:
+        return "value", [f"android:0x{rid:08x}"]
+    entries = resource_entries(table, rid, type_entry_values)
+    if not entries:
+        raise GateError(f"resource 0x{rid:08x} does not resolve to anything in resources.arsc")
+    files, values = set(), set()
+    for dtype, data, text in entries:
+        if dtype == TYPE_STRING and text in apk_paths:
+            files.add(text)
+        elif dtype == TYPE_REFERENCE:
+            if depth >= 4:
+                raise GateError(f"resource 0x{rid:08x} is an alias chain more than 4 levels deep")
+            kind, texts = resolve_reference(table, data, apk_paths, depth + 1)
+            (files if kind == "file" else values).update(texts)
+        elif dtype == TYPE_STRING:
+            values.add(text)
+        else:
+            values.add(attr_text((dtype, data, None)))
+    if files and values:
+        raise GateError(f"resource 0x{rid:08x} is a file in one configuration and a value in another, "
+                        f"so the gate can't record what it points at ({sorted(files | values)})")
+    return ("file", sorted(files)) if files else ("value", sorted(values))
 
 
 def plain_bool(attrs, name, default, tag):
@@ -527,6 +651,44 @@ def nsc_facts(xml, resolve):
     return sorted(out, key=lambda c: json.dumps(c, sort_keys=True))
 
 
+def canonical_xml(xml):
+    """A compiled XML resource as stable text: one line per element, and per non-blank text node, each line
+    one compact JSON array (ensure_ascii, separators "," and ":"):
+
+        [DEPTH, "tag", [["key", "value"], ...]]        an element, its attributes sorted by key
+        [DEPTH, "#text", [["#text", "stripped text"]]]  a text node
+
+    A key is the attribute's name; an Android one is "android:name" and one in another namespace
+    "{namespace URI}name", so a decoy in a foreign namespace can't stand in for the plain attribute. A value
+    is the attribute's text, or null for a resource reference (IDs change with every build). JSON escapes
+    every quote and newline, so no value can spell out another attribute or element, and two attributes
+    that read as one key are refused when the file is decoded. The string pool's order, the compiler's
+    version and attribute order do not matter. This format is frozen: the digests in baselines depend on it."""
+    lines = []
+    for parents, tag, attrs in axml_elements(xml):
+        if tag == "#text":
+            text = attrs["#text"][2].strip()
+            if text:
+                lines.append(json.dumps([len(parents), "#text", [["#text", text]]], ensure_ascii=True, separators=(",", ":")))
+            continue
+        pairs = [[key, None if attrs[key][0] == TYPE_REFERENCE else attr_text(attrs[key])] for key in sorted(attrs)]
+        lines.append(json.dumps([len(parents), tag, pairs], ensure_ascii=True, separators=(",", ":")))
+    return lines
+
+
+def resource_content(blobs):
+    """(sha256, elements) of what a resource reference resolves to, from the file in each configuration: the
+    canonical lines (canonical_xml) of a compiled XML file, or `raw sha256 …` for any other file. Identical variants count
+    once and the file's name is left out (a release build may shorten it to `res/8K.xml`, and the name
+    changes whenever resources are added), so only a change in the content moves the digest."""
+    variants = sorted({("x", tuple(canonical_xml(b))) if b[:4] == XML_MAGIC
+                       else ("r", (f"raw sha256 {hashlib.sha256(b).hexdigest()}",)) for b in blobs})
+    elements = []
+    for i, (_, lines) in enumerate(variants):
+        elements += (["---"] if i else []) + list(lines)
+    return hashlib.sha256("\n".join(elements).encode("utf-8")).hexdigest(), elements
+
+
 # ---- Dex -----------------------------------------------------------------------------------------
 
 
@@ -567,9 +729,10 @@ def dex_tables(dex, name):
 
 # ---- Scans ---------------------------------------------------------------------------------------
 
-# Types that open or describe network connections. android.net.Uri is a string wrapper, not network.
+# Types that open or describe network connections. android.net.Uri is a string wrapper, not network. Array
+# types ([Ljavax/net/ssl/TrustManager;) count as well: the element type is what the app handles.
 NETWORK_TYPE = re.compile(
-    r"^L(java/net/|javax/net/|java/nio/channels/[A-Za-z]*Socket|android/net/(?!Uri;|Uri\$)|android/webkit/|"
+    r"^\[*L(java/net/|javax/net/|java/nio/channels/[A-Za-z]*Socket|android/net/(?!Uri;|Uri\$)|android/webkit/|"
     r"android/app/DownloadManager|org/apache/http/|okhttp3/|com/squareup/okhttp/|retrofit2/|io/ktor/|io/grpc/|"
     r"io/netty/|org/chromium/net/|com/android/volley/)"
 )
@@ -582,6 +745,11 @@ TLDS = ("com|net|org|io|dev|app|co|me|info|biz|xyz|ai|gov|edu|mil|int|us|uk|eu|d
 # Lower case only: identifiers like Dispatchers.IO are not hosts.
 BARE_HOST = re.compile(
     r"(?<![A-Za-z0-9._%+-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:" + TLDS + r"))(?![A-Za-z0-9-]|\.[A-Za-z0-9])"
+)
+# A suffix literal (".githubusercontent.com", "*.example.com" without the star) is recorded with its leading
+# dot, which marks it as a suffix: code that matches hosts by suffix names a domain without ever writing a host.
+SUFFIX_HOST = re.compile(
+    r"(?<![A-Za-z0-9._%+-])(\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:" + TLDS + r"))(?![A-Za-z0-9-]|\.[A-Za-z0-9])"
 )
 OCTET = r"(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)"
 IPV4 = re.compile(r"(?<![0-9.])(" + OCTET + r"(?:\." + OCTET + r"){3})(?![0-9.])")
@@ -609,9 +777,9 @@ def hosts_in(text):
         authority = m.group(2).rsplit("@", 1)[-1].lower().rstrip(".")
         found.add(m.group(1).lower() + "://" + authority)
     rest = URL.sub(" ", text)
-    for m in BARE_HOST.finditer(rest):
+    for m in list(BARE_HOST.finditer(rest)) + list(SUFFIX_HOST.finditer(rest)):
         host = m.group(1)
-        labels = host.split(".")
+        labels = host.lstrip(".").split(".")
         if labels[0] in PACKAGE_ROOTS and labels[-1] not in HOST_LAST_UNDER_PACKAGE_ROOTS:
             continue
         found.add(host)
@@ -630,11 +798,38 @@ MAX_ENTRY_BYTES = 256 * 1024 * 1024
 MAX_TOTAL_BYTES = 1024 * 1024 * 1024
 
 
+# Model and data files whose content a baseline pins when scan.asset_digest_paths is not set (zip globs on
+# the path of a top-level entry; `*` also matches `/`). A baseline that sets the list replaces these.
+DEFAULT_ASSET_DIGEST_PATHS = ("*.tflite", "*.onnx", "*.ort", "*.task")
+
+
 class Scan:
-    def __init__(self):
+    def __init__(self, asset_paths=()):
         self.native, self.extra_code, self.network, self.texts = set(), set(), set(), set()
         self.desugared = False
         self.read_bytes = 0
+        self.asset_paths, self.assets = tuple(asset_paths), []
+
+    def count(self, n):
+        self.read_bytes += n
+        if self.read_bytes > MAX_TOTAL_BYTES:
+            raise GateError(f"the APK's code and resources inflate past the gate's {MAX_TOTAL_BYTES}-byte limit")
+
+    def digest(self, z, info, path):
+        """SHA-256 and size of one entry's inflated content, streamed, within the same caps as read()."""
+        if any(a["path"] == path for a in self.assets):
+            raise GateError(f"{path} appears twice in the APK, so which one is installed is ambiguous")
+        if info.file_size > MAX_ENTRY_BYTES:
+            raise GateError(f"{path} declares {info.file_size} bytes, over the gate's {MAX_ENTRY_BYTES}-byte limit")
+        h, size = hashlib.sha256(), 0
+        with z.open(info) as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                size += len(chunk)
+                if size > MAX_ENTRY_BYTES:
+                    raise GateError(f"{path} inflates past the gate's {MAX_ENTRY_BYTES}-byte limit")
+                h.update(chunk)
+        self.count(size)
+        self.assets.append({"path": path, "sha256": h.hexdigest(), "size": size})
 
     def read(self, z, info, path):
         """Reads one entry whole, within the per-entry and total caps."""
@@ -644,9 +839,7 @@ class Scan:
             data = f.read(MAX_ENTRY_BYTES + 1)
         if len(data) > MAX_ENTRY_BYTES:
             raise GateError(f"{path} inflates past the gate's {MAX_ENTRY_BYTES}-byte limit")
-        self.read_bytes += len(data)
-        if self.read_bytes > MAX_TOTAL_BYTES:
-            raise GateError(f"the APK's code and resources inflate past the gate's {MAX_TOTAL_BYTES}-byte limit")
+        self.count(len(data))
         return data
 
 
@@ -661,6 +854,8 @@ def scan_archive(z, prefix, depth, scan, extra_text_paths):
         with z.open(info) as f:
             head = f.read(8)
         is_root_dex = not prefix and re.fullmatch(r"classes\d*\.dex", name)
+        if not prefix and any(fnmatch.fnmatchcase(name.lower(), pattern.lower()) for pattern in scan.asset_paths):
+            scan.digest(z, info, path)
         if head[:4] == b"\x7fELF" or name.endswith(".so") or (not prefix and name.startswith("lib/")):
             scan.native.add(path)
             has_code = True
@@ -694,7 +889,7 @@ def scan_archive(z, prefix, depth, scan, extra_text_paths):
     return has_code
 
 
-def apk_facts(apk_path, extra_text_paths=()):
+def apk_facts(apk_path, extra_text_paths=(), asset_digest_paths=DEFAULT_ASSET_DIGEST_PATHS):
     try:
         z = zipfile.ZipFile(apk_path)
     except (OSError, zipfile.BadZipFile) as e:
@@ -702,14 +897,23 @@ def apk_facts(apk_path, extra_text_paths=()):
     with z:
         if "AndroidManifest.xml" not in z.namelist():
             raise GateError(f"{apk_path} has no AndroidManifest.xml")
-        scan = Scan()
+        scan = Scan(asset_digest_paths)
+        names, loaded = set(z.namelist()), []
+
+        def get_table():
+            if "resources.arsc" not in names:
+                raise GateError("the APK has no resources.arsc to resolve the manifest's resource references in")
+            if not loaded:
+                loaded.append(scan.read(z, z.getinfo("resources.arsc"), "resources.arsc"))
+            return loaded[0]
+
         manifest = scan.read(z, z.getinfo("AndroidManifest.xml"), "AndroidManifest.xml")
         facts = manifest_facts(manifest)
         nsc = facts["network"]["network_security_config"]
         if nsc is not None:
-            if nsc[0] != TYPE_REFERENCE or "resources.arsc" not in z.namelist():
+            if nsc[0] != TYPE_REFERENCE or "resources.arsc" not in names:
                 raise GateError("android:networkSecurityConfig is not a resource reference the gate can resolve")
-            table = scan.read(z, z.getinfo("resources.arsc"), "resources.arsc")
+            table = get_table()
 
             def resolve(rid):
                 files = resource_files(table, rid)
@@ -723,18 +927,40 @@ def apk_facts(apk_path, extra_text_paths=()):
                     raise GateError(f"network security config {path} is missing from the APK")
                 configs.extend(nsc_facts(scan.read(z, z.getinfo(path), path), resolve))
             facts["network"]["network_security_config"] = configs
+        # Application meta-data that points at a resource: the file's path, or the value it holds.
+        meta = set(facts["meta_data"])
+        for name, key, rid in facts.pop("meta_refs"):
+            kind, texts = resolve_reference(get_table(), rid, names)
+            if kind == "file":
+                digest, _ = resource_content([scan.read(z, z.getinfo(path), path) for path in texts])
+                meta.add(f"{name};resource=sha256:{digest}")
+            else:
+                meta.add(f"{name};{key}={'|'.join(texts)}")
+        facts["meta_data"] = sorted(meta)
+        # The files a provider's meta-data points at (FileProvider's paths), by content.
+        facts["provider_resources"] = []
+        for provider, meta_name, rid in facts.pop("provider_meta"):
+            kind, paths = resolve_reference(get_table(), rid, names)
+            if kind != "file":
+                raise GateError(f"{provider} meta-data {meta_name} points at a resource that is not a file "
+                                f"in the APK ({', '.join(paths)})")
+            digest, elements = resource_content([scan.read(z, z.getinfo(path), path) for path in paths])
+            facts["provider_resources"].append(
+                {"provider": provider, "meta": meta_name, "sha256": digest, "elements": elements})
+        facts["provider_resources"].sort(key=item_key)
         scan_archive(z, "", 0, scan, extra_text_paths)
     hosts, package = set(), facts["package"]
     for t in scan.texts:
         hosts |= hosts_in(t)
     # The app's own package name, and names under it, are identifiers even when they end like a host.
-    hosts = {h for h in hosts if h != package and not h.startswith(package + ".")}
+    hosts = {h for h in hosts if h.lstrip(".") != package and not h.lstrip(".").startswith(package + ".")}
     facts.update({
         "native_libs": sorted(scan.native),
         "extra_code": sorted(scan.extra_code),
         "desugared_library": scan.desugared,
         "network_api": sorted(scan.network),
         "hosts": sorted(hosts),
+        "assets": sorted(scan.assets, key=lambda a: a["path"]),
     })
     return facts
 
@@ -912,8 +1138,11 @@ def signing_block_certs(path):
 
 # Compared between the APK and the baseline.
 COMPARED = ("package", "shared_user_id", "sdk", "debuggable", "backup", "network", "permissions", "queries",
-            "uses_native_libraries", "components", "native_libs", "extra_code", "desugared_library",
-            "network_api", "dependencies", "hosts")
+            "uses_native_libraries", "uses_features", "meta_data", "components", "provider_resources", "native_libs",
+            "extra_code", "desugared_library", "network_api", "dependencies", "hosts", "assets")
+# Sections added in gate 2.1. A baseline written before then lacks them (and `generate` leaves an empty one
+# out), so a missing section is an empty one: it only differs from an APK that has entries.
+OPTIONAL_LISTS = ("uses_features", "meta_data", "provider_resources", "assets")
 # Compared between the base branch's baseline and this one (--compare-to): also the fields no APK built
 # in a pull request can be checked against, and the gate's own configuration.
 COMPARED_BASELINES = ("schema", "variant") + COMPARED + ("signing", "scan", "notes")
@@ -982,7 +1211,7 @@ def rule_matches(rule, field, value):
         host = host_of(value)
         return host == rule["suffix"] or host.endswith("." + rule["suffix"])
     if field == "network_api" and rule.get("field") == "network_api":
-        return value.startswith(rule["prefix"])
+        return value.lstrip("[").startswith(rule["prefix"])  # an array of a library's type is covered too
     return False
 
 
@@ -998,6 +1227,18 @@ def apply_notes(entries, field, rules):
     return entries
 
 
+def asset_digest_paths(old):
+    """scan.asset_digest_paths if the baseline has the key (a list of zip globs, even empty; null is an error),
+    else the defaults."""
+    scan = old.get("scan") or {}
+    if "asset_digest_paths" not in scan:
+        return DEFAULT_ASSET_DIGEST_PATHS
+    configured = scan["asset_digest_paths"]
+    if not isinstance(configured, list) or not all(isinstance(g, str) and g for g in configured):
+        raise GateError("scan.asset_digest_paths must be a list of non-empty zip globs")
+    return tuple(configured)
+
+
 def build(apk, deps_path, old, require_tools):
     old = old or {}
     configuration = (old.get("dependencies") or {}).get("configuration")
@@ -1007,7 +1248,7 @@ def build(apk, deps_path, old, require_tools):
     extra = (old.get("scan") or {}).get("extra_text_paths", [])
     rules = old.get("notes", [])
     check_rules(rules)
-    facts = apk_facts(apk, extra)
+    facts = apk_facts(apk, extra, asset_digest_paths(old))
     aapt2_cross_check(apk, facts, require_tools)
     try:
         with open(deps_path, encoding="utf-8", errors="replace") as f:
@@ -1020,6 +1261,12 @@ def build(apk, deps_path, old, require_tools):
     def noted(field):
         return apply_notes([{"value": v, "note": old_notes[field].get(v, "")} for v in facts[field]], field, rules)
 
+    def optional(key):  # written only when the APK has entries, so a baseline without any stays as it was
+        return {key: facts[key]} if facts[key] else {}
+
+    scan_config = {"extra_text_paths": extra}
+    if "asset_digest_paths" in (old.get("scan") or {}):
+        scan_config["asset_digest_paths"] = list(asset_digest_paths(old))
     return {
         "schema": SCHEMA,
         "app": old.get("app", ""),
@@ -1033,7 +1280,10 @@ def build(apk, deps_path, old, require_tools):
         "permissions": facts["permissions"],
         "queries": facts["queries"],
         "uses_native_libraries": facts["uses_native_libraries"],
+        **optional("uses_features"),
+        **optional("meta_data"),
         "components": facts["components"],
+        **optional("provider_resources"),
         "native_libs": facts["native_libs"],
         "extra_code": facts["extra_code"],
         "desugared_library": facts["desugared_library"],
@@ -1046,14 +1296,17 @@ def build(apk, deps_path, old, require_tools):
             "desugaring": desugaring,
         },
         "hosts": noted("hosts"),
+        **optional("assets"),
         "signing": {"cert_sha256": (old.get("signing") or {}).get("cert_sha256")},
-        "scan": {"extra_text_paths": extra},
+        "scan": scan_config,
         "notes": rules,
     }
 
 
 def comparable(baseline, key, against_apk):
     value = baseline.get(key)
+    if key in OPTIONAL_LISTS:
+        return sorted(value or [], key=item_key)
     if key in NOTED:
         return sorted(e["value"] for e in value or [])
     if key == "dependencies" and against_apk:
@@ -1067,6 +1320,10 @@ def comparable(baseline, key, against_apk):
 def item_key(value):
     if isinstance(value, dict) and "type" in value and "name" in value:
         return value["type"] + " " + value["name"]
+    if isinstance(value, dict) and "provider" in value and "meta" in value:  # provider_resources
+        return f"{value['provider']} {value['meta']}"
+    if isinstance(value, dict) and "path" in value and "sha256" in value:  # assets: a new digest is a change
+        return value["path"]
     return value if isinstance(value, str) else json.dumps(value, sort_keys=True)
 
 
@@ -1078,15 +1335,23 @@ def differences(old, new, keys=COMPARED, against_apk=True):
             continue
         if isinstance(a, dict) and isinstance(b, dict):
             for sub in sorted(set(a) | set(b)):
+                if a.get(sub) == b.get(sub):
+                    continue
                 if isinstance(a.get(sub), list) and isinstance(b.get(sub), list):
-                    diffs += list_diff(f"{key}.{sub}", a[sub], b[sub])
-                elif a.get(sub) != b.get(sub):
+                    diffs += list_changes(f"{key}.{sub}", a[sub], b[sub])
+                else:
                     diffs.append(("~", f"{key}.{sub}", f"{json.dumps(a.get(sub))} -> {json.dumps(b.get(sub))}"))
         elif isinstance(a, list) and isinstance(b, list):
-            diffs += list_diff(key, a, b)
+            diffs += list_changes(key, a, b)
         else:
             diffs.append(("~", key, f"{json.dumps(a)} -> {json.dumps(b)}"))
     return diffs
+
+
+def list_changes(field, old, new):
+    """Item-level differences of two lists that are not equal; if none show (order, duplicates), the whole
+    field, so a difference never passes silently."""
+    return list_diff(field, old, new) or [("~", field, f"{json.dumps(old)} -> {json.dumps(new)}")]
 
 
 def list_diff(field, old, new):
@@ -1151,12 +1416,12 @@ def cmd_generate(args):
     return 0
 
 
-def report_baseline_changes(base_path, head):
+def report_baseline_changes(base_path, head, name):
     """Lists every field the pull request changes in the baseline, so each gate change shows on the PR.
     Informational: an intended change is allowed; the owner sees it before merging."""
     base = load_baseline(base_path, any_schema=True)
     if base is None:
-        message = "the base branch has no gate/baseline.json, so every field in this one is new in this pull request"
+        message = f"the base branch has no {name}, so every field in this one is new in this pull request"
         print(f"gate: {message} (looked for {base_path})")
         if in_actions():
             print(f"::warning title=Gate baseline changed in this PR::{message}")
@@ -1182,11 +1447,12 @@ def cmd_check(args):
     old = load_baseline(args.baseline)
     if old is None:
         raise GateError(f"{args.baseline} does not exist")
+    print(f"gate: gate.py {GATE_VERSION}, baseline schema {SCHEMA}")
     new = build(args.apk, args.deps, old, args.require_tools)
     if args.generated:
         write_json(args.generated, new)
     if args.compare_to:
-        report_baseline_changes(args.compare_to, old)
+        report_baseline_changes(args.compare_to, old, args.baseline)
     pinned = (old.get("signing") or {}).get("cert_sha256")
     print(f"gate: pinned signing certificate: {', '.join(pinned) if pinned else 'none'}")
     diffs = differences(old, new)
@@ -1260,6 +1526,7 @@ MALFORMED = (struct.error, IndexError, ValueError, KeyError, TypeError, UnicodeD
 
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--version", action="version", version=f"gate.py {GATE_VERSION} (baseline schema {SCHEMA})")
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("generate", "check", "cert", "inspect", "fingerprint"):
         p = sub.add_parser(name)

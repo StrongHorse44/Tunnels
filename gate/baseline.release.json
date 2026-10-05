@@ -57,6 +57,12 @@
     "package:moe.shizuku.privileged.api"
   ],
   "uses_native_libraries": [],
+  "uses_features": [
+    "android.hardware.camera.any;required=false"
+  ],
+  "meta_data": [
+    "moe.shizuku.client.V3_SUPPORT;value=true"
+  ],
   "components": [
     {
       "type": "activity",
@@ -501,6 +507,14 @@
     {
       "value": "Ljavax/net/ssl/HttpsURLConnection;",
       "note": "tunnels/traffic DnsForwarder: DNS-over-HTTPS (RFC 8484) to the upstream the user picked (Upstream presets or custom); the default is the network's own resolver over UDP; only in a session the user starts"
+    },
+    {
+      "value": "[Landroid/net/Network;",
+      "note": "return type of ConnectivityManager.getAllNetworks, called by tunnels/homenet NetworkGate, tunnels/devicecheck Probes and tunnels/traffic VpnStatus for read-only state queries (find the Wi-Fi network, find a VPN already up); no sockets, no egress"
+    },
+    {
+      "value": "[Ljava/net/URL;",
+      "note": "array types in signatures of URLClassLoader.getURLs, Apache commons-io FileUtils.toURLs/toFiles and commons-lang3 ClassLoaderUtils; library references only, no Tunnels code uses them and they open nothing"
     }
   ],
   "dependencies": {
@@ -645,6 +659,26 @@
     "desugaring": []
   },
   "hosts": [
+    {
+      "value": ".compute-1.amazonaws.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt (the wildcard entry *.compute-1.amazonaws.com), used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": ".compute.amazonaws.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt (the wildcard entry *.compute.amazonaws.com), used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": ".elb.amazonaws.com",
+      "note": "public suffix subset core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/PublicSuffix.kt (the wildcard entry *.elb.amazonaws.com), used locally to reduce hostnames to registrable domains, never contacted"
+    },
+    {
+      "value": ".example.com",
+      "note": "core/lan DnsProbe.probeName: the random label plus \".example.com\" for the Home network DNS-hijack check, asked of the router only during a user-started scan; the IANA-reserved name, same as the example.com entry"
+    },
+    {
+      "value": ".githubusercontent.com",
+      "note": "tunnels/updater: the allowed download host suffix in core/updates UpdateSource.isAllowed (Updates.kt), used only on a user-started update download; same host family as the githubusercontent.com entry"
+    },
     {
       "value": "0.0.0.0",
       "note": "core/dns HostList.kt: sinkhole address skipped when parsing hosts-file blocklist lines (parser ignore list); not an address Tunnels binds or connects to"
