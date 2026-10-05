@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Declare only what permissions.allow lists. The export folder is a SAF tree grant, not a permission. -->
+</manifest>

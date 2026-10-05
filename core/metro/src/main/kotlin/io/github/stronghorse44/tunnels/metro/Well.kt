@@ -48,7 +48,7 @@ object Well {
     const val LABEL_GAP = 56.0
     private val TURN = mapOf(
         Stratum.SURFACE to 0.0,
-        Stratum.TOPSOIL to 0.0,
+        Stratum.TOPSOIL to -12.0,
         Stratum.BEDROCK to -25.0,
         Stratum.CORE to 30.0,
     )

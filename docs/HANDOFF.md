@@ -37,6 +37,12 @@
 > **Export (2026-10, B05a):** snapshot export is now one FWX v1 file (`.fwx`, app ID `tunnels`, bundle schema 1) that also
 > carries the settings, second-phone pins and confirmed network fingerprints; import verifies the whole file, stages it in
 > memory and swaps it in with one transaction, and an old `TSNAPE1` export still imports. See [EXPORT.md](EXPORT.md).
+> **Backups (2026-10, B06):** a tunnel that watches the folder RJ keeps his exports in (picked once with the system folder
+> picker; a read-only tree grant, no permission). It reads only the plaintext header of each `.fwx` (and the old `.tsnap`)
+> bundle, through the B05a codec copy in `core/export` and never past byte 202, finds when each app's newest bundle was made,
+> and raises a finding when a watched app's newest bundle is older than the limit (default 30 days, RJ sets it) or gone,
+> with "Open <app>" as its action; a restore drill date RJ sets raises a reminder after 90 days. It stores summaries only
+> (app ID, newest time, file count), joins the opt-in background check, and asks for no passphrase. See [BACKUPS.md](BACKUPS.md).
 > **Update (2026-10-01):** in-app updates from this repository's GitHub releases (`tunnels/updater`, INTERNET
 > approved for user-started checks and downloads only); Surroundings judges following by whether a tag was seen
 > on both sides of a move (a move counter and a keyed hash of a ~250 m grid cell, never a position); the

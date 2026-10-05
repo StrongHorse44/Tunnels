@@ -30,6 +30,7 @@ data class TunnelInfo(
 object TunnelCatalog {
     const val INSTALLER = "installer"
     const val UNZIP = "unzip"
+    const val BACKUPS = "backups"
 
     /** The derived tunnel that joins the others ([DerivedTunnel]); on the home map it is Central, where the lines meet. */
     const val CROSSROADS = "crossroads"
@@ -37,6 +38,7 @@ object TunnelCatalog {
     val all: List<TunnelInfo> = listOf(
         TunnelInfo(INSTALLER, "Installer", Stratum.TOPSOIL, MetroLine.FILES, "Inspect and install APKs and app bundles", null),
         TunnelInfo(UNZIP, "Unzip", Stratum.TOPSOIL, MetroLine.FILES, "Open zip, 7z, tar, gz, xz and bz2 archives", null),
+        TunnelInfo(BACKUPS, "Backups", Stratum.TOPSOIL, MetroLine.FILES, "Is each app's newest export recent enough", null),
 
         TunnelInfo("permissions", "Permissions", Stratum.TOPSOIL, MetroLine.INSPECT, "Declared vs granted, per app", null),
         TunnelInfo("apk_excavation", "APK excavation", Stratum.TOPSOIL, MetroLine.INSPECT, "Trackers, certs and native libs inside apps", null),

@@ -32,7 +32,7 @@ class WatchFormatTest {
     @Test
     fun theScopeNamesTheTunnelsFromThePolicy() {
         val scope = WatchFormat.scope()
-        assertTrue(scope, scope.contains("Permissions, Trust store, System packages, Silicon"))
+        assertTrue(scope, scope.contains("Permissions, Trust store, System packages, Silicon, Backups"))
         assertTrue(scope.contains("APK excavation, Doors, Hardening audit"))
     }
 }

@@ -1,0 +1,2 @@
+# Permissions the backups module may declare, one per line. CI fails on anything else.
+# None: the export folder is reached through a read-only grant the user gives in the system folder picker (SAF), not a permission.

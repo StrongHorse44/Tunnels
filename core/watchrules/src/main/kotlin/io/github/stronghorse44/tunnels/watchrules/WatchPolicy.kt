@@ -13,8 +13,8 @@ object WatchPolicy {
     /** The JobScheduler id of the periodic check. */
     const val JOB_ID = 4201
 
-    /** Cheap, and their state changes without any app update: a permission granted, a CA added, an OTA. */
-    val ALWAYS: List<String> = listOf("permissions", "trust_store", "system_packages", "silicon")
+    /** Cheap, and their state changes without any app update: a permission granted, a CA added, an OTA, an export that ages (Backups reads only a few hundred header bytes per file). */
+    val ALWAYS: List<String> = listOf("permissions", "trust_store", "system_packages", "silicon", "backups")
 
     /** Read every app's files: run after package changes, after a reboot, and at least once every [APP_FILES_MAX_AGE]. */
     val APP_FILES: List<String> = listOf("apk_excavation", "doors", "hardening")
