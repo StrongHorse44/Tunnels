@@ -1,0 +1,39 @@
+{
+  "id": "V3",
+  "description": "L = 8192 exactly, final chunk full",
+  "inputs": {
+    "passphrase_code_points": ["U+0063", "U+006F", "U+0072", "U+0072", "U+0065", "U+0063", "U+0074", "U+0020", "U+0068", "U+006F", "U+0072", "U+0073", "U+0065", "U+0020", "U+0062", "U+0061", "U+0074", "U+0074", "U+0065", "U+0072", "U+0079", "U+0020", "U+0073", "U+0074", "U+0061", "U+0070", "U+006C", "U+0065"],
+    "passphrase_utf8_hex": "636f727265637420686f727365206261747465727920737461706c65",
+    "app_id": "tunnels",
+    "schema_version": 1,
+    "created_ms": 1791028800000,
+    "kdf_iterations": 600000,
+    "salt_hex": "000102030405060708090a0b0c0d0e0f",
+    "nonce_prefix_hex": "a0a1a2a3a4a5a6",
+    "chunk_size": 4096,
+    "entries": [
+      {"name": "x", "length": 8175, "data": {"fill_hex": "5a", "n": 8175}, "sha256": "a3221af5eb3992d32b2358e3e9e97c3fe5657bddb02bc6ba2a3d71580a1699e0"}
+    ]
+  },
+  "outputs": {
+    "P_hex": "636f727265637420686f727365206261747465727920737461706c65",
+    "ikm_hex": "ef177144eec9420cbc1093d2a8b344a92bc506d0d4ec9c028dd19f8324d8c1e6",
+    "prk_hex": "cf6dca3092ab0753f3198628984f12150694fb5b82c18c393bc3a2299b8d3078",
+    "k_hdr_hex": "6cdf712711ec890ccb1c203985cf6abbd2dfd376062afb98716bb4369b03fe3c",
+    "k_enc_hex": "ddc62b80676616f3eb52683d41e6aca5a005925c53f861168d36855c72a30c45",
+    "header_length": 83,
+    "header_hex": "894657580d0a1a0a000100530774756e6e656c7300000001000001a101a2aa001270626b6466322d686d61632d736861323536000927c010000102030405060708090a0b0c0d0e0fa0a1a2a3a4a5a600001000",
+    "header_mac_hex": "95b33e1bb7da9780b1cf9f72552aa4e8705470db28b5d5adb901055f22eadd20",
+    "plaintext_stream_length": 8192,
+    "plaintext_stream_sha256": "965f6dbc9cc3ef321237c8225621f32f0e5086e84fb40bf642df2ffd6a905685",
+    "chunk_count": 2,
+    "chunks": [
+      {"index": 0, "offset": 115, "plaintext_length": 4096, "nonce_hex": "a0a1a2a3a4a5a60000000000", "sealed_sha256": "3f2d92480a682970f5410024b770fb00fcaab547e4d1457219aaf1b5311ec113"},
+      {"index": 1, "offset": 4227, "plaintext_length": 4096, "nonce_hex": "a0a1a2a3a4a5a60000000101", "sealed_sha256": "744317f9a8b7349d4a1e9198966dd2853d775a98cf8f8f266725754bef82ba04"}
+    ],
+    "file_length": 8339,
+    "file_sha256": "bb35ffaefdb91892a4bd9cbf892d1189c1fc7dbd3a5412b6c35179c03b804311",
+    "file": "V3.fwx",
+    "list_output": "FWX v1 bundle, header verified\napp_id          tunnels (Tunnels)\nschema_version  1\ncreated         2026-10-03T12:00:00.000Z (created_ms 1791028800000)\nkdf             pbkdf2-hmac-sha256, 600000 iterations, 16-byte salt\nchunk_size      4096\n0\t8175\ta3221af5eb3992d32b2358e3e9e97c3fe5657bddb02bc6ba2a3d71580a1699e0\tx\nOK 1 entries, 8192 plaintext bytes\n"
+  }
+}

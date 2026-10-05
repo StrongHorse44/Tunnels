@@ -2,17 +2,13 @@ package io.github.stronghorse44.tunnels.snapshots
 
 import android.app.Application
 import android.net.Uri
-import android.provider.DocumentsContract
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import io.github.stronghorse44.tunnels.common.formatBytes
 import io.github.stronghorse44.tunnels.engine.DiffEngine
-import io.github.stronghorse44.tunnels.export.BundleFormat
-import io.github.stronghorse44.tunnels.export.BundleFormatException
-import io.github.stronghorse44.tunnels.export.EncryptedFile
-import io.github.stronghorse44.tunnels.export.NotASealedFile
-import io.github.stronghorse44.tunnels.export.WrongPasswordOrCorrupt
+import io.github.stronghorse44.tunnels.export.Inspected
+import io.github.stronghorse44.tunnels.export.TransferMessages
 import io.github.stronghorse44.tunnels.runtime.AppLock
 import io.github.stronghorse44.tunnels.runtime.ScanResult
 import io.github.stronghorse44.tunnels.runtime.ScanState
@@ -30,7 +26,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
 
 /** One snapshot in the history list. */
 data class SnapshotRow(
@@ -50,6 +45,9 @@ data class DiffView(
     val report: DiffReport,
 )
 
+/** The header of a picked import file. Nothing in it is verified until the passphrase has opened the file. */
+data class ImportInfo(val legacy: Boolean, val schema: Long?, val createdMs: Long?)
+
 data class SnapshotsState(
     /** False until the store has answered once. */
     val ready: Boolean = false,
@@ -66,8 +64,10 @@ data class SnapshotsState(
     val error: String? = null,
     /** A destination was picked but the password did not survive a process restart: ask again. */
     val exportNeedsPassword: Boolean = false,
-    /** A file was picked for import and waits for its password. */
+    /** A file was picked for import and waits for its passphrase. */
     val importPending: Boolean = false,
+    /** What the picked file says about itself, before any passphrase: unverified. Null until it has been read. */
+    val importInfo: ImportInfo? = null,
     val importError: String? = null,
     val appLockEnabled: Boolean = false,
     val canLock: Boolean = false,
@@ -117,6 +117,8 @@ class SnapshotsViewModel(private val app: Application, private val saved: SavedS
                 return@launch
             }
             runtime = rt
+            // The screen was recreated behind the file picker: read the header of the picked file again for the dialog.
+            saved.get<String>(KEY_IMPORT_URI)?.let { inspectPicked(Uri.parse(it)) }
             val keyLevel = withContext(Dispatchers.IO) { runCatching { TunnelsStore.keySecurityLevel() }.getOrDefault("?") }
             _state.update { it.copy(tunnelCount = rt.registry.modules.size, keyLevel = keyLevel) }
             launch {
@@ -289,122 +291,99 @@ class SnapshotsViewModel(private val app: Application, private val saved: SavedS
     }
 
     private fun runExport(uri: Uri, password: CharArray) {
-        val rt = runtime ?: run {
+        val transfer = transfer() ?: run {
             password.fill('\u0000')
             return
         }
         viewModelScope.launch {
             _state.update { it.copy(busy = "Exporting…", error = null, message = null) }
-            val outcome = runCatching {
-                withContext(Dispatchers.IO) {
-                    val bundle = StoreBundles.read(rt.store.dao)
-                    val plain = BundleFormat.write(bundle).toByteArray(Charsets.UTF_8)
-                    val sealed = try {
-                        EncryptedFile.seal(plain, password)
-                    } finally {
-                        plain.fill(0)
-                    }
-                    val out = app.contentResolver.openOutputStream(uri, "wt") ?: error("The destination couldn't be opened.")
-                    out.use { it.write(sealed) }
-                    Triple(bundle.snapshots.size, bundle.observations.size, sealed.size)
-                }
-            }
+            val outcome = runCatching { withContext(Dispatchers.IO) { transfer.export(uri, password, System.currentTimeMillis()) } }
             password.fill('\u0000')
-            outcome.onSuccess { (snapshots, observations, bytes) ->
-                _state.update {
-                    it.copy(busy = null, message = "Exported $snapshots snapshots and $observations observations, encrypted (${formatBytes(bytes.toLong())}).")
-                }
+            outcome.onSuccess { r ->
+                _state.update { it.copy(busy = null, message = TransferMessages.exported(r.counts, formatBytes(r.bytes))) }
             }.onFailure { e ->
-                // Never leave a half-written file behind.
-                runCatching { DocumentsContract.deleteDocument(app.contentResolver, uri) }
-                _state.update { it.copy(busy = null, error = "Export failed: ${e.message ?: e.javaClass.simpleName}") }
+                val text = when (e) {
+                    is DataTransfer.ExportFailed -> TransferMessages.exportFailure(e.cause ?: e, e.cleanup)
+                    else -> "Export failed: ${e.message ?: e.javaClass.simpleName}."
+                }
+                _state.update { it.copy(busy = null, error = text) }
             }
         }
+    }
+
+    private fun transfer(): DataTransfer? {
+        val rt = runtime
+        if (rt == null) _state.update { it.copy(error = "The store isn't open yet.") }
+        return rt?.let { DataTransfer(app, it.store.dao) }
     }
 
     // Import: the file from OpenDocument first, then the password.
 
     fun pickImport(uri: Uri) {
-        saved[KEY_IMPORT_URI] = uri.toString()
-        _state.update { it.copy(importPending = true, importError = null) }
+        _state.update { it.copy(error = null, message = null, importError = null) }
+        inspectPicked(uri, remember = true)
+    }
+
+    /**
+     * Steps 1 to 6 of the container spec's section 5.1, before any passphrase: a file of another app, a newer schema
+     * or no export at all is refused here, by name, and nothing is asked. [remember] keeps a good file for the retry
+     * after a process restart.
+     */
+    private fun inspectPicked(uri: Uri, remember: Boolean = false) {
+        val transfer = transfer() ?: return
+        viewModelScope.launch {
+            val outcome = runCatching { withContext(Dispatchers.IO) { transfer.inspect(uri) } }
+            outcome.onSuccess { info ->
+                if (remember) saved[KEY_IMPORT_URI] = uri.toString()
+                val shown = when (info) {
+                    is Inspected.Fwx -> ImportInfo(legacy = false, schema = info.schema, createdMs = info.createdMs)
+                    Inspected.Legacy -> ImportInfo(legacy = true, schema = null, createdMs = null)
+                }
+                _state.update { it.copy(importPending = true, importInfo = shown, importError = null) }
+            }.onFailure { e ->
+                saved.remove<String>(KEY_IMPORT_URI)
+                _state.update { it.copy(importPending = false, importInfo = null, error = "Import failed: ${TransferMessages.importFailure(e)}") }
+            }
+        }
     }
 
     fun cancelImport() {
         saved.remove<String>(KEY_IMPORT_URI)
-        _state.update { it.copy(importPending = false, importError = null) }
+        _state.update { it.copy(importPending = false, importInfo = null, importError = null) }
     }
 
     fun importWithPassword(password: CharArray) {
         val uri = saved.get<String>(KEY_IMPORT_URI)?.let(Uri::parse)
-        val rt = runtime
-        if (uri == null || rt == null) {
+        val transfer = transfer()
+        if (uri == null || transfer == null) {
             password.fill('\u0000')
             cancelImport()
             return
         }
+        val legacy = _state.value.importInfo?.legacy == true
         viewModelScope.launch {
             _state.update { it.copy(busy = "Importing…", error = null, message = null, importError = null) }
             importing = true
-            val outcome = runCatching {
-                withContext(Dispatchers.IO) {
-                    val sealed = readCapped(uri)
-                    val plain = EncryptedFile.open(sealed, password)
-                    // Parsed straight from the bytes: no String copy of the whole bundle.
-                    val bundle = try {
-                        BundleFormat.parse(plain.inputStream().reader(Charsets.UTF_8))
-                    } finally {
-                        plain.fill(0)
-                    }
-                    StoreBundles.write(rt.store.dao, bundle)
-                }
-            }
+            val outcome = runCatching { withContext(Dispatchers.IO) { transfer.import(uri, password) } }
             importing = false
             password.fill('\u0000')
             outcome.onSuccess { r ->
                 saved.remove<String>(KEY_IMPORT_URI)
-                val skipped = if (r.skipped > 0) " ${r.skipped} already here, skipped." else ""
-                _state.update {
-                    it.copy(
-                        busy = null,
-                        importPending = false,
-                        message = "Imported ${r.snapshots} snapshots with ${r.observations} observations.$skipped" +
-                            if (r.snapshots > 0) " They're pinned, so retention keeps them." else "",
-                    )
-                }
+                _state.update { it.copy(busy = null, importPending = false, importInfo = null, message = TransferMessages.imported(r)) }
                 refresh.update { it + 1 }
             }.onFailure { e ->
-                when {
-                    e is WrongPasswordOrCorrupt && e !is NotASealedFile ->
-                        // Keep the file selected so the user can retry the password.
-                        _state.update { it.copy(busy = null, importError = e.message) }
-                    else -> {
-                        saved.remove<String>(KEY_IMPORT_URI)
-                        val why = when (e) {
-                            is NotASealedFile -> e.message
-                            is BundleFormatException -> "The file decrypted but isn't a snapshot bundle: ${e.message}"
-                            else -> e.message ?: e.javaClass.simpleName
-                        }
-                        _state.update { it.copy(busy = null, importPending = false, error = "Import failed: $why") }
-                        // A failed write may have rolled rows back; make the list agree with the store.
-                        refresh.update { it + 1 }
+                if (TransferMessages.isWrongPassphrase(e)) {
+                    // Keep the file selected so the user can retry the passphrase. Nothing was changed.
+                    _state.update { it.copy(busy = null, importError = TransferMessages.importFailure(e, legacy)) }
+                } else {
+                    saved.remove<String>(KEY_IMPORT_URI)
+                    _state.update {
+                        it.copy(busy = null, importPending = false, importInfo = null, error = "Import failed: ${TransferMessages.importFailure(e, legacy)}")
                     }
+                    // A failed write rolled back; make the list agree with the store.
+                    refresh.update { it + 1 }
                 }
             }
-        }
-    }
-
-    private fun readCapped(uri: Uri): ByteArray {
-        val input = app.contentResolver.openInputStream(uri) ?: error("The file couldn't be opened.")
-        input.use { stream ->
-            val out = ByteArrayOutputStream()
-            val buffer = ByteArray(64 * 1024)
-            while (true) {
-                val n = stream.read(buffer)
-                if (n < 0) break
-                if (out.size() + n > MAX_IMPORT_BYTES) error("The file is larger than ${formatBytes(MAX_IMPORT_BYTES)}; that is not a Tunnels export.")
-                out.write(buffer, 0, n)
-            }
-            return out.toByteArray()
         }
     }
 
@@ -452,8 +431,5 @@ class SnapshotsViewModel(private val app: Application, private val saved: SavedS
         const val KEY_SELECTED = "selected"
         const val KEY_EXPORT_URI = "export_uri"
         const val KEY_IMPORT_URI = "import_uri"
-
-        /** A full 12-snapshot export of a 300-app phone is ~10-15 MB; anything past this is not a Tunnels export. */
-        const val MAX_IMPORT_BYTES = 32L * 1024 * 1024
     }
 }

@@ -53,15 +53,16 @@ import io.github.stronghorse44.tunnels.common.GlassPanel
 import io.github.stronghorse44.tunnels.common.LineColors
 import io.github.stronghorse44.tunnels.common.StatusColors
 import io.github.stronghorse44.tunnels.common.TunnelScaffold
+import io.github.stronghorse44.tunnels.export.PassphraseCheck
 import io.github.stronghorse44.tunnels.model.DiffEntry
 import io.github.stronghorse44.tunnels.model.MetroLine
 import io.github.stronghorse44.tunnels.model.TunnelCatalog
 import io.github.stronghorse44.tunnels.runtime.snapshotRetention
 import java.text.DateFormat
+import java.time.Instant
 import java.util.Date
 
 private val Mono = FontFamily.Monospace
-private const val MIN_PASSWORD = 8
 private val IMPORT_TYPES = arrayOf("application/octet-stream", "*/*")
 
 @Composable
@@ -158,7 +159,8 @@ fun SnapshotsScreen(vm: SnapshotsViewModel, onBack: () -> Unit) {
     if (askExportPassword) {
         PasswordDialog(
             title = "Protect the export",
-            body = "The file is encrypted with this password. Nobody can read it without it, including Tunnels: there is no recovery.",
+            body = "The file is encrypted with this passphrase. Nobody can read it without it, including Tunnels: there is no recovery, " +
+                "and it is not stored. Use at least 12 characters; five or more random words is a good choice.",
             confirm = true,
             onConfirm = { pw ->
                 askExportPassword = false
@@ -170,8 +172,8 @@ fun SnapshotsScreen(vm: SnapshotsViewModel, onBack: () -> Unit) {
     }
     if (state.exportNeedsPassword) {
         PasswordDialog(
-            title = "Enter the export password again",
-            body = "The screen was recreated while you picked the destination, so the password has to be typed again.",
+            title = "Enter the export passphrase again",
+            body = "The screen was recreated while you picked the destination, so the passphrase has to be typed again.",
             confirm = true,
             onConfirm = vm::exportWithPassword,
             onDismiss = vm::cancelExport,
@@ -179,14 +181,29 @@ fun SnapshotsScreen(vm: SnapshotsViewModel, onBack: () -> Unit) {
     }
     if (state.importPending && state.busy == null) {
         PasswordDialog(
-            title = "Import snapshots",
-            body = "Enter the password the export was protected with. Imported snapshots are pinned and their findings are re-derived on the next scan.",
+            title = "Import from an export",
+            body = importBody(state.importInfo),
             confirm = false,
             error = state.importError,
             onConfirm = vm::importWithPassword,
             onDismiss = vm::cancelImport,
         )
     }
+}
+
+/** What the import dialog says before the passphrase prompt: the file's own (unverified) header, and what an import does. */
+private fun importBody(info: ImportInfo?): String = buildString {
+    when {
+        info == null -> append("Reading the file's header… ")
+        info.legacy -> append("An export from an earlier Tunnels, with snapshots only. It has no date inside. ")
+        else -> {
+            val local = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.MEDIUM).format(Date(info.createdMs ?: 0L))
+            val utc = Instant.ofEpochMilli(info.createdMs ?: 0L).toString()
+            append("A Tunnels export, made $local ($utc), schema ${info.schema}. This is what the file says about itself: not yet verified. ")
+        }
+    }
+    append("Import adds to this phone and removes nothing: snapshots not already here (each keeps its pin; unpinned ones are subject to retention, the newest 12), paired phones and confirmed networks ")
+    append("(merged with yours), and settings (they replace this phone's). Enter the passphrase it was protected with.")
 }
 
 @Composable
@@ -351,12 +368,15 @@ private fun TransferPanel(state: SnapshotsState, tint: Color, onExport: () -> Un
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Export and import", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Export writes every snapshot to a password-encrypted .tsnap file in a place you choose. Nothing leaves the device unless you move that file yourself. " +
-                    "Import brings snapshots from such a file back, pinned, so retention keeps them.",
+                "Export writes every snapshot, the settings you chose (Traffic blocking and resolver, background checks), the second phones you paired " +
+                    "and the Wi-Fi networks you confirmed to one passphrase-encrypted .fwx file in a place you choose. Findings, this phone's app lock " +
+                    "and its identity aren't included. Nothing leaves the device unless you move that file yourself. " +
+                    "Import adds the contents of such a file (or of an older .tsnap export) to this phone; snapshots keep the pin they had, so unpinned ones are subject to the usual retention. " +
+                    "The date, the app name and the file size are readable without the passphrase; everything else is not.",
                 style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onExport, enabled = idle && state.snapshots.isNotEmpty()) { Text("Export") }
+                Button(onClick = onExport, enabled = idle) { Text("Export") }
                 OutlinedButton(onClick = onImport, enabled = idle) { Text("Import") }
             }
             if (state.busy != null) {
@@ -401,7 +421,7 @@ private fun SectionTitle(title: String, count: Int) {
     Text("$title · $count", fontFamily = Mono, fontWeight = FontWeight.Bold, color = GlassColors.dim, modifier = Modifier.padding(start = 6.dp, top = 6.dp))
 }
 
-/** Asks for a password; with [confirm] it must be typed twice and be at least [MIN_PASSWORD] characters. */
+/** Asks for a passphrase; with [confirm] it must be typed twice and pass the export rules (at least 12 characters). */
 @Composable
 private fun PasswordDialog(
     title: String,
@@ -413,9 +433,10 @@ private fun PasswordDialog(
 ) {
     var password by remember { mutableStateOf("") }
     var repeat by remember { mutableStateOf("") }
-    val tooShort = confirm && password.length < MIN_PASSWORD
+    // The codec's own rule, so the dialog never accepts what the writer would refuse (it counts code points after NFC).
+    val problem = if (confirm && password.isNotEmpty()) password.toCharArray().let { chars -> PassphraseCheck.problem(chars).also { chars.fill('\u0000') } } else null
     val mismatch = confirm && repeat != password
-    val ok = password.isNotEmpty() && !tooShort && !mismatch
+    val ok = password.isNotEmpty() && problem == null && !mismatch
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surface,
@@ -426,7 +447,7 @@ private fun PasswordDialog(
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text("Password") },
+                    label = { Text("Passphrase") },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -437,15 +458,15 @@ private fun PasswordDialog(
                     OutlinedTextField(
                         value = repeat,
                         onValueChange = { repeat = it },
-                        label = { Text("Repeat password") },
+                        label = { Text("Repeat passphrase") },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                         isError = repeat.isNotEmpty() && mismatch,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    if (password.isNotEmpty() && tooShort) Text("At least $MIN_PASSWORD characters.", style = MaterialTheme.typography.bodySmall, color = StatusColors.warn)
-                    else if (repeat.isNotEmpty() && mismatch) Text("The passwords don't match.", style = MaterialTheme.typography.bodySmall, color = StatusColors.warn)
+                    if (problem != null) Text(problem.replaceFirstChar { it.uppercase() } + ".", style = MaterialTheme.typography.bodySmall, color = StatusColors.warn)
+                    else if (repeat.isNotEmpty() && mismatch) Text("The passphrases don't match.", style = MaterialTheme.typography.bodySmall, color = StatusColors.warn)
                 }
                 if (error != null) Text(error, style = MaterialTheme.typography.bodySmall, color = StatusColors.blocker)
             }

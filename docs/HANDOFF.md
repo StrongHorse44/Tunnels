@@ -34,6 +34,9 @@
 > beside location or contacts, microphone use while unopened, new signer plus new permissions); a device checks
 > screen for the "verify on device" items; and tracker blocking in Traffic sessions (NXDOMAIN answered on the
 > phone, by category, per-app exemptions, off by default). No new permission outside the module allowlists; no INTERNET.
+> **Export (2026-10, B05a):** snapshot export is now one FWX v1 file (`.fwx`, app ID `tunnels`, bundle schema 1) that also
+> carries the settings, second-phone pins and confirmed network fingerprints; import verifies the whole file, stages it in
+> memory and swaps it in with one transaction, and an old `TSNAPE1` export still imports. See [EXPORT.md](EXPORT.md).
 > **Update (2026-10-01):** in-app updates from this repository's GitHub releases (`tunnels/updater`, INTERNET
 > approved for user-started checks and downloads only); Surroundings judges following by whether a tag was seen
 > on both sides of a move (a move counter and a keyed hash of a ~250 m grid cell, never a position); the
@@ -142,7 +145,7 @@ GitHub Actions builds a signed release APK on tag.
 - [ ] Every security finding has at least one working action
 - [ ] On-demand snapshot; two snapshots produce a readable diff
 - [ ] SQLCipher DB with Keystore-wrapped key; uninstall wipes everything
-- [ ] Snapshots export/import as one encrypted file
+- [ ] Snapshots (and settings, paired phones, confirmed networks) export/import as one encrypted file (built, docs/EXPORT.md; tick after the on-phone check)
 - [ ] Full scan of all apps runs off the main thread with progress, no ANR
 - [ ] GitHub Actions builds a signed release APK on tag
 
