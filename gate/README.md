@@ -79,6 +79,43 @@ of v3.1, v3, v2) and each signer's first certificate, so it fits single-signer v
 rotation; the publish check's `gate.py cert`, which verifies with `apksigner`, is authoritative. Run the
 script's own tests with `python3 -m unittest discover -s gate`.
 
+## Gate 2.1 (`python3 gate/gate.py --version`; the baseline schema is still 2)
+
+`gate.py` 2.1 adds optional sections to both baselines. A baseline without them still loads and checks: a
+missing section counts as empty, so it only differs from an APK that has entries (`GATE + uses_features: ...`),
+and `generate` writes a section only when the APK has entries. Never land a new `gate.py` without both
+regenerated baselines: CI is red until they match.
+
+- `uses_features`: sorted `NAME;required=true|false` (`glEsVersion=0x30000;required=true` for a GL version,
+  `NAME;version=0x400003;required=true` for a feature with a version). Tunnels records the pairing screen's
+  optional camera.
+- `meta_data`: sorted application-level `<meta-data>` as `NAME;value=TEXT` or `NAME;resource=TEXT`; a reference
+  is resolved through `resources.arsc` (a file becomes `NAME;resource=sha256:DIGEST`, a framework resource
+  `NAME;resource=android:0x...`, values that differ by configuration are joined with `|`). A reference that is a
+  file in one configuration and a value in another, or that does not resolve, is exit 2. A component's own
+  meta-data is not recorded. Tunnels records Shizuku's `moe.shizuku.client.V3_SUPPORT` marker.
+- `provider_resources`: for every provider `<meta-data android:resource>` (FileProvider's paths file)
+  `{provider, meta, sha256, elements}`, so a widened sharing boundary is a baseline change. Tunnels has none.
+  The canonical form of the compiled XML is frozen: one JSON array per element or text node
+  (`[DEPTH,"tag",[["key","value"],...]]`, attributes sorted by key; a key is `android:NAME` for an attribute whose
+  resource ID the gate knows, whatever its namespace (a name that disagrees with its known ID is exit 2), and
+  also for an attribute in the Android namespace with no known ID (exit 2 if its name is a known one with a
+  missing or different ID); any other attribute is its plain `NAME` without a namespace and `{namespace URI}NAME`
+  in any other namespace; a value is the raw string,
+  else `true`/`false`, an unsigned integer, `null` for a reference, or `(type 0xTT)0xDDDDDDDD`). An element with
+  two attributes that read as one key, a string attribute with no raw copy or with differing copies, and a
+  reference that also carries a raw string are exit 2. `sha256` is the digest of the lines joined by newlines;
+  configuration variants are separated by a `---` line.
+- `assets`: `{path, sha256, size}` for top-level APK entries matching `scan.asset_digest_paths` (case-insensitive
+  zip globs; a missing key means the defaults `*.tflite`, `*.onnx`, `*.ort`, `*.task`; `[]` turns it off; `null`
+  is an error). Tunnels ships no model files and leaves the key out.
+- `network_api` also records array descriptors (`[Landroid/net/Network;`), and `hosts` also records suffix
+  literals with their leading dot (`*.compute.amazonaws.com` is `.compute.amazonaws.com`). Each needs a note
+  like any other entry. A `hosts` rule on `example.com` covers `.example.com`; `amazonaws.com` cannot be a
+  rule (patterns and public suffixes are refused), so those suffixes get a note each.
+- `--compare-to` names the baseline file it was given in its "the base branch has no ..." message, so a
+  missing `baseline.release.json` on the base branch is reported as that file.
+
 ## Dependency verification metadata
 
 `gradle/verification-metadata.xml` pins the SHA-256 of every artifact Gradle downloads, and CI runs
