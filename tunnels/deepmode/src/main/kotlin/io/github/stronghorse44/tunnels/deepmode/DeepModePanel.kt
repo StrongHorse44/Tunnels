@@ -161,44 +161,56 @@ private fun StatusRow(label: String, on: Boolean, offText: String = "no") {
 
 /**
  * The GrapheneOS posture readings of the last Deep mode scan, one row per item. Unknown is dim, never amber: it is not a
- * finding. The duress PIN row is a reminder (no app can read it), not a finding.
+ * finding. A setting no app can read (the duress PIN; the USB-C port on this build) is a reminder row with a Settings
+ * button, not a finding.
  */
 @Composable
 private fun PostureCard(observations: List<Observation>, status: ShizukuStatus) {
-    val context = LocalContext.current
     val snapshot = remember(observations) { PostureObservations.from(observations) }
     // Why the last scan could not run, when it could not: Shizuku was off, or its shell did not start.
     val scanReason = remember(observations) {
         val off = observations.any { it.subject == DeepKeys.SUBJECT_DEEP && it.key == DeepKeys.AVAILABLE && it.value == "false" }
         if (off) observations.firstOrNull { it.subject == DeepKeys.SUBJECT_DEEP && it.key == DeepKeys.REASON }?.value else null
     }
-    var note by remember { mutableStateOf<String?>(null) }
     val line = LineColors.of(MetroLine.SYSTEM)
     GlassPanel(Modifier.fillMaxWidth(), tint = line) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Posture", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             when {
                 !status.granted -> Text(PostureText.needsShizuku(status.reason), style = MaterialTheme.typography.bodyMedium, color = GlassColors.dim)
-                !snapshot.isEmpty -> snapshot.readings.forEach { PostureRow(it) }
+                !snapshot.isEmpty -> snapshot.readings.forEach { reading ->
+                    val item = reading.item
+                    if (item.reminder != null && !item.confirmed) {
+                        ReminderRow(item.title, item.reminder!!, item.action ?: PostureKeys.ACTION_SECURITY)
+                    } else {
+                        PostureRow(reading)
+                    }
+                }
                 scanReason != null -> Text(PostureText.needsShizuku(scanReason), style = MaterialTheme.typography.bodyMedium, color = GlassColors.dim)
                 else -> Text(PostureText.NOT_SCANNED, style = MaterialTheme.typography.bodyMedium, color = GlassColors.dim)
             }
-            if (status.granted && !snapshot.isEmpty) {
-                Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Duress PIN", style = MaterialTheme.typography.bodyMedium)
-                    Text(PostureText.DURESS_NOTE, style = MaterialTheme.typography.bodySmall, color = GlassColors.dim)
-                    OutlinedButton(onClick = {
-                        try {
-                            context.startActivity(Intent(PostureKeys.ACTION_SECURITY).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                            note = null
-                        } catch (_: ActivityNotFoundException) {
-                            note = "No screen on this phone handles that."
-                        }
-                    }) { Text("Open Security settings") }
-                    note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = StatusColors.warn) }
-                }
-            }
+            if (status.granted && !snapshot.isEmpty) ReminderRow("Duress PIN", PostureText.DURESS_NOTE, PostureKeys.ACTION_SECURITY)
         }
+    }
+}
+
+/** A setting nobody can read: what to check by hand, and a button to the Settings screen. Never a finding. */
+@Composable
+private fun ReminderRow(title: String, text: String, action: String) {
+    val context = LocalContext.current
+    var note by remember { mutableStateOf<String?>(null) }
+    Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, style = MaterialTheme.typography.bodyMedium)
+        Text(text, style = MaterialTheme.typography.bodySmall, color = GlassColors.dim)
+        OutlinedButton(onClick = {
+            try {
+                context.startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                note = null
+            } catch (_: ActivityNotFoundException) {
+                note = "No screen on this phone handles that."
+            }
+        }) { Text("Open Security settings") }
+        note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = StatusColors.warn) }
     }
 }
 
