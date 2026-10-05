@@ -129,6 +129,7 @@ dependencies {
     implementation(project(":tunnels:watch"))
     implementation(project(":tunnels:devicecheck"))
     implementation(project(":tunnels:pairing"))
+    implementation(project(":tunnels:backups"))
 
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.junit)
