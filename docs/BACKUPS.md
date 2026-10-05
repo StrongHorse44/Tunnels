@@ -49,17 +49,19 @@ backup. A `BACKUP_FOLDER_LOST` warning says so instead of the stale findings van
 missing the question is whether an unread file could belong to the app. If a group's newest-named file was read and every header
 read in it names the same app (the group's own app, when the name says one), the unread files are older exports of that app, and it
 is still judged from its newest: 510 Tunnels exports do not hide Prikey, and 510 Mardi Gras exports whose newest read one is 40 days
-old are stale. "Read" has to date something: when every header read in a group is dated in the future, nothing there says how old the
-app's exports are, so the scan keeps reading that group's older names (past the 64 per group, up to the 500-header bound) until one gives a
+old are stale. "Read" has to date something: when no read in a group gave a date (every header is in the future, or the files are old-format
+ones with no modified time), nothing there says how old the app's exports are, so the scan keeps reading that group's older names (past the 64 per group, up to the 500-header bound) until one gives a
 date. If names are still unread when the bound is reached, the app is **not judged** (never "suspicious" and never stale), and a watched one
-raises the warning: seventy future-dated Prikey files with a 45-day-old one beneath them are stale, not suspicious. Otherwise the app is **not judged** (status "not judged", never stale, missing or suspicious): the app the group's
+raises the warning: seventy future-dated Prikey files with a 45-day-old one beneath them are stale, not suspicious. When such a
+pile has no app name (`backup-…`) and every header read in it names one app, only that app is held, not every app. Otherwise the app is **not judged** (status "not judged", never stale, missing or suspicious): the app the group's
 name points to, or every app when the name points to none (a mixed pile named `backup-…`, a folder that would not list, a folder
 with more than 20,000 entries, a file that fails to open and is the newest of its group). One `BACKUP_SCAN_INCOMPLETE` finding says
 so: a **warning** when it keeps a watched app from being judged, a **notice** (it never raises the background notification) when
 no watched app was held back. A notice says "Every app you watch was still judged from the newest file that was read" only when that is
-so for each of them; otherwise it says what is different, per case: an app with files but no date ("Tunnels has files but none says when
-it was made, so its age is not judged"), or an app whose newest file is named for another app ("Tunnels was judged from a file whose
-name says it is another app's; check that file"), and "Every other app" for the rest. A failed file's wording is in the table above; it
+so for each of them; otherwise it says what is different, per case: an app whose files are all undated ("Tunnels has files but none says when
+it was made, so its age is not judged") or an app with an undated old-format file beside dated ones ("Tunnels has an old-format
+file with no date that may be newer than its dated ones, so its age is not judged"), or an app whose newest file is named for another app ("Tunnels was judged from a file whose
+name says it is another app's; check that file"), and "Every other app" for the rest. With no watched app the sentence is left out. A failed file's wording is in the table above; it
 is not the same as "No Prikey bundle in the export folder".
 
 ## Findings

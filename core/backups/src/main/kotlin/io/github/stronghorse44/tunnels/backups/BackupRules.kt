@@ -110,14 +110,21 @@ object BackupRules {
     /** What the notice (no watched app held back) may say about the watched apps, one case at a time, so it is never more than true. */
     private fun judgedFrom(by: Map<String, List<Observation>>): String {
         val apps = watched(by)
-        val unknown = apps.filter { (_, obs) -> AppStatus.of(value(obs, BackupKeys.STATUS)) == AppStatus.UNKNOWN_DATE }.map { it.first.name }
+        if (apps.isEmpty()) return ""
+        // An old-format file with no date: with a dated one beside it (a newest date is stored) it may be the newer; else nothing is dated.
+        val unknown = apps.filter { (_, obs) -> AppStatus.of(value(obs, BackupKeys.STATUS)) == AppStatus.UNKNOWN_DATE }.map { (app, obs) ->
+            if (value(obs, BackupKeys.NEWEST_MS) != null) {
+                "${app.name} has an old-format file with no date that may be newer than its dated ones, so its age is not judged."
+            } else {
+                "${app.name} has files but none says when it was made, so its age is not judged."
+            }
+        }
         val misnamed = apps.filter { (_, obs) ->
             AppStatus.of(value(obs, BackupKeys.STATUS)) != AppStatus.UNKNOWN_DATE && value(obs, BackupKeys.MISNAMED) == "true"
         }.map { it.first.name }
-        if (unknown.isEmpty() && misnamed.isEmpty()) return "Every app you watch was still judged from the newest file that was read."
         val rest = apps.size - unknown.size - misnamed.size
         return listOfNotNull(
-            unknown.takeIf { it.isNotEmpty() }?.let { "${it.joinToString(", ")} ${if (it.size == 1) "has" else "have"} files but none says when it was made, so ${if (it.size == 1) "its" else "their"} age is not judged." },
+            unknown.takeIf { it.isNotEmpty() }?.joinToString(" "),
             misnamed.takeIf { it.isNotEmpty() }?.let { "${it.joinToString(", ")} ${if (it.size == 1) "was" else "were"} judged from a file whose name says it is another app's; check that file." },
             if (rest > 0) "${if (unknown.size + misnamed.size > 0) "Every other app" else "Every app"} you watch was still judged from the newest file that was read." else null,
         ).joinToString(" ")
@@ -152,6 +159,6 @@ object BackupRules {
                 "Move old exports into another folder, pick a folder on the phone itself, or fix the file, then scan again."
         }
         val severity = if (hidden.isEmpty()) Severity.NOTICE else Severity.WARN
-        return listOf(FindingDraft(ctx.tunnelId, BackupKeys.FOLDER, SCAN_INCOMPLETE, severity, "$why $effect"))
+        return listOf(FindingDraft(ctx.tunnelId, BackupKeys.FOLDER, SCAN_INCOMPLETE, severity, listOf(why, effect).filter { it.isNotBlank() }.joinToString(" ")))
     }
 }
