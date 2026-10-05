@@ -110,6 +110,31 @@ object SurroundingsKeys {
     const val CELL_CHANGED = "cell:changedSinceLast"
     const val CELL_DOWNGRADES_RECORDED = "cell:downgradesRecorded"
 
+    // The cell logbook (subject [CELL_SUMMARY]). Summaries only. What is emitted: a state word, counts, and for an
+    // unfamiliar verdict the first 8 hex of one keyed cell token ([LOG_TOWER]), the judged cell's technology slug
+    // ([LOG_TECH]) and its operator code `mcc-mnc` ([LOG_OPERATOR]), which a cell check already keeps. No place hash,
+    // full cell token, tracking area, cell id or other cell identity is an observation.
+    const val LOG_STATE = "log:state"
+    const val LOG_VERDICT = "log:verdict"
+    const val LOG_SIGNALS = "log:signals"
+    /** The first 8 hex of the unfamiliar cell's keyed token: 32 bits of a hash that only this phone can compute. */
+    const val LOG_TOWER = "log:tower"
+    /** The unfamiliar cell's own technology slug and operator (`310-260`), only when unfamiliar: what a cell check keeps, not an identity. */
+    const val LOG_TECH = "log:tech"
+    const val LOG_OPERATOR = "log:operator"
+    const val LOG_PLACES = "log:places"
+    const val LOG_PLACE_SCANS = "log:placeScans"
+    const val LOG_PLACE_CELLS = "log:placeCells"
+
+    /** `log:state` values. The logbook is off until the user starts it (no row). */
+    const val LOG_OFF = "off"
+    const val LOG_ON = "on"
+    const val LOG_NO_PLACE = "no-place"
+    const val LOG_NO_CELL_ID = "no-cell-id"
+    const val LOG_RESTARTED = "restarted"
+    const val LOG_UNREADABLE = "unreadable"
+    const val LOG_FAILED = "failed"
+
     /** Availability values shared by the three radios. */
     const val AVAILABLE_YES = "yes"
     const val AVAILABLE_NO_ADAPTER = "no adapter"
@@ -303,4 +328,38 @@ object SurroundingsKeys {
         add(CELL_DOWNGRADES_RECORDED, downgradesRecorded.toString())
         return out
     }
+
+    /**
+     * The logbook's observations for one scan: [state] always, and when the scan was judged ([judgement]) its verdict,
+     * signals and counts. [book], when the caller has one read, gives the counts for a state without a judgement.
+     */
+    fun logObservations(state: String, judgement: CellJudgement? = null, book: CellLogbook? = null): List<Observation> {
+        val out = ArrayList<Observation>()
+        fun add(key: String, value: String) = out.add(Observation(TUNNEL_ID, CELL_SUMMARY, key, value))
+        add(LOG_STATE, state)
+        if (judgement != null) {
+            add(LOG_VERDICT, judgement.verdict.slug)
+            add(LOG_SIGNALS, if (judgement.signals.isEmpty()) NONE else judgement.signals.sortedBy { it.ordinal }.joinToString(",") { it.slug })
+            judgement.towerId?.let { add(LOG_TOWER, it) }
+            judgement.tech?.let { add(LOG_TECH, it.slug) }
+            judgement.operatorCode?.let { add(LOG_OPERATOR, it) }
+            add(LOG_PLACES, judgement.places.toString())
+            add(LOG_PLACE_SCANS, judgement.placeScans.toString())
+            add(LOG_PLACE_CELLS, judgement.placeCells.toString())
+        } else if (book != null) {
+            add(LOG_PLACES, book.places.size.toString())
+        }
+        return out
+    }
+
+    private const val TOWER_PREFIX = "tower "
+
+    /** The subject of an unfamiliar-tower finding: `tower <8 hex>`. */
+    fun towerSubject(towerId: String): String = TOWER_PREFIX + towerId
+
+    /** The tower id in `tower <8 hex>`, or null for anything else. */
+    fun parseTowerSubject(subject: String): String? =
+        subject.removePrefix(TOWER_PREFIX).takeIf { subject.startsWith(TOWER_PREFIX) && TOWER_ID.matches(it) }
+
+    private val TOWER_ID = Regex("[0-9a-f]{${CellLog.TOWER_ID_LENGTH}}")
 }

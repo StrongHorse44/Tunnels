@@ -56,6 +56,10 @@
 > approved for user-started checks and downloads only); Surroundings judges following by whether a tag was seen
 > on both sides of a move (a move counter and a keyed hash of a ~250 m grid cell, never a position); the
 > Timeline and Notifications gates explain Android's restricted settings.
+> **Cell logbook (2026-10, B10):** Surroundings can keep, per place, keyed hashes of the cells, tracking areas and operators the
+> phone used there (the Q6 exception to rules 3 and 4: no coordinate, raw cell identity, timestamp or order; 64 places, capped
+> sets, until cleared). A never-seen cell at a place scanned four times or more, with a second signal, is a NOTICE worded as a
+> possible network change. Off until RJ taps "Start the cell logbook"; manual scans only; not exported; no new permission.
 
 ## Instructions for Claude Code
 This is the full spec for Tunnels, a native Android app for my GrapheneOS Pixel 10.
@@ -90,8 +94,8 @@ Design language: geological cross-section. Home screen is a stack of strata, sur
 ## Principles (hard rules)
 1. Offline by default. Phase 1 declares no INTERNET permission. Later, the GrapheneOS Network toggle stays off except during a session.
 2. Nothing leaves the device. No analytics, crash reporting, cloud sync, or SDKs that phone home. Snapshot exports are manual, encrypted files.
-3. Store summaries, not raw data. "App X contacted 14 domains today," not packet captures. "Tracker seen at 3 places," not a GPS trail.
-4. Short retention. Events expire after 30 days. Keep the last 12 snapshots plus pinned ones.
+3. Store summaries, not raw data. "App X contacted 14 domains today," not packet captures. "Tracker seen at 3 places," not a GPS trail. Exception (Q6, OQ74): the cell logbook's keyed hashed sets per place, with a best-radio-generation digit and a key fingerprint (CLAUDE.md rule 3).
+4. Short retention. Events expire after 30 days. Keep the last 12 snapshots plus pinned ones. Exception (Q6, OQ74): the cell logbook's hashed sets, digit and fingerprint last until cleared, capped in code.
 5. Encrypted at rest. SQLCipher with key wrapped by Android Keystore (StrongBox when available). Optional app lock via device credentials.
 6. Opt-in per tunnel. Fresh install asks for nothing. Permissions requested only when opening the tunnel that needs them, with a one-line reason.
 8. Every security finding has an action. Findings without one go in Explore.

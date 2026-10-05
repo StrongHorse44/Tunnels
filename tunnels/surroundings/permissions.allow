@@ -12,6 +12,8 @@ android.permission.VIBRATE
 android.permission.NEARBY_WIFI_DEVICES
 # Android ties cell identity (TelephonyManager.allCellInfo) to location; fine must come with coarse.
 # One fix per scan also tells whether the phone moved since the last scan (a move counter, never a position).
+# Cell identities are read into memory only and kept as keyed hashes in the cell logbook (CLAUDE.md rule 3,
+# hashed-set exception): no raw cell id is stored or logged. READ_PHONE_STATE is not needed and not listed.
 android.permission.ACCESS_FINE_LOCATION
 android.permission.ACCESS_COARSE_LOCATION
 # Background monitor only, separate opt-in inside the tunnel.

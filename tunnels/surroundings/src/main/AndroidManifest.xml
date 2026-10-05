@@ -16,10 +16,13 @@
     <uses-permission
         android:name="android.permission.NEARBY_WIFI_DEVICES"
         android:usesPermissionFlags="neverForLocation" />
-    <!-- Android ties cell-tower identity to location. Only the technology (NR/LTE/UMTS/GSM) and the
-         operator code are kept; no position, no cell id. One position fix per scan tells whether the
-         phone moved since the last scan: only a move counter and a keystore-keyed hash of a ~250 m grid
-         cell are kept, never coordinates. Android requires coarse next to fine. -->
+    <!-- Android ties cell-tower identity to location. A cell check keeps only the technology
+         (NR/LTE/UMTS/GSM) and the operator code. Each registered cell's identity (area, cell id, PCI,
+         channel) is read into memory only and leaves as keyed hashes for the cell logbook (CLAUDE.md
+         rule 3, hashed-set exception, off until the user starts it): no raw cell id is stored or
+         logged, and no position. One position fix per scan tells whether the phone moved since the last
+         scan and which place it is: a move counter and keystore-keyed hashes of ~250 m grid cells are
+         kept, never coordinates. Android requires coarse next to fine. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- The background monitor is a separate opt-in switch inside the tunnel. -->

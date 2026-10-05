@@ -8,11 +8,16 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.stronghorse44.tunnels.ble.Advertisement
 import io.github.stronghorse44.tunnels.ble.AppleFindMyFrame
+import io.github.stronghorse44.tunnels.ble.CellLogText
+import io.github.stronghorse44.tunnels.ble.CellLogbook
+import io.github.stronghorse44.tunnels.ble.CellTech
 import io.github.stronghorse44.tunnels.ble.DultProtocol
 import io.github.stronghorse44.tunnels.ble.FollowingLevel
 import io.github.stronghorse44.tunnels.ble.IdentityFacts
 import io.github.stronghorse44.tunnels.ble.Proximity
 import io.github.stronghorse44.tunnels.ble.RssiMeter
+import io.github.stronghorse44.tunnels.ble.ServingCell
+import io.github.stronghorse44.tunnels.ble.Signal
 import io.github.stronghorse44.tunnels.ble.SurroundingsKeys
 import io.github.stronghorse44.tunnels.ble.SurroundingsRules
 import io.github.stronghorse44.tunnels.ble.ThreatSummary
@@ -20,6 +25,7 @@ import io.github.stronghorse44.tunnels.ble.TrackerGuides
 import io.github.stronghorse44.tunnels.ble.TrackerSignatures
 import io.github.stronghorse44.tunnels.ble.TrackerState
 import io.github.stronghorse44.tunnels.ble.TrackerType
+import io.github.stronghorse44.tunnels.ble.TowerVerdict
 import io.github.stronghorse44.tunnels.ble.TrackerVerdict
 import io.github.stronghorse44.tunnels.model.FindingAction
 import io.github.stronghorse44.tunnels.model.FindingDraft
@@ -33,6 +39,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -88,6 +95,7 @@ class SurroundingsSmokeTest {
             FindingDraft(module.id, "Office", SurroundingsRules.EVIL_TWIN_SUSPECT, Severity.WARN, ""),
             FindingDraft(module.id, SurroundingsKeys.CELL_SUMMARY, SurroundingsRules.CELL_DOWNGRADE, Severity.WARN, ""),
             FindingDraft(module.id, SurroundingsKeys.CELL_SUMMARY, SurroundingsRules.CELL_DOWNGRADED, Severity.WARN, "", sticky = true),
+            FindingDraft(module.id, "tower 0a1b2c3d", SurroundingsRules.UNFAMILIAR_TOWER, Severity.NOTICE, "", sticky = true),
         )
         for (d in drafts) {
             val actions = module.actionsFor(d)
@@ -106,6 +114,13 @@ class SurroundingsSmokeTest {
         assertEquals(listOf(TrackerActions.LABEL_FIND_IT, TrackerActions.LABEL_ALERTS), module.actionsFor(drafts[2]).map { it.label })
         // The rotating-tag notice is family-level too: find it for the family and Android's alerts.
         assertEquals(listOf(TrackerActions.LABEL_FIND_IT, TrackerActions.LABEL_ALERTS), module.actionsFor(drafts[3]).map { it.label })
+        // An unfamiliar tower: the network settings and "Normal here".
+        val tower = module.actionsFor(drafts[8])
+        assertEquals(listOf("Mobile network settings", SurroundingsTunnel.LABEL_NORMAL_HERE), tower.map { it.label })
+        assertTrue(tower[0] is FindingAction.OpenSettings)
+        assertTrue(tower[1] is FindingAction.Perform)
+        // A tower subject that is not `tower <8 hex>` offers the settings only, never a "Normal here" for nothing.
+        assertEquals(listOf("Mobile network settings"), module.actionsFor(FindingDraft(module.id, "tower nope", SurroundingsRules.UNFAMILIAR_TOWER, Severity.NOTICE, "")).map { it.label })
         // A subject that is not a tracker subject gets neither find it nor a mute rather than a guess.
         val odd = module.actionsFor(FindingDraft(module.id, "not a tracker", SurroundingsRules.TRACKER_FOLLOWING, Severity.WARN, ""))
         assertEquals(listOf(TrackerActions.LABEL_ALERTS), odd.map { it.label })
@@ -178,6 +193,92 @@ class SurroundingsSmokeTest {
         // A session that never scanned writes no summary row; one that did writes exactly one.
         val after = store.events(SurroundingsKeys.TUNNEL_ID, 500).first().count { it.kind == SurroundingsKeys.EVENT_FINDIT }
         assertEquals(if (ran) before + 1 else before, after)
+    }
+
+    @Test
+    fun keystoreTokensAreStable32Hex() {
+        val hex32 = Regex("[0-9a-f]{32}")
+        val a = SurroundingsKey.hmac("cell:v1|LTE|310|260|1|2|3|4")
+        assertTrue(a, hex32.matches(a))
+        assertEquals(a, SurroundingsKey.hmac("cell:v1|LTE|310|260|1|2|3|4"))
+        assertTrue(a != SurroundingsKey.hmac("cell:v1|LTE|310|260|1|2|3|5"))
+        assertEquals(listOf(a, SurroundingsKey.hmac("b")), SurroundingsKey.hmacAll(listOf("cell:v1|LTE|310|260|1|2|3|4", "b")))
+        val kid = SurroundingsKey.keyId()
+        assertTrue(kid, Regex("[0-9a-f]{8}").matches(kid))
+        assertEquals(kid, SurroundingsKey.keyId())
+        // The key id is the front of the key's tag of a fixed text, and says nothing else.
+        assertEquals(SurroundingsKey.hmac("kid:v1").take(8), kid)
+    }
+
+    @Test
+    fun cellLogbookStartsJudgesAcceptsAndClears() = runBlocking {
+        val log = CellLogStore(context)
+        val store = TunnelsStore.get(context)
+        val before = store.setting(CellLogStore.KEY)
+        try {
+            log.clear()
+            assertFalse(log.isOn())
+            assertEquals(CellLogText.Row.Off, log.rowFlow().first())
+            // A synthetic place and synthetic cells; the hashes come from the real Keystore key.
+            val block = SurroundingsKey.hmacAll((0 until 9).map { "grid:smoke-test:$it" })
+            val home = ServingCell(CellTech.LTE, "310", "260", 424242, 987654321, 7, 5230)
+
+            // Off: nothing is read, learned or written.
+            assertEquals(SurroundingsKeys.LOG_OFF to null, log.judge(block, listOf(home), 3))
+            assertNull(store.setting(CellLogStore.KEY))
+            // A cell without an id is not judged.
+            assertEquals(SurroundingsKeys.LOG_NO_CELL_ID to null, log.judge(block, listOf(home.copy(cellId = null)), 3))
+
+            assertTrue(log.start().startsWith("The cell logbook is on"))
+            assertTrue(log.isOn())
+            assertTrue(log.rowFlow().first() is CellLogText.Row.On)
+            repeat(4) { i ->
+                val (state, j) = log.judge(block, listOf(home), 3)
+                assertEquals(SurroundingsKeys.LOG_ON, state)
+                assertEquals(TowerVerdict.LEARNING, j!!.verdict)
+                assertEquals(i + 1, j.placeScans)
+            }
+            assertEquals(TowerVerdict.FAMILIAR, log.judge(block, listOf(home), 3).second!!.verdict)
+
+            // An unfamiliar tower: a cell never used here with a new tracking area. Held, not learned.
+            val odd = home.copy(cellId = 123456789, area = 777777)
+            val (state, j) = log.judge(block, listOf(odd), 3)
+            assertEquals(SurroundingsKeys.LOG_ON, state)
+            assertEquals(TowerVerdict.UNFAMILIAR, j!!.verdict)
+            assertEquals(setOf(Signal.AREA), j.signals)
+            assertEquals(8, j.towerId!!.length)
+            // The judgement names the judged cell's own technology and operator (never part of the row).
+            assertEquals(CellTech.LTE, j.tech)
+            assertEquals("310-260", j.operatorCode)
+            assertEquals(TowerVerdict.UNFAMILIAR, log.judge(block, listOf(odd), 3).second!!.verdict)
+
+            // The row holds hashes, counts and ranks only: none of the identity above, and it reads back.
+            val raw = store.setting(CellLogStore.KEY)!!
+            assertNotNull(CellLogbook.decode(raw))
+            for (secret in listOf("987654321", "123456789", "424242", "777777")) assertFalse(secret, raw.contains(secret))
+            assertTrue(raw.lines().all { it.isEmpty() || it.startsWith("CLOG1") || it.startsWith("kid ") || it.startsWith("P ") || it.startsWith("H ") })
+
+            // Normal here learns it and drops the hold; asking again has nothing to remember.
+            assertEquals(CellLogStore.MESSAGE_REMEMBERED, log.accept(j.towerId!!))
+            assertEquals(TowerVerdict.FAMILIAR, log.judge(block, listOf(odd), 3).second!!.verdict)
+            assertEquals(CellLogStore.MESSAGE_NOT_HELD, log.accept(j.towerId!!))
+
+            // A row that cannot be read is never overwritten: a scan, a start and a "Normal here" all leave it.
+            store.putSetting(CellLogStore.KEY, "junk")
+            assertEquals(SurroundingsKeys.LOG_UNREADABLE to null, log.judge(block, listOf(home), 3))
+            log.start()
+            assertEquals(CellLogText.UNREADABLE, log.accept(j.towerId!!))
+            assertEquals("junk", store.setting(CellLogStore.KEY))
+            assertEquals(CellLogText.Row.Unreadable, log.rowFlow().first())
+
+            // Clear deletes the row, readable or not, which turns the logbook off.
+            log.clear()
+            assertNull(store.setting(CellLogStore.KEY))
+            assertEquals(CellLogText.Row.Off, log.rowFlow().first())
+            assertEquals(SurroundingsKeys.LOG_OFF to null, log.judge(block, listOf(home), 3))
+        } finally {
+            store.putSetting(CellLogStore.KEY, before)
+        }
     }
 
     @Test
@@ -254,5 +355,10 @@ class SurroundingsSmokeTest {
         assertTrue(cell[SurroundingsKeys.CELL_AVAILABLE], cell[SurroundingsKeys.CELL_AVAILABLE] in availability)
         assertTrue(cell[SurroundingsKeys.CELL_DOWNGRADES_RECORDED]!!.toInt() >= 0)
         if (cell[SurroundingsKeys.CELL_AVAILABLE] != SurroundingsKeys.AVAILABLE_YES) assertTrue(SurroundingsKeys.CELL_TYPE !in cell)
+        // The logbook always says what it did; with no row (off) or no place it judges nothing, and no hash is an observation.
+        val state = cell[SurroundingsKeys.LOG_STATE]
+        assertTrue(state, state in setOf("off", "on", "no-place", "no-cell-id", "restarted", "unreadable", "failed"))
+        if (state == "off" || state == "no-place" || state == "no-cell-id") assertTrue(SurroundingsKeys.LOG_VERDICT !in cell)
+        assertTrue("no hash in an observation", obs.none { Regex("[0-9a-f]{32}").containsMatchIn(it.value) || Regex("[0-9a-f]{32}").containsMatchIn(it.subject) })
     }
 }

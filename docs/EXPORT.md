@@ -22,7 +22,8 @@ Entries, written in this order (`fwx.py --list` shows exactly these five names a
 Not carried, on purpose: findings and their dismissals, events, the inbox's last visit, the last background-check
 status (this phone's history, not choices), the Second phone verifier ID (this phone's identity: a restore must not
 give two phones the same one), the app lock switch (it depends on the screen lock of the phone it is restored on),
-and the update token. Every value is read back through the code that owns it and written in that code's own
+the Surroundings cell logbook (`surroundings.cell_logbook`: its hashes are keyed by this phone's keystore and mean
+nothing on another phone or after a reinstall, so a restored phone starts the logbook from zero), and the update token. Every value is read back through the code that owns it and written in that code's own
 canonical form, so nothing from the file is stored as it came.
 
 Visible without the passphrase (container spec 1.1): that it is a Tunnels export, the schema, the time it was made,

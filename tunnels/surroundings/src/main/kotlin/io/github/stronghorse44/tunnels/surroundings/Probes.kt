@@ -12,6 +12,11 @@ import android.location.LocationManager
 import android.net.wifi.WifiManager
 import android.os.ParcelUuid
 import android.telephony.CellInfo
+import android.telephony.CellIdentityGsm
+import android.telephony.CellIdentityLte
+import android.telephony.CellIdentityNr
+import android.telephony.CellIdentityTdscdma
+import android.telephony.CellIdentityWcdma
 import android.telephony.CellInfoGsm
 import android.telephony.CellInfoLte
 import android.telephony.CellInfoNr
@@ -27,6 +32,7 @@ import io.github.stronghorse44.tunnels.ble.CellSummary
 import io.github.stronghorse44.tunnels.ble.CellTech
 import io.github.stronghorse44.tunnels.ble.DeviceKey
 import io.github.stronghorse44.tunnels.ble.ScanFilterSpec
+import io.github.stronghorse44.tunnels.ble.ServingCell
 import io.github.stronghorse44.tunnels.ble.SightingFold
 import io.github.stronghorse44.tunnels.ble.SightingRecord
 import io.github.stronghorse44.tunnels.ble.SurroundingsKeys
@@ -248,9 +254,18 @@ object WifiProbe {
     }
 }
 
-data class CellProbeResult(val available: String, val cell: CellSummary?)
+/**
+ * [cell] is what a cell check keeps (never an identity). [serving] are the registered cells' identities for the cell
+ * logbook, **in memory only**: the caller turns them into keyed hashes and drops them; they are never stored,
+ * logged or put in an observation.
+ */
+data class CellProbeResult(val available: String, val cell: CellSummary?, val serving: List<ServingCell> = emptyList())
 
-/** The registered cell's technology, the operator code and the neighbour count. No cell ids, no position. */
+/**
+ * The registered cell's technology, the operator code and the neighbour count, which are all a cell check keeps.
+ * Each registered cell's identity (area, cell id, PCI, channel) is read into memory for the cell logbook and leaves
+ * only as keyed hashes (CLAUDE.md rule 3, hashed-set exception): no raw cell id is stored or logged, and no position.
+ */
 object CellProbe {
     private const val FRESH_TIMEOUT_MS = 5_000L
 
@@ -270,8 +285,41 @@ object CellProbe {
         }
         val registered = infos.firstOrNull { it.isRegistered }
         val operator = CellHeuristics.operatorOf(runCatching { tm.networkOperator }.getOrNull())
-        return CellProbeResult(SurroundingsKeys.AVAILABLE_YES, CellSummary(techOf(registered), operator, infos.count { !it.isRegistered }))
+        val serving = infos.filter { it.isRegistered }.mapNotNull { servingOf(it) }
+        return CellProbeResult(SurroundingsKeys.AVAILABLE_YES, CellSummary(techOf(registered), operator, infos.count { !it.isRegistered }), serving)
     }
+
+    /** One registered cell's identity, unavailable values as null; null for a kind this does not know or an identity that cannot be read. */
+    private fun servingOf(info: CellInfo): ServingCell? = try {
+        when (info) {
+            is CellInfoNr -> (info.cellIdentity as? CellIdentityNr)?.let {
+                ServingCell(CellTech.NR, code(it.mccString), code(it.mncString), int(it.tac)?.toLong(), long(it.nci), int(it.pci), int(it.nrarfcn))
+            }
+            is CellInfoLte -> info.cellIdentity.let { c: CellIdentityLte ->
+                ServingCell(CellTech.LTE, code(c.mccString), code(c.mncString), int(c.tac)?.toLong(), int(c.ci)?.toLong(), int(c.pci), int(c.earfcn))
+            }
+            is CellInfoWcdma -> info.cellIdentity.let { c: CellIdentityWcdma ->
+                ServingCell(CellTech.UMTS, code(c.mccString), code(c.mncString), int(c.lac)?.toLong(), int(c.cid)?.toLong(), int(c.psc), int(c.uarfcn))
+            }
+            is CellInfoTdscdma -> info.cellIdentity.let { c: CellIdentityTdscdma ->
+                ServingCell(CellTech.UMTS, code(c.mccString), code(c.mncString), int(c.lac)?.toLong(), int(c.cid)?.toLong(), int(c.cpid), int(c.uarfcn))
+            }
+            is CellInfoGsm -> info.cellIdentity.let { c: CellIdentityGsm ->
+                ServingCell(CellTech.GSM, code(c.mccString), code(c.mncString), int(c.lac)?.toLong(), int(c.cid)?.toLong(), int(c.bsic), int(c.arfcn))
+            }
+            else -> null
+        }
+    } catch (_: Exception) {
+        null
+    }
+
+    /** An Int the platform marks unavailable (Integer.MAX_VALUE) becomes null. */
+    private fun int(v: Int): Int? = v.takeIf { it != CellInfo.UNAVAILABLE }
+
+    private fun long(v: Long): Long? = v.takeIf { it != CellInfo.UNAVAILABLE_LONG }
+
+    /** An MCC or MNC is digits only; anything else (null, empty, odd text) is unknown. */
+    private fun code(v: String?): String? = v?.takeIf { it.length in 2..3 && it.all { c -> c in '0'..'9' } }
 
     /** Asks the modem for a fresh list; null when it does not answer in time, so the cached list is used. */
     private suspend fun fresh(tm: TelephonyManager): List<CellInfo>? = withTimeoutOrNull(FRESH_TIMEOUT_MS) {

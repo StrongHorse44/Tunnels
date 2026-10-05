@@ -15,7 +15,9 @@ import kotlin.math.floor
  *
  * Stored: the current place's number and a keyed hash of its anchor cell ([PlaceAnchor]), one row, replaced on
  * every scan. The key lives in the phone's keystore and never leaves it, so the hash cannot be turned back into
- * a cell anywhere else. No coordinates, no history of places.
+ * a cell anywhere else. No coordinates, no history of places. The one other thing kept from these hashes is the
+ * cell logbook (CLAUDE.md rule 3, hashed-set exception): an unordered, capped set of the keyed place hashes, each
+ * with its scan count and the keyed hashes of the cells used there, and no times ([CellLog]).
  */
 object PlaceGrid {
     const val CELL_METERS = 250.0

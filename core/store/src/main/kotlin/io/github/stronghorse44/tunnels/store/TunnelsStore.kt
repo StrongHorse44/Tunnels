@@ -40,6 +40,12 @@ class TunnelsStore private constructor(private val db: TunnelsDatabase) {
         if (value == null) dao.deleteSetting(key) else dao.putSetting(SettingEntity(key, value))
     }
 
+    /**
+     * Changes one setting atomically: [transform] gets the stored value (null when absent) and returns the new one
+     * (null removes the row). For a row with more than one writer; see [TunnelsDao.updateSetting].
+     */
+    suspend fun updateSetting(key: String, transform: (String?) -> String?) = dao.updateSetting(key, transform)
+
     /** Enforces retention: 30-day events and change findings, newest 12 unpinned snapshots. */
     suspend fun maintain(now: Instant = Instant.now()) {
         lastMaintain = now.toEpochMilli()

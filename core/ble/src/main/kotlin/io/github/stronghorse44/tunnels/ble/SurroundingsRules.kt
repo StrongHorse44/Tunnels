@@ -22,6 +22,8 @@ object SurroundingsRules {
     const val EVIL_TWIN_SUSPECT = "EVIL_TWIN_SUSPECT"
     const val CELL_DOWNGRADE = "CELL_DOWNGRADE"
     const val CELL_DOWNGRADED = "CELL_DOWNGRADED"
+    /** A cell the phone never used at a place it knows, with a second signal. Worded as a possible network change, never as an attack. */
+    const val UNFAMILIAR_TOWER = "UNFAMILIAR_TOWER"
 
     private fun List<Observation>.v(key: String) = SurroundingsKeys.value(this, key)
     private fun List<Observation>.muted() = v(SurroundingsKeys.MUTED) == "true"
@@ -169,7 +171,51 @@ object SurroundingsRules {
             "That happens in poor coverage, but a fake base station forces it on purpose. GrapheneOS's LTE-only option in Mobile network settings prevents it."
     }
 
-    val all: List<FindingRule> = listOf(trackerFollowing, rotatingTracker, newTrackerType, openWifiConnected, evilTwinSuspect, cellDowngrade, cellDowngraded)
+    /**
+     * Sticky NOTICE: at a place scanned [CellLog.FAMILIAR_SCANS] times or more the phone used a cell it had never used
+     * there, and the cell logbook saw a second signal ([Signal]). Subject `tower <8 hex>` (the first 32 bits of the
+     * cell's keyed token), so two towers are two findings. Nothing here says more than the signals do: a new or
+     * re-planned cell looks the same.
+     */
+    val unfamiliarTower: FindingRule = FindingRule { ctx ->
+        val obs = ctx.current.filter { it.subject == SurroundingsKeys.CELL_SUMMARY }
+        if (obs.v(SurroundingsKeys.LOG_VERDICT) != TowerVerdict.UNFAMILIAR.slug) return@FindingRule emptyList()
+        val tower = obs.v(SurroundingsKeys.LOG_TOWER)?.takeIf { SurroundingsKeys.parseTowerSubject(SurroundingsKeys.towerSubject(it)) != null } ?: return@FindingRule emptyList()
+        val signals = obs.v(SurroundingsKeys.LOG_SIGNALS).orEmpty().split(',').mapNotNull { s -> Signal.entries.firstOrNull { it.slug == s } }
+        listOf(
+            FindingDraft(
+                ctx.tunnelId, SurroundingsKeys.towerSubject(tower), UNFAMILIAR_TOWER, Severity.NOTICE,
+                unfamiliarTowerEvidence(
+                    signals,
+                    // The judged cell's own technology and operator (the unfamiliar cell may be the other SIM's); the first registered cell's only for older rows.
+                    CellTech.bySlug(obs.v(SurroundingsKeys.LOG_TECH) ?: obs.v(SurroundingsKeys.CELL_TYPE)),
+                    obs.v(SurroundingsKeys.LOG_OPERATOR) ?: obs.v(SurroundingsKeys.CELL_OPERATOR),
+                ),
+                sticky = true,
+            ),
+        )
+    }
+
+    /** The finding's text: fixed words, then what was new about the cell. */
+    fun unfamiliarTowerEvidence(signals: List<Signal>, tech: CellTech, operator: String?): String {
+        val parts = signals.sortedBy { it.ordinal }.map {
+            when (it) {
+                Signal.AREA -> "the tracking area is new here"
+                Signal.DOWNGRADE -> if (tech == CellTech.UNKNOWN) "the connection dropped to an older generation" else "the connection dropped to ${tech.generation} (${tech.slug})"
+                Signal.OPERATOR -> if (operator == null || operator == CellSummary.UNKNOWN_OPERATOR) "the operator is new here" else "the operator $operator is new here"
+            }
+        }
+        val what = when (parts.size) {
+            0 -> "something else about it is new"
+            1 -> parts[0]
+            else -> parts.dropLast(1).joinToString(", ") + " and " + parts.last()
+        }
+        return "Unfamiliar tower at a place you scan often: the phone used a cell it has never used here, and $what. " +
+            "Usually this is the network changing (a new or re-planned cell). An app cannot tell that apart from a fake base station, " +
+            "so if it keeps happening here, use LTE only and turn off 2G."
+    }
+
+    val all: List<FindingRule> = listOf(trackerFollowing, rotatingTracker, newTrackerType, openWifiConnected, evilTwinSuspect, cellDowngrade, cellDowngraded, unfamiliarTower)
 
     /** Kinds about one tracker identity or family: they get the tracker actions. */
     val trackerKinds: Set<String> = setOf(TRACKER_FOLLOWING, TRACKER_STAYS, ROTATING_TRACKER, NEW_TRACKER_TYPE)
