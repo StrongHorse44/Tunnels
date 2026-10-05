@@ -26,6 +26,12 @@ object LanKeys {
     const val HOST_UPNP = "host:upnp"
     /** Vendor guessed from mDNS/SSDP strings; absent when unknown. */
     const val HOST_VENDOR = "host:vendor"
+    /**
+     * The host's census identity tokens, comma list, primary first (see [DeviceIdentity]); absent for the gateway and for a
+     * host that gave nothing to recognise it by. Tokens are salted hashes: the raw SSDP UUID and the instance names they
+     * were made from are never stored under this key, and a token differs on every network.
+     */
+    const val HOST_IDS = "host:ids"
 
     const val ROUTER_IP = "router:ip"
     /** "true", "false" or "unknown": the gateway advertises a WAN(IP|PPP)Connection UPnP service. */
@@ -69,6 +75,27 @@ object LanKeys {
      * mid-scan; see [BindGuard]). The scan is also marked partial with the stage "network". Absent when zero.
      */
     const val SCAN_PROBES_SKIPPED = "scan:probesSkipped"
+
+    /**
+     * Distinct in-scope hosts that were not recorded because the 50-host cap was full (the gateway is reserved before
+     * discovery and never counts against it). Count only, never the addresses. Absent when zero.
+     */
+    const val SCAN_OVER_CAP = "scan:overCap"
+    /**
+     * mDNS services that offered only link-local addresses, so there was nothing inside the network to record or probe.
+     * They are not "outside this network": the address is simply not routable here. Count only. Absent when zero.
+     */
+    const val SCAN_LINK_LOCAL_ONLY = "scan:linkLocalOnly"
+
+    // Device census (subject [SUBJECT_SUMMARY]; see [DeviceCensus]). Summaries only: tokens, counts and state words.
+    /** "set" (a list exists for this network), "unset" (none yet) or "unavailable" (the store could not be read: nothing was judged). */
+    const val CENSUS_STATE = "census:state"
+    /** Sorted comma list of the tokens on the list, at most [DeviceCensus.MAX_KNOWN], or "none". Absent when unavailable. */
+    const val CENSUS_KNOWN = "census:known"
+    /** Non-gateway hosts with no listed token. Absent unless the state is "set". */
+    const val CENSUS_UNKNOWN = "census:unknown"
+    /** "true" when acknowledgements were left out because the list was full. Absent otherwise. */
+    const val CENSUS_FULL = "census:full"
 
     const val GATE_CONFIRMED = "confirmed"
     const val GATE_UNCONFIRMED = "unconfirmed"

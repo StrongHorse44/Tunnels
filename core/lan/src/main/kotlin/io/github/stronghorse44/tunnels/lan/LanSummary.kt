@@ -12,8 +12,22 @@ data class LanHost(
     val riskyPorts: List<Int>,
     val upnp: Boolean,
     val vendor: String?,
+    /** The census tokens, primary first; empty for the gateway and for a host with no identity. */
+    val ids: List<String> = emptyList(),
+    /**
+     * Whether the host is on the network's list: null unless the census state is `set` (and always null for the
+     * gateway, which is never judged), true when any of its tokens is listed, false otherwise, so a host with no
+     * identity reads false.
+     */
+    val listed: Boolean? = null,
 ) {
     val title: String get() = name ?: vendor ?: ip
+
+    /** The primary token, or null when the host has no identity (it cannot be added to the list). */
+    val primaryId: String? get() = DeviceIdentity.primaryOf(ids)
+
+    /** The name the census shows for the device in findings (see [DeviceCensus.title]). */
+    val censusTitle: String get() = DeviceCensus.title(name, vendor)
 }
 
 /** The router card's facts. Values are "true"/"false"/"unknown" strings as observed. */
@@ -45,8 +59,29 @@ data class LanSummary(
     val partialStages: List<String>,
     /** Distinct discovered addresses ignored because they lay outside the confirmed network. */
     val droppedOutOfScope: Int = 0,
+    /** [DeviceCensus.STATE_SET], [DeviceCensus.STATE_UNSET] or [DeviceCensus.STATE_UNAVAILABLE]; null for a scan that predates the census. */
+    val censusState: String? = null,
+    /** Tokens on the list (0 unless the state is `set`); a device can hold up to six, see [listedCount]. */
+    val knownCount: Int = 0,
+    /** Non-gateway hosts not on the list; 0 unless the state is `set`. */
+    val unknownCount: Int = 0,
+    /** The list was full, so some acknowledgements were left out. */
+    val full: Boolean = false,
+    /** mDNS services that offered only link-local addresses (not probed). */
+    val linkLocalOnly: Int = 0,
+    /** In-scope hosts not recorded because the host cap was full. */
+    val overCap: Int = 0,
 ) {
     val scanned: Boolean get() = gate == LanKeys.GATE_CONFIRMED
+
+    /** Hosts other than the gateway: the devices the census can list. */
+    val devicesSeen: Int get() = hosts.count { it.ip != router?.ip }
+
+    /**
+     * Devices seen in this scan that are on the list. [knownCount] counts tokens, and a device has up to six, so the
+     * panel's "N on your list" is this number: the devices on the network now that the list accepts.
+     */
+    val listedCount: Int get() = hosts.count { it.listed == true }
 
     /** Hosts grouped by kind, in [HostKind] display order, empty kinds left out. */
     fun hostsByKind(): List<Pair<HostKind, List<LanHost>>> =
@@ -59,7 +94,14 @@ data class LanSummary(
             val obs = observations.filter { it.tunnelId == LanKeys.TUNNEL_ID }
             if (obs.isEmpty()) return EMPTY
             val bySubject = obs.groupBy { it.subject }
+            val summary = bySubject[LanKeys.SUBJECT_SUMMARY].orEmpty()
+            val censusState = LanKeys.value(summary, LanKeys.CENSUS_STATE)?.takeIf {
+                it == DeviceCensus.STATE_SET || it == DeviceCensus.STATE_UNSET || it == DeviceCensus.STATE_UNAVAILABLE
+            }
+            val known = if (censusState == DeviceCensus.STATE_SET) DeviceCensus.parseKnown(LanKeys.value(summary, LanKeys.CENSUS_KNOWN)) else null
+            val gateway = LanKeys.value(bySubject[LanKeys.SUBJECT_ROUTER].orEmpty(), LanKeys.ROUTER_IP)
             val hosts = bySubject.filterKeys(LanKeys::isHostSubject).map { (ip, list) ->
+                val ids = LanKeys.items(LanKeys.value(list, LanKeys.HOST_IDS)).filter(DeviceIdentity::isToken)
                 LanHost(
                     ip = ip,
                     name = LanKeys.value(list, LanKeys.HOST_NAME),
@@ -69,6 +111,8 @@ data class LanSummary(
                     riskyPorts = LanKeys.ports(LanKeys.value(list, LanKeys.HOST_RISKY)),
                     upnp = LanKeys.value(list, LanKeys.HOST_UPNP) == LanKeys.TRUE,
                     vendor = LanKeys.value(list, LanKeys.HOST_VENDOR),
+                    ids = ids,
+                    listed = if (known == null || ip == gateway) null else DeviceCensus.isListed(ids, known),
                 )
             }.sortedWith(compareBy<LanHost> { it.kind.ordinal }.thenBy { ipSortKey(it.ip) })
             val router = bySubject[LanKeys.SUBJECT_ROUTER]?.let { r ->
@@ -83,7 +127,6 @@ data class LanSummary(
                     openPorts = LanKeys.value(r, LanKeys.ROUTER_OPEN_PORTS)?.let(LanKeys::ports),
                 )
             }
-            val summary = bySubject[LanKeys.SUBJECT_SUMMARY].orEmpty()
             return LanSummary(
                 hosts = hosts,
                 router = router,
@@ -95,6 +138,13 @@ data class LanSummary(
                 gateReason = LanKeys.value(summary, LanKeys.SCAN_GATE_REASON),
                 partialStages = LanKeys.items(LanKeys.value(summary, LanKeys.SCAN_PARTIAL)),
                 droppedOutOfScope = LanKeys.value(summary, LanKeys.SCAN_DROPPED_OUT_OF_SCOPE)?.toIntOrNull() ?: 0,
+                censusState = censusState,
+                knownCount = known?.size ?: 0,
+                unknownCount = if (known == null) 0 else LanKeys.value(summary, LanKeys.CENSUS_UNKNOWN)?.toIntOrNull()
+                    ?: hosts.count { it.listed == false },
+                full = LanKeys.value(summary, LanKeys.CENSUS_FULL) == LanKeys.TRUE,
+                linkLocalOnly = LanKeys.value(summary, LanKeys.SCAN_LINK_LOCAL_ONLY)?.toIntOrNull() ?: 0,
+                overCap = LanKeys.value(summary, LanKeys.SCAN_OVER_CAP)?.toIntOrNull() ?: 0,
             )
         }
 

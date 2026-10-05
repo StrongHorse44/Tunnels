@@ -43,6 +43,15 @@
 > and raises a finding when a watched app's newest bundle is older than the limit (default 30 days, RJ sets it) or gone,
 > with "Open <app>" as its action; a restore drill date RJ sets raises a reminder after 90 days. It stores summaries only
 > (app ID, newest time, file count), joins the opt-in background check, and asks for no passphrase. See [BACKUPS.md](BACKUPS.md).
+> **Device census (2026-10, B08):** Home network keeps a list of the devices you accepted on each confirmed Wi-Fi ("These are
+> all mine" once, then "Mine" per device) and raises one `UNKNOWN_DEVICE` finding for any other device; `NEW_HOST` is retired.
+> A device is recognised by identity tokens (salted hashes of its SSDP UUID or mDNS instance names, or a shape of vendor,
+> model and services; never its address or open ports), kept as summaries in the scan's observations and carried from scan to
+> scan; acknowledgements are events that expire at 30 days, and Tunnels keeps one Home-network-only snapshot per network
+> pinned so the list outlives snapshot retention (it never pins a snapshot that holds other tunnels' data, and it also moves or removes the pin on a Home-network-only snapshot of that network that was pinned by hand). Devices that announce nothing on mDNS or SSDP are invisible to it (no
+> address sweep, OQ67). It also closes the B03 follow-ups: the gateway is recorded before discovery and outside the 50-host
+> cap, and link-local-only mDNS services have their own count. No new permission, host or dependency. See
+> `core/lan` `DeviceCensus`, `DeviceIdentity` and `CensusPins`.
 > **Update (2026-10-01):** in-app updates from this repository's GitHub releases (`tunnels/updater`, INTERNET
 > approved for user-started checks and downloads only); Surroundings judges following by whether a tag was seen
 > on both sides of a move (a move counter and a keyed hash of a ~250 m grid cell, never a position); the
