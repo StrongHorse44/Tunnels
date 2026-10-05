@@ -1,6 +1,10 @@
 package io.github.stronghorse44.tunnels.devicecheck
 
 import io.github.stronghorse44.tunnels.attestation.SiliconKeys
+import io.github.stronghorse44.tunnels.posture.PostureKeys
+import io.github.stronghorse44.tunnels.posture.PostureState
+import io.github.stronghorse44.tunnels.posture.PostureWhy
+import io.github.stronghorse44.tunnels.posture.Reading
 import io.github.stronghorse44.tunnels.watchrules.WatchSettings
 import io.github.stronghorse44.tunnels.watchrules.WatchStatus
 import org.junit.Assert.assertEquals
@@ -116,5 +120,79 @@ class DeviceChecksTest {
         assertEquals(CheckStatus.PASS, DeviceChecks.appLock(available = true, enabled = true).status)
         assertTrue(DeviceChecks.appLock(available = true, enabled = false).action is CheckAction.OpenScreen)
         assertTrue(DeviceChecks.byHand.all { it.status == CheckStatus.TODO && it.action != null })
+    }
+
+    private fun reading(id: String, state: PostureState, value: String? = null, why: PostureWhy? = null) =
+        Reading(PostureKeys.item(id)!!, state, value, why)
+
+    @Test
+    fun postureNotScannedIsTodo() {
+        val none = DeviceChecks.postureReadings(emptyList(), null, now)
+        assertEquals(CheckStatus.TODO, none.status)
+        assertTrue(none.detail, none.detail.startsWith("Deep mode has not read posture yet"))
+        assertEquals(CheckAction.OpenTunnel("deep_mode", "Open Deep mode"), none.action)
+        // Readings without a snapshot time cannot have come from a scan.
+        assertEquals(CheckStatus.TODO, DeviceChecks.postureReadings(listOf(reading("auto_reboot", PostureState.GOOD, "12 h")), null, now).status)
+    }
+
+    @Test
+    fun postureCountsByState() {
+        val readings = PostureKeys.ITEMS.map { item ->
+            when (item.id) {
+                "wifi_auto_off", "bt_auto_off", "nfc_auto_off" -> Reading(item, PostureState.UNKNOWN, null, PostureWhy.ABSENT)
+                else -> Reading(item, PostureState.GOOD, "x", null)
+            }
+        }
+        val r = DeviceChecks.postureReadings(readings, now.minus(Duration.ofHours(1)), now)
+        assertEquals(CheckStatus.NOTE, r.status)
+        assertTrue(r.detail, r.detail.startsWith("11 read, 3 not set on this phone (Wi-Fi auto-off, Bluetooth auto-off, NFC auto-off), 0 failed."))
+        val all = DeviceChecks.postureReadings(PostureKeys.ITEMS.map { Reading(it, PostureState.GOOD, "x", null) }, now, now)
+        assertEquals(CheckStatus.PASS, all.status)
+        assertEquals("14 read, 0 not set on this phone, 0 failed.", all.detail)
+        val unconfirmed = DeviceChecks.postureReadings(listOf(reading("usb_port", PostureState.UNKNOWN, "on", PostureWhy.UNCONFIRMED)), now, now)
+        assertTrue(unconfirmed.detail, unconfirmed.detail.startsWith("1 read (1 not confirmed on this phone yet), 0 not set on this phone, 0 failed."))
+        val many = DeviceChecks.postureReadings(PostureKeys.ITEMS.map { Reading(it, PostureState.UNKNOWN, null, PostureWhy.ABSENT) }, now, now)
+        assertTrue(many.detail, many.detail.contains("and 10 more"))
+        val stale = DeviceChecks.postureReadings(PostureKeys.ITEMS.map { Reading(it, PostureState.GOOD, "x", null) }, now.minus(Duration.ofDays(40)), now)
+        assertTrue(stale.detail, stale.detail.contains("scan Deep mode again"))
+    }
+
+    @Test
+    fun unreadablePostureWarns() {
+        val r = DeviceChecks.postureReadings(
+            listOf(reading("auto_reboot", PostureState.GOOD, "12 h"), reading("usb_port", PostureState.UNKNOWN, null, PostureWhy.UNREADABLE)),
+            now, now,
+        )
+        assertEquals(CheckStatus.WARN, r.status)
+        assertTrue(r.detail, r.detail.startsWith("1 read, 0 not set on this phone, 1 failed."))
+        assertEquals(
+            CheckStatus.WARN,
+            DeviceChecks.postureReadings(listOf(reading("auto_reboot", PostureState.UNKNOWN, null, PostureWhy.MALFORMED)), now, now).status,
+        )
+    }
+
+    @Test
+    fun privateDnsSettingDisagreeingWithTheNetworkFails() {
+        fun dns(value: String?, net: PrivateDns) =
+            DeviceChecks.privateDnsAgrees(value?.let { reading("private_dns", PostureState.GOOD, it) }, net)
+        assertEquals(CheckStatus.FAIL, dns("off", PrivateDns.Automatic).status)
+        assertEquals(CheckStatus.FAIL, dns("off", PrivateDns.Strict("resolver")).status)
+        assertEquals(CheckStatus.FAIL, dns("provider", PrivateDns.Off).status)
+        assertEquals(CheckStatus.PASS, dns("off", PrivateDns.Off).status)
+        assertEquals(CheckStatus.PASS, dns("automatic", PrivateDns.Automatic).status)
+        assertEquals(CheckStatus.PASS, dns("provider", PrivateDns.Strict("resolver")).status)
+        // Automatic may fall back to plain lookups; that neither confirms nor contradicts the key.
+        assertEquals(CheckStatus.NOTE, dns("automatic", PrivateDns.Off).status)
+        // Either side unknown: a note, never a verdict.
+        assertEquals(CheckStatus.NOTE, dns("off", PrivateDns.Unknown).status)
+        assertEquals(CheckStatus.NOTE, dns(null, PrivateDns.Off).status)
+        assertEquals(CheckStatus.NOTE, DeviceChecks.privateDnsAgrees(reading("private_dns", PostureState.UNKNOWN, null, PostureWhy.ABSENT), PrivateDns.Automatic).status)
+        // An unconfirmed item is still compared: that is how its key gets confirmed.
+        assertEquals(
+            CheckStatus.PASS,
+            DeviceChecks.privateDnsAgrees(reading("private_dns", PostureState.UNKNOWN, "automatic", PostureWhy.UNCONFIRMED), PrivateDns.Automatic).status,
+        )
+        // The network's hostname never reaches the text.
+        assertTrue("resolver" !in dns("off", PrivateDns.Strict("resolver")).detail)
     }
 }

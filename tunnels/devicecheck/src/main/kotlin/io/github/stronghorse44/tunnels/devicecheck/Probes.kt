@@ -11,6 +11,8 @@ import android.net.NetworkCapabilities
 import android.os.PowerManager
 import android.os.Process
 import io.github.stronghorse44.tunnels.attestation.SiliconKeys
+import io.github.stronghorse44.tunnels.posture.PostureKeys
+import io.github.stronghorse44.tunnels.posture.PostureObservations
 import io.github.stronghorse44.tunnels.runtime.AppLock
 import io.github.stronghorse44.tunnels.runtime.RestrictedSettings
 import io.github.stronghorse44.tunnels.runtime.TunnelsRuntime
@@ -37,6 +39,13 @@ object DeviceCheckRunner {
             val values = store.dao.observations(id, SiliconKeys.TUNNEL_ID).filter { it.subject == SiliconKeys.SUBJECT }.associate { it.key to it.value }
             values to takenAt
         }
+
+        // Deep mode's latest posture readings, as the Silicon ones above: from the store, no dependency on its module.
+        val posture = store.dao.latestSnapshotIdFor(PostureKeys.TUNNEL_ID)?.let { id ->
+            val takenAt = store.dao.snapshot(id)?.takenAt?.let(Instant::ofEpochMilli)
+            PostureObservations.from(store.dao.observations(id, PostureKeys.TUNNEL_ID).map { it.toModel() }) to takenAt
+        }
+        val dns = privateDns(app)
 
         val settings = WatchSettings.decode(store.setting(WatchSettings.KEY))
         val status = WatchStatus.decode(store.setting(WatchStatus.KEY))
@@ -77,7 +86,14 @@ object DeviceCheckRunner {
                     DeviceChecks.appLock(runCatching { AppLock.canLock(app) }.getOrDefault(false), runCatching { AppLock.isEnabled(app) }.getOrDefault(false)),
                 ),
             ),
-            CheckGroup("Traffic sessions", listOf(DeviceChecks.vpn(vpnConnected, vpnOurs), DeviceChecks.privateDns(privateDns(app)))),
+            CheckGroup("Traffic sessions", listOf(DeviceChecks.vpn(vpnConnected, vpnOurs), DeviceChecks.privateDns(dns))),
+            CheckGroup(
+                "Posture (Deep mode)",
+                listOf(
+                    DeviceChecks.postureReadings(posture?.first?.readings.orEmpty(), posture?.second, now),
+                    DeviceChecks.privateDnsAgrees(posture?.first?.reading(PostureKeys.PRIVATE_DNS), dns),
+                ),
+            ),
             CheckGroup("Access you granted", access),
             CheckGroup("By hand", DeviceChecks.byHand),
         ).filter { it.results.isNotEmpty() }

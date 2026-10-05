@@ -28,6 +28,7 @@ dependencies {
     implementation(project(":core:store"))
     implementation(project(":core:devicecheck"))
     implementation(project(":core:attestation"))
+    implementation(project(":core:posture"))
     implementation(project(":core:watchrules"))
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.runner)
