@@ -6,6 +6,8 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import androidx.compose.runtime.Composable
+import io.github.stronghorse44.tunnels.lan.DeviceCensus
+import io.github.stronghorse44.tunnels.lan.DeviceIdentity
 import io.github.stronghorse44.tunnels.lan.HostEvidence
 import io.github.stronghorse44.tunnels.lan.HostKinds
 import io.github.stronghorse44.tunnels.lan.LanGuides
@@ -27,6 +29,7 @@ import io.github.stronghorse44.tunnels.model.TunnelModule
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenActions
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenState
 import io.github.stronghorse44.tunnels.runtime.TunnelUi
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -48,6 +51,9 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
 
     val gate = NetworkGate(context)
     private val scanner = LanScanner(context)
+
+    /** The device census's reads and writes in the encrypted store. */
+    val census = CensusStore(context)
 
     /** Gateway of the last allowed scan, for the "Open router admin" action. */
     @Volatile private var lastGateway: String? = null
@@ -77,7 +83,10 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
         val gateway = result.router.gateway
         lastGateway = gateway
 
-        val hosts = result.hosts.values.sortedBy { LanSummary.ipSortKey(it.ip) }.take(LanScanner.MAX_HOSTS)
+        // The table holds at most MAX_HOSTS hosts besides the gateway, which is reserved outside that cap.
+        val hosts = result.hosts.values.sortedBy { LanSummary.ipSortKey(it.ip) }.take(LanScanner.MAX_HOSTS + 1)
+        val networkHash = allowed.fingerprint.hash
+        val hostIds = HashMap<String, List<String>>()
         var risky = 0
         for (host in hosts) {
             try {
@@ -91,7 +100,7 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
                     models = host.models.toList(),
                 )
                 val kind = HostKinds.infer(evidence)
-                val name = host.names.firstOrNull() ?: if (host.ip == gateway) result.router.description?.label else null
+                val name = DeviceIdentity.canonicalName(host.names.toList()) ?: if (host.ip == gateway) result.router.description?.label else null
                 val services = (host.mdnsTypes.map(MdnsTypes::shortName) + host.ssdpTypes.map(Ssdp::shortType)).distinct().take(12)
                 val open = host.openPorts.toList()
                 val riskyPorts = PortCatalog.riskyOf(open)
@@ -105,6 +114,16 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
                 val vendor = VendorHints.vendorOf(host.ssdpServer, *host.names.toTypedArray(), *host.models.toTypedArray())
                     ?: if (host.ip == gateway) result.router.description?.manufacturer else null
                 vendor?.let { add(host.ip, LanKeys.HOST_VENDOR, it) }
+                if (host.ip != gateway) {
+                    // Open ports are never part of an identity (timeouts make them flicker), and the kind is inferred from
+                    // them, so the shape token gets the kind as it reads without them.
+                    val identityKind = HostKinds.infer(evidence.copy(openPorts = emptySet()))
+                    val ids = DeviceIdentity.tokens(networkHash, host, identityKind, vendor)
+                    if (ids.isNotEmpty()) {
+                        hostIds[host.ip] = ids
+                        add(host.ip, LanKeys.HOST_IDS, LanKeys.list(ids))
+                    }
+                }
             } catch (_: Exception) {
                 add(host.ip, LanKeys.HOST_KIND, LanKeys.UNKNOWN)
             }
@@ -131,7 +150,35 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
         if (result.probesSkipped > 0) add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_PROBES_SKIPPED, result.probesSkipped.toString())
         if (result.droppedOutOfScope > 0) add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_DROPPED_OUT_OF_SCOPE, result.droppedOutOfScope.toString())
         if (result.partial.isNotEmpty()) add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_PARTIAL, LanKeys.list(result.partial))
+        if (result.linkLocalOnly > 0) add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_LINK_LOCAL_ONLY, result.linkLocalOnly.toString())
+        if (result.overCap > 0) add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_OVER_CAP, result.overCap.toString())
+
+        // The census step: only bookkeeping on the replies already received, plus reads and writes in the encrypted
+        // store. A store that cannot be read gives "unavailable" and no list, so nothing is judged (never "all known").
+        val list = readCensus(allowed.fingerprint.prefixTag)
+        if (list == null) {
+            add(LanKeys.SUBJECT_SUMMARY, LanKeys.CENSUS_STATE, DeviceCensus.STATE_UNAVAILABLE)
+        } else {
+            add(LanKeys.SUBJECT_SUMMARY, LanKeys.CENSUS_STATE, list.state)
+            add(LanKeys.SUBJECT_SUMMARY, LanKeys.CENSUS_KNOWN, LanKeys.list(list.known.sorted()))
+            if (list.state == DeviceCensus.STATE_SET) {
+                val unknown = hosts.count { it.ip != gateway && !DeviceCensus.isListed(hostIds[it.ip].orEmpty(), list.known) }
+                add(LanKeys.SUBJECT_SUMMARY, LanKeys.CENSUS_UNKNOWN, unknown.toString())
+            }
+            if (list.full) add(LanKeys.SUBJECT_SUMMARY, LanKeys.CENSUS_FULL, LanKeys.TRUE)
+        }
         return out
+    }
+
+    /** The list for this network, or null when the store could not be read. */
+    private suspend fun readCensus(tag: String): DeviceCensus.Census? = withContext(Dispatchers.IO) {
+        try {
+            census.census(tag)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     private fun triState(value: Boolean?): String = when (value) {
@@ -142,10 +189,20 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
 
     override fun actionsFor(draft: FindingDraft): List<FindingAction> {
         val ports = portsInParentheses.findAll(draft.evidence).mapNotNull { it.groupValues[1].toIntOrNull() }.distinct().toList()
-        val actions = mutableListOf<FindingAction>(
-            FindingAction.Perform(LanGuides.FIX_LABEL) { LanGuides.fix(draft.kind, ports) },
-        )
-        if (LanGuides.isRouterKind(draft.kind)) {
+        val actions = mutableListOf<FindingAction>()
+        // The census actions only change the list in the encrypted store; the panel updates at the next scan.
+        when (draft.kind) {
+            LanRules.UNKNOWN_DEVICE ->
+                if (DeviceCensus.parsePrimary(draft.subject) != null) {
+                    actions += FindingAction.Perform(LanGuides.MINE_LABEL) { withContext(Dispatchers.IO) { census.ack(draft.subject) } }
+                }
+            LanRules.CENSUS_NOT_SET_UP ->
+                DeviceCensus.parseTag(draft.subject)?.let { tag ->
+                    actions += FindingAction.Perform(LanGuides.ALL_MINE_LABEL) { withContext(Dispatchers.IO) { census.setup(tag) } }
+                }
+        }
+        actions += FindingAction.Perform(LanGuides.FIX_LABEL) { LanGuides.fix(draft.kind, ports) }
+        if (LanGuides.wantsRouterAdmin(draft.kind)) {
             actions += FindingAction.Perform(LanGuides.ROUTER_ADMIN_LABEL) { openRouterAdmin() }
         }
         actions += FindingAction.OpenSettings(Settings.ACTION_WIFI_SETTINGS, LanGuides.WIFI_SETTINGS_LABEL)
@@ -166,7 +223,7 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
 
     @Composable
     override fun Content(state: TunnelScreenState, actions: TunnelScreenActions) {
-        HomeNetPanel(state, actions, gate)
+        HomeNetPanel(state, actions, gate, census)
     }
 
     companion object {
