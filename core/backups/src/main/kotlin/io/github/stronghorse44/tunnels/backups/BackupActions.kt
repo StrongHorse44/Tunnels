@@ -17,7 +17,7 @@ interface BackupEnv {
     /** Opens this tunnel's own screen, where the folder is chosen. */
     suspend fun openBackups(): String
 
-    /** Forgets the picked folder (and gives its grant back). */
+    /** Forgets the picked folder (and gives its grant back). The result line says that monitoring is now off ([BackupActions.FOLDER_FORGOTTEN]). */
     suspend fun forgetFolder(): String
 
     /** Records today as the day of the last restore drill. */
@@ -52,6 +52,9 @@ class BackupActions(private val env: BackupEnv) {
     }
 
     companion object {
+        const val FOLDER_FORGOTTEN =
+            "Folder forgotten. Backup monitoring is now off: no export is checked and nothing is reported until you choose a folder again in the Backups screen."
+
         const val HOW_TO_REFRESH_SERVER =
             "Pusher server backups are made on the Chromebook, not by an app on this phone: run backup.sh there, " +
                 "then copy the archive into the export folder and scan again."

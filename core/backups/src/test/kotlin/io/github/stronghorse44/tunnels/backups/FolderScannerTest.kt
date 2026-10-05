@@ -124,10 +124,60 @@ class FolderScannerTest {
     @Test
     fun stopsAtTheHeaderBound() {
         val m = Fixtures.Memory()
-        repeat(FolderScanner.MAX_HEADERS + 5) { m.file("f$it.fwx", bundle("prikey", 1)) }
+        // Ten app names with 100 files each: 64 per name are eligible, 640 in all, and 500 are read, a rank at a time.
+        for (c in 'a'..'j') repeat(100) { m.file("$c-%03d.fwx".format(it), bundle("prikey", 1)) }
         val s = FolderScanner.scan(m, now)
         assertTrue(s.truncated)
         assertEquals(FolderScanner.MAX_HEADERS, m.opened.size)
+        for (c in 'a'..'j') assertTrue("$c-099 is its name's newest", "$c-099.fwx" in m.opened)
+        assertEquals("every name's newest was read and they all say prikey, so prikey is still judged", null, s.holdOf("prikey"))
+    }
+
+    @Test
+    fun onePilesNeverStarvesAnotherAppsFiles() {
+        val m = Fixtures.Memory()
+        repeat(510) { m.file(Fixtures.name("tunnels", now - (it + 1) * 3_600_000L), Fixtures.header("tunnels", 1, now - (it + 1) * 3_600_000L)) }
+        m.file(Fixtures.name("lumen", now - day), bundle("lumen", 1))
+        m.file(Fixtures.name("mardigras", now - day), bundle("mardigras", 1))
+        m.file(Fixtures.name("prikey", now - day), bundle("prikey", 1))
+        val s = FolderScanner.scan(m, now)
+        assertTrue(s.truncated)
+        assertEquals(FolderScanner.MAX_PER_APP + 3, m.opened.size)
+        assertEquals(setOf("tunnels", "lumen", "mardigras", "prikey"), s.apps.keys)
+        for (id in s.apps.keys) assertEquals(id, null, s.holdOf(id))
+        assertEquals("the newest tunnels file is read", now - 3_600_000L, s.apps.getValue("tunnels").newestMs)
+    }
+
+    @Test
+    fun aNamePilesLimitDoesNotCountAnotherFolder() {
+        val m = Fixtures.Memory()
+        val a = m.dir("a")
+        val b = m.dir("b")
+        repeat(100) { m.file(Fixtures.name("prikey", now - (it + 1) * day), bundle("prikey", 1), dir = a) }
+        repeat(100) { m.file(Fixtures.name("prikey", now - (it + 1) * day), bundle("prikey", 1), dir = b) }
+        FolderScanner.scan(m, now)
+        assertEquals(2 * FolderScanner.MAX_PER_APP, m.opened.size)
+    }
+
+    @Test
+    fun aMixedPileWhoseUnreadFilesCouldBeAnyAppHoldsEveryApp() {
+        val m = Fixtures.Memory()
+        repeat(FolderScanner.MAX_PER_APP + 6) { m.file("backup-%03d.fwx".format(it), bundle(if (it % 2 == 0) "prikey" else "tunnels", 1)) }
+        val s = FolderScanner.scan(m, now)
+        assertTrue(s.truncated)
+        assertEquals(Hold.CUT, s.holdOf("lumen"))
+        assertEquals(Hold.CUT, s.holdOf("prikey"))
+    }
+
+    @Test
+    fun aListingCutAtTheEntryBoundHoldsEveryApp() {
+        val m = Fixtures.Memory()
+        repeat(FolderScanner.MAX_ENTRIES) { m.file("photo-%05d.jpg".format(it), ByteArray(1)) }
+        m.file("prikey.fwx", bundle("prikey", 1))
+        val s = FolderScanner.scan(m, now)
+        assertTrue(s.truncated)
+        assertTrue(s.apps.isEmpty())
+        assertEquals(Hold.CUT, s.holdOf("prikey"))
     }
 
     @Test
@@ -141,35 +191,48 @@ class FolderScannerTest {
     @Test
     fun lumenPerItemFilesAreCountedByNameAndNeverOpened() {
         val m = Fixtures.Memory()
-        repeat(600) { m.file("lumen-20261003T101500Z-$it.fwx", ByteArray(10)) }
-        m.file("lumen-20261003T101500Z.fwx", bundle("lumen", 2))
+        repeat(600) { m.file("lumen-20261003-101500Z-$it.fwx", ByteArray(10)) }
+        m.file("lumen-20261003-101500Z.fwx", bundle("lumen", 2))
         val s = FolderScanner.scan(m, now)
         assertFalse(s.truncated)
         val lumen = s.apps.getValue("lumen")
         assertEquals(600, lumen.items)
         assertEquals(1, lumen.files)
         assertEquals(now - 2 * day, lumen.newestMs)
-        assertEquals(listOf("lumen-20261003T101500Z.fwx"), m.opened)
+        assertEquals(listOf("lumen-20261003-101500Z.fwx"), m.opened)
         assertEquals(601, s.bundleFiles)
         assertEquals(0, s.unreadable)
     }
 
     @Test
     fun theItemPatternDoesNotSwallowOtherAppsDatedNames() {
-        assertTrue(FolderScanner.isLumenItem("lumen-20261003T101500Z-7.fwx"))
-        assertTrue(FolderScanner.isLumenItem("LUMEN-20261003T101500Z-12.FWX"))
-        assertFalse(FolderScanner.isLumenItem("lumen-20261003T101500Z.fwx"))
+        assertTrue(FolderScanner.isLumenItem("lumen-20261003-101500Z-7.fwx"))
+        assertTrue(FolderScanner.isLumenItem("lumen-20261003-101500Z-12.fwx"))
+        assertFalse(FolderScanner.isLumenItem("lumen-20261003-101500Z.fwx"))
         assertFalse(FolderScanner.isLumenItem("prikey-2026-10-05.fwx"))
         assertFalse(FolderScanner.isLumenItem("tunnels-20261003Z-3.fwx"))
-        assertFalse(FolderScanner.isLumenItem("lumen-20261003T101500Z-3.tsnap"))
+        assertFalse(FolderScanner.isLumenItem("lumen-20261003-101500Z-3.tsnap"))
+        assertFalse("the spec's case: capital Z, lowercase name", FolderScanner.isLumenItem("LUMEN-20261003-101500Z-12.FWX"))
+        assertFalse(FolderScanner.isLumenItem("lumen-20261003T101500Z-7.fwx"))
+        assertFalse(FolderScanner.isLumenItem("lumen-20261003-101500z-7.fwx"))
     }
 
     @Test
-    fun onlyItemFilesMeanPresentButNoDate() {
+    fun aNameThatIsNotTheSpecsItemFormIsNotAnItemAndIsRead() {
+        assertFalse(FolderScanner.isLumenItem("lumen-baz-5.fwx"))
+        val m = Fixtures.Memory().file("lumen-baz-5.fwx", ByteArray(40) { 1 })
+        val s = FolderScanner.scan(m, now)
+        assertEquals(listOf("lumen-baz-5.fwx"), m.opened)
+        assertEquals(1, s.unreadable)
+        assertTrue(s.apps.isEmpty())
+    }
+
+    @Test
+    fun onlyItemFilesMeanAnExportWithoutItsManifest() {
         val m = Fixtures.Memory()
-        repeat(3) { m.file("lumen-20261003T101500Z-$it.fwx", ByteArray(10)) }
+        repeat(3) { m.file("lumen-20261003-101500Z-$it.fwx", ByteArray(10)) }
         val a = FolderScanner.scan(m, now).apps.getValue("lumen")
-        assertEquals(AppStatus.UNKNOWN_DATE, Freshness.status(true, a, now, 30))
+        assertEquals(AppStatus.NO_MANIFEST, Freshness.status(true, a, now, 30))
     }
 
     @Test
@@ -179,14 +242,15 @@ class FolderScannerTest {
         for (i in 0 until total) m.file("prikey-%04d.fwx".format(i), Fixtures.header("prikey", 1, now - (total - i) * day))
         val s = FolderScanner.scan(m, now)
         assertTrue(s.truncated)
-        assertEquals(FolderScanner.MAX_HEADERS, m.opened.size)
+        assertEquals(FolderScanner.MAX_PER_APP, m.opened.size)
         assertTrue("the newest name is read", "prikey-%04d.fwx".format(total - 1) in m.opened)
         assertFalse("the oldest name is left", "prikey-0000.fwx" in m.opened)
         assertEquals(now - day, s.apps.getValue("prikey").newestMs)
+        assertEquals("its newest name was read, so it is still judged", null, s.holdOf("prikey"))
     }
 
     @Test
-    fun equalNamesInDifferentFoldersReadTheNewerFileFirst() {
+    fun aSameNamedFileInAnotherFolderIsReadToo() {
         val m = Fixtures.Memory()
         val a = m.dir("a")
         val b = m.dir("b")
@@ -194,7 +258,7 @@ class FolderScannerTest {
         m.file("same-000.fwx", bundle("prikey", 1), modified = now - day, dir = b)
         val s = FolderScanner.scan(m, now)
         assertTrue(s.truncated)
-        assertEquals("the newer same-000.fwx (in b) is read", now - day, s.apps.getValue("prikey").newestMs)
+        assertEquals("same-000.fwx in b is read", now - day, s.apps.getValue("prikey").newestMs)
     }
 
     @Test
@@ -206,7 +270,49 @@ class FolderScannerTest {
         val s = FolderScanner.scan(m, now)
         assertEquals(FolderState.OK, s.state)
         assertEquals(1, s.unreadable)
+        assertEquals(1, s.faults)
         assertEquals(setOf("tunnels"), s.apps.keys)
+        assertEquals("a file the provider failed on is not a missing backup", Hold.FAILED, s.heldAll)
+    }
+
+    @Test
+    fun theOnlyFileOfAnAppFailingToOpenHoldsThatApp() {
+        val m = Fixtures.Memory().file(Fixtures.name("prikey", now - day), bundle("prikey", 1))
+        m.failOpen[Fixtures.name("prikey", now - day)] = IllegalStateException("provider")
+        val s = FolderScanner.scan(m, now)
+        assertEquals(1, s.faults)
+        assertEquals(Hold.FAILED, s.holdOf("prikey"))
+        assertEquals("only that app: the name says whose it is", null, s.holdOf("tunnels"))
+        assertNull(s.heldAll)
+    }
+
+    @Test
+    fun aFailingFileOlderThanTheNewestReadOneDoesNotHoldItsApp() {
+        val m = Fixtures.Memory()
+            .file(Fixtures.name("prikey", now - day), bundle("prikey", 1))
+            .file(Fixtures.name("prikey", now - 9 * day), bundle("prikey", 9))
+        m.failOpen[Fixtures.name("prikey", now - 9 * day)] = IllegalArgumentException("provider")
+        val s = FolderScanner.scan(m, now)
+        assertEquals(1, s.faults)
+        assertNull(s.holdOf("prikey"))
+    }
+
+    @Test
+    fun aFailingFileNewerThanTheNewestReadOneHoldsItsApp() {
+        val m = Fixtures.Memory()
+            .file(Fixtures.name("prikey", now - day), bundle("prikey", 1))
+            .file(Fixtures.name("prikey", now - 9 * day), bundle("prikey", 9))
+        m.failOpen[Fixtures.name("prikey", now - day)] = java.io.IOException("provider")
+        assertEquals(Hold.FAILED, FolderScanner.scan(m, now).holdOf("prikey"))
+    }
+
+    @Test
+    fun aFailingFileWithNoAppNameCouldBeAnyAppSoItHoldsThemAll() {
+        val m = Fixtures.Memory().file("export.fwx", bundle("prikey", 1))
+        m.failOpen["export.fwx"] = SecurityException("no grant")
+        val s = FolderScanner.scan(m, now)
+        assertEquals(Hold.FAILED, s.heldAll)
+        assertEquals(Hold.FAILED, s.holdOf("lumen"))
     }
 
     @Test
@@ -218,7 +324,17 @@ class FolderScannerTest {
         val s = FolderScanner.scan(m, now)
         assertEquals(FolderState.OK, s.state)
         assertEquals(1, s.unreadable)
+        assertEquals(1, s.faults)
         assertEquals(setOf("prikey"), s.apps.keys)
+        assertEquals("what is in the folder that would not list could be any app's", Hold.FAILED, s.heldAll)
+    }
+
+    @Test
+    fun aFileThatIsNotABundleIsNotAFault() {
+        val m = Fixtures.Memory().file("bad.fwx", ByteArray(300) { 1 }).file("ok.fwx", bundle("prikey", 1))
+        val s = FolderScanner.scan(m, now)
+        assertEquals(0, s.faults)
+        assertNull(s.heldAll)
     }
 
     @Test

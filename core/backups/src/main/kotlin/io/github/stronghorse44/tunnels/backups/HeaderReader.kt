@@ -14,8 +14,18 @@ sealed interface HeaderRead {
     /** The old Tunnels `TSNAPE1` export: no app or time field, so the caller falls back to the file's date. */
     data object Legacy : HeaderRead
 
-    /** Not a readable FWX v1 file. [reason] is a short code for the count, never shown as a finding. */
-    data class Unreadable(val reason: String) : HeaderRead
+    /**
+     * Not a readable FWX v1 file. [reason] is a short code for the count, never shown as a finding. [access] is true when
+     * the file could not be read at all (the storage provider failed, access was denied): it may well be a bundle, so
+     * the caller must not treat the app it belongs to as missing. False means the bytes were read and are not a bundle.
+     */
+    data class Unreadable(val reason: String) : HeaderRead {
+        val access: Boolean get() = reason in ACCESS_FAILURES
+
+        companion object {
+            val ACCESS_FAILURES = setOf("DENIED", "IO", "PROVIDER")
+        }
+    }
 }
 
 /**

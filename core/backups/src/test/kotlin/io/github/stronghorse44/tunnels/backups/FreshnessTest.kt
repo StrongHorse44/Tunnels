@@ -56,4 +56,40 @@ class FreshnessTest {
         assertEquals(DrillStatus.DUE, Freshness.drillStatus(today.minusDays(90), today))
         assertEquals(DrillStatus.OK, Freshness.drillStatus(today.plusDays(3), today))
     }
+
+    private fun fileDated(daysAgo: Long, undated: Int = 1) = AppSummary("tunnels", 2, now - daysAgo * day, 0, true, 0, 0, undated)
+    private fun fwxDated(daysAgo: Long, undated: Int = 1) = AppSummary("tunnels", 2, now - daysAgo * day, 1, false, 0, 0, undated)
+
+    @Test
+    fun anUndatedOldFormatFileKeepsAnOldFormatDatedFileFromBeingCalledStale() {
+        // It might be newer than the one old-format file that has a date.
+        assertEquals(AppStatus.UNKNOWN_DATE, Freshness.status(true, fileDated(80), now, 30))
+        assertEquals(AppStatus.FRESH, Freshness.status(true, fileDated(5), now, 30))
+    }
+
+    @Test
+    fun anUndatedOldFormatFileCannotKeepAnFwxBundleFromBeingCalledStale() {
+        // The old format is no longer written, so it is never newer than an FWX header's date.
+        assertEquals(AppStatus.STALE, Freshness.status(true, fwxDated(400), now, 30))
+        assertEquals(AppStatus.FRESH, Freshness.status(true, fwxDated(3), now, 30))
+    }
+
+    @Test
+    fun onlyLumenItemFilesAreAnIncompleteExportNotAnUnknownDate() {
+        val items = AppSummary("lumen", 0, 0, 0, false, 0, items = 600)
+        assertEquals(AppStatus.NO_MANIFEST, Freshness.status(true, items, now, 30))
+        assertEquals(AppStatus.INCOMPLETE, Freshness.status(true, items, now, 30, Hold.CUT))
+        assertEquals(AppStatus.UNREADABLE, Freshness.status(true, items, now, 30, Hold.FAILED))
+    }
+
+    @Test
+    fun aHeldAppIsNeverCalledStaleMissingOrSuspiciousButAFreshOneStaysFresh() {
+        assertEquals(AppStatus.FRESH, Freshness.status(true, summary(2), now, 30, Hold.CUT))
+        assertEquals(AppStatus.INCOMPLETE, Freshness.status(true, summary(40), now, 30, Hold.CUT))
+        assertEquals(AppStatus.INCOMPLETE, Freshness.status(true, null, now, 30, Hold.CUT))
+        assertEquals(AppStatus.INCOMPLETE, Freshness.status(true, summary(-1, suspicious = 1), now, 30, Hold.CUT))
+        assertEquals(AppStatus.UNREADABLE, Freshness.status(true, summary(40), now, 30, Hold.FAILED))
+        assertEquals(AppStatus.UNREADABLE, Freshness.status(true, null, now, 30, Hold.FAILED))
+        assertEquals(AppStatus.UNTRACKED, Freshness.status(false, null, now, 30, Hold.FAILED))
+    }
 }

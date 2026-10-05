@@ -138,7 +138,7 @@ class BackupsTunnel internal constructor(
         override suspend fun forgetFolder(): String {
             clearFolder()
             rescan()
-            return "Folder forgotten. Choose it again in the Backups screen."
+            return BackupActions.FOLDER_FORGOTTEN
         }
 
         override suspend fun stopTracking(appId: String): String {

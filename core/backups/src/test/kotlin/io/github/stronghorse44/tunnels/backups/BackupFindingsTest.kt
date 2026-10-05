@@ -243,29 +243,156 @@ class BackupFindingsTest {
     fun theLumenPerItemProbeRaisesNothingFalse() {
         // 600 per-item files fill the folder; the manifest is fresh, the other apps are fresh.
         val m = Fixtures.Memory()
-        repeat(600) { m.file("lumen-20261003T101500Z-$it.fwx", ByteArray(50_000) { 7 }) }
-        m.file("lumen-20261003T101500Z.fwx", bundle("lumen", 2))
+        repeat(600) { m.file("lumen-20261003-101500Z-$it.fwx", ByteArray(50_000) { 7 }) }
+        m.file("lumen-20261003-101500Z.fwx", bundle("lumen", 2))
         m.file("tunnels.fwx", bundle("tunnels", 1)).file("prikey.fwx", bundle("prikey", 3))
         val out = findings(m, BackupSettings(seen = setOf("lumen", "tunnels", "prikey")))
         assertTrue(out.map { it.id }.toString(), out.isEmpty())
-        assertEquals("the item files are never opened", setOf("lumen-20261003T101500Z.fwx", "tunnels.fwx", "prikey.fwx"), m.opened.toSet())
+        assertEquals("the item files are never opened", setOf("lumen-20261003-101500Z.fwx", "tunnels.fwx", "prikey.fwx"), m.opened.toSet())
+    }
+
+    private fun statusOf(f: Fixtures.Memory, settings: BackupSettings, app: String) =
+        BackupView.from(BackupObservations.build(FolderScanner.scan(f, now), settings, now, today)).apps.first { it.app.id == app }.status
+
+    private val four = BackupSettings(seen = setOf("tunnels", "lumen", "mardigras", "prikey"))
+
+    @Test
+    fun fiveHundredAndTenTunnelsFilesDoNotMakeTheOtherAppsIncomplete() {
+        val m = Fixtures.Memory()
+        repeat(510) { m.file(Fixtures.name("tunnels", now - day - it * 3_600_000L), bundle("tunnels", 1)) }
+        m.file(Fixtures.name("lumen", now - 2 * day), bundle("lumen", 2))
+        m.file(Fixtures.name("mardigras", now - 3 * day), bundle("mardigras", 3))
+        m.file(Fixtures.name("prikey", now - 4 * day), bundle("prikey", 4))
+        val out = findings(m, four)
+        assertEquals(listOf("backups|folder|BACKUP_SCAN_INCOMPLETE"), out.map { it.id })
+        assertEquals("every watched app was judged, so it is only a notice", Severity.NOTICE, out.single().severity)
+        for (app in listOf("tunnels", "lumen", "mardigras", "prikey")) assertEquals(app, AppStatus.FRESH, statusOf(m, four, app))
     }
 
     @Test
-    fun aFolderTooBigToReadIsReportedIncompleteAndJudgesNothing() {
+    fun aStaleAppIsStillCalledStaleWhenItsOwnPileIsTooBigToRead() {
         val m = Fixtures.Memory()
-        // These sort first (name descending) and use up the bound; tunnels and prikey sort last and are never read.
-        repeat(FolderScanner.MAX_HEADERS + 10) { m.file("zz-%04d.fwx".format(it), bundle("mardigras", 1)) }
-        m.file("aa-tunnels.fwx", bundle("tunnels", 99)).file("bb-prikey.fwx", bundle("prikey", 99))
-        val out = findings(m, seen)
+        repeat(510) { m.file(Fixtures.name("mardigras", now - 40 * day - it * day), bundle("mardigras", 40 + it.toLong())) }
+        val out = findings(m, BackupSettings(seen = setOf("mardigras")))
+        assertEquals(setOf("backups|mardigras|BACKUP_STALE", "backups|folder|BACKUP_SCAN_INCOMPLETE"), out.map { it.id }.toSet())
+        assertEquals(Severity.WARN, out.first { it.kind == BackupRules.STALE }.severity)
+        assertEquals("no watched app is hidden", Severity.NOTICE, out.first { it.kind == BackupRules.SCAN_INCOMPLETE }.severity)
+        assertEquals(AppStatus.STALE, statusOf(m, BackupSettings(seen = setOf("mardigras")), "mardigras"))
+    }
+
+    @Test
+    fun aWatchedAppTheScanCouldNotSeeMakesTheIncompleteFindingAWarning() {
+        // 20,000 other files fill the listing; prikey sorts after them and is never listed.
+        val m = Fixtures.Memory()
+        repeat(FolderScanner.MAX_ENTRIES) { m.file("photo-%05d.jpg".format(it), ByteArray(1)) }
+        m.file(Fixtures.name("prikey", now - 90 * day), bundle("prikey", 90))
+        val out = findings(m, BackupSettings(seen = setOf("prikey")))
+        assertEquals(listOf("backups|folder|BACKUP_SCAN_INCOMPLETE"), out.map { it.id })
+        val f = out.single()
+        assertEquals(Severity.WARN, f.severity)
+        assertTrue(f.evidence, f.evidence.contains("Prikey is not judged"))
+        assertEquals(listOf("Open Backups"), f.actions.map { it.label })
+        assertEquals(AppStatus.INCOMPLETE, statusOf(m, BackupSettings(seen = setOf("prikey")), "prikey"))
+    }
+
+    @Test
+    fun aMixedPileHidesEveryAppThatIsNotFreshAndWarns() {
+        val m = Fixtures.Memory()
+        repeat(FolderScanner.MAX_PER_APP + 6) { m.file("backup-%03d.fwx".format(it), bundle(if (it % 2 == 0) "prikey" else "tunnels", 1)) }
+        m.file(Fixtures.name("mardigras", now - 80 * day), bundle("mardigras", 80))
+        val s = BackupSettings(seen = setOf("prikey", "tunnels", "mardigras"))
+        val out = findings(m, s)
+        assertEquals(listOf("backups|folder|BACKUP_SCAN_INCOMPLETE"), out.map { it.id })
+        assertEquals(Severity.WARN, out.single().severity)
+        assertEquals(AppStatus.FRESH, statusOf(m, s, "prikey"))
+        assertEquals(AppStatus.INCOMPLETE, statusOf(m, s, "mardigras"))
+    }
+
+    @Test
+    fun lumenItemFilesWithoutAManifestAreAnIncompleteExportWarning() {
+        val m = Fixtures.Memory()
+        repeat(600) { m.file(Fixtures.name("lumen", now - 200 * day, item = it), ByteArray(10), modified = now - 200 * day) }
+        val s = BackupSettings(seen = setOf("lumen"))
+        val out = findings(m, s)
+        val f = out.single()
+        assertEquals("backups|lumen|BACKUP_MISSING", f.id)
+        assertEquals(Severity.WARN, f.severity)
+        assertTrue(f.evidence, f.evidence.contains("Lumen item files (600) but no manifest: the export is incomplete and can't be imported"))
+        assertEquals(listOf("Open Lumen", "Stop watching Lumen"), f.actions.map { it.label })
+        assertEquals(AppStatus.NO_MANIFEST, statusOf(m, s, "lumen"))
+        assertTrue("the item files are never opened", m.opened.isEmpty())
+        // The manifest comes back (the export is whole): the finding clears.
+        m.file(Fixtures.name("lumen", now - 2 * day), bundle("lumen", 2))
+        assertTrue(findings(m, s).isEmpty())
+    }
+
+    @Test
+    fun lumenItemFilesWithoutAManifestInATruncatedScanAreIncompleteNotUnknownDate() {
+        val m = Fixtures.Memory()
+        repeat(600) { m.file(Fixtures.name("lumen", now - 200 * day, item = it), ByteArray(10)) }
+        repeat(FolderScanner.MAX_PER_APP + 6) { m.file("backup-%03d.fwx".format(it), bundle(if (it % 2 == 0) "prikey" else "tunnels", 1)) }
+        val s = BackupSettings(seen = setOf("lumen"))
+        assertEquals(AppStatus.INCOMPLETE, statusOf(m, s, "lumen"))
+        val out = findings(m, s)
+        assertEquals(listOf("backups|folder|BACKUP_SCAN_INCOMPLETE"), out.map { it.id })
+        assertEquals(Severity.WARN, out.single().severity)
+    }
+
+    @Test
+    fun theOnlyFileOfAnAppFailingToOpenIsNotReportedAsAMissingBackup() {
+        val name = Fixtures.name("prikey", now - day)
+        val m = Fixtures.Memory().file(name, bundle("prikey", 1))
+        m.failOpen[name] = IllegalStateException("provider")
+        val s = BackupSettings(seen = setOf("prikey"))
+        val out = findings(m, s)
+        assertEquals(listOf("backups|folder|BACKUP_SCAN_INCOMPLETE"), out.map { it.id })
+        val f = out.single()
+        assertEquals(Severity.WARN, f.severity)
+        assertTrue(f.evidence, f.evidence.contains("A Prikey file could not be read, so Prikey is not judged"))
+        assertFalse(f.evidence.contains("No Prikey bundle"))
+        assertEquals(listOf("Open Backups"), f.actions.map { it.label })
+        assertEquals(AppStatus.UNREADABLE, statusOf(m, s, "prikey"))
+        val view = BackupView.from(BackupObservations.build(FolderScanner.scan(m, now), s, now, today))
+        assertEquals(1, view.faults)
+    }
+
+    @Test
+    fun aFileThatFailsOnAnAppNobodyWatchesIsOnlyANotice() {
+        val name = Fixtures.name("prikey", now - day)
+        val m = Fixtures.Memory().file(name, bundle("prikey", 1))
+        m.failOpen[name] = IllegalStateException("provider")
+        val out = findings(m, BackupSettings())
         assertEquals(listOf("backups|folder|BACKUP_SCAN_INCOMPLETE"), out.map { it.id })
         assertEquals(Severity.NOTICE, out.single().severity)
-        assertEquals(listOf("Open Backups"), out.single().actions.map { it.label })
-        val view = BackupView.from(BackupObservations.build(FolderScanner.scan(m, now), seen, now, today))
-        assertEquals(AppStatus.INCOMPLETE, view.apps.first { it.app.id == "prikey" }.status)
-        assertEquals(AppStatus.INCOMPLETE, view.apps.first { it.app.id == "tunnels" }.status)
-        assertEquals(AppStatus.FRESH, view.apps.first { it.app.id == "mardigras" }.status)
-        assertTrue(view.truncated)
+    }
+
+    @Test
+    fun aStaleAppIsStillJudgedWhenOnlyAnOlderFileFailsToOpen() {
+        val newest = Fixtures.name("prikey", now - 45 * day)
+        val older = Fixtures.name("prikey", now - 60 * day)
+        val m = Fixtures.Memory().file(newest, bundle("prikey", 45)).file(older, bundle("prikey", 60))
+        m.failOpen[older] = IllegalStateException("provider")
+        val out = findings(m, BackupSettings(seen = setOf("prikey")))
+        assertEquals(setOf("backups|prikey|BACKUP_STALE", "backups|folder|BACKUP_SCAN_INCOMPLETE"), out.map { it.id }.toSet())
+        assertEquals(Severity.NOTICE, out.first { it.kind == BackupRules.SCAN_INCOMPLETE }.severity)
+    }
+
+    @Test
+    fun aSubfolderThatCannotBeListedHidesAStaleAppAndWarns() {
+        val m = Fixtures.Memory()
+        m.dir("broken")
+        m.file(Fixtures.name("prikey", now - 90 * day), bundle("prikey", 90))
+        m.failList["broken"] = IllegalStateException("provider")
+        val out = findings(m, BackupSettings(seen = setOf("prikey")))
+        assertEquals(listOf("backups|folder|BACKUP_SCAN_INCOMPLETE"), out.map { it.id })
+        assertEquals(Severity.WARN, out.single().severity)
+        assertTrue(out.single().evidence, out.single().evidence.contains("A Prikey file could not be read"))
+    }
+
+    @Test
+    fun forgettingTheFolderSaysMonitoringIsOffUntilOneIsChosen() {
+        assertTrue(BackupActions.FOLDER_FORGOTTEN, BackupActions.FOLDER_FORGOTTEN.contains("monitoring is now off"))
+        assertTrue(BackupActions.FOLDER_FORGOTTEN.contains("until you choose a folder"))
     }
 
     @Test
@@ -281,8 +408,22 @@ class BackupFindingsTest {
     }
 
     @Test
-    fun anUndatedFileKeepsAnOldDatedBundleFromBeingCalledStale() {
-        val m = Fixtures.Memory().file("old.tsnap", Fixtures.legacy(), modified = 0).file("t.fwx", bundle("tunnels", 80))
+    fun anUndatedOldFormatFileKeepsAnOldFormatDatedFileFromBeingCalledStale() {
+        val m = Fixtures.Memory()
+            .file("tunnels-undated.tsnap", Fixtures.legacy(), modified = 0)
+            .file("tunnels-dated.tsnap", Fixtures.legacy(), modified = now - 80 * day)
         assertTrue(findings(m, BackupSettings(seen = setOf("tunnels"))).isEmpty())
+        assertEquals(AppStatus.UNKNOWN_DATE, statusOf(m, BackupSettings(seen = setOf("tunnels")), "tunnels"))
+    }
+
+    @Test
+    fun anUndatedOldFormatFileCannotKeepA400DayFwxBundleFromBeingCalledStale() {
+        val bundleName = Fixtures.name("tunnels", now - 400 * day)
+        val alone = Fixtures.Memory().file(bundleName, bundle("tunnels", 400))
+        val both = Fixtures.Memory().file(bundleName, bundle("tunnels", 400)).file("tunnels-undated.tsnap", Fixtures.legacy(), modified = 0)
+        val s = BackupSettings(seen = setOf("tunnels"))
+        assertEquals(listOf("backups|tunnels|BACKUP_STALE"), findings(alone, s).map { it.id })
+        assertEquals(listOf("backups|tunnels|BACKUP_STALE"), findings(both, s).map { it.id })
+        assertTrue(findings(both, s).single().evidence.contains("400 days ago"))
     }
 }

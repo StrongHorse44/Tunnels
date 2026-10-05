@@ -131,8 +131,16 @@ internal fun BackupsPanel(module: BackupsTunnel, state: TunnelScreenState, scree
                 Text(extras.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)
                 if (view.truncated) {
                     Text(
-                        "The folder has more files than one scan reads (${FolderScanner.MAX_HEADERS} headers, newest names first), so no app is judged stale or missing. " +
-                            "Move old exports into another folder.",
+                        "The folder has more files than one scan reads (${FolderScanner.MAX_HEADERS} headers, ${FolderScanner.MAX_PER_APP} per app name, newest names first). " +
+                            "An app whose newest files were read is still judged; one that may have unread files is not. Move old exports into another folder.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = StatusColors.warn,
+                    )
+                }
+                if (view.faults > 0) {
+                    Text(
+                        "${view.faults} file${if (view.faults == 1) "" else "s"} or folder${if (view.faults == 1) "" else "s"} could not be opened. " +
+                            "An app that one of them may belong to is not judged. Pick a folder on the phone itself, then scan again.",
                         style = MaterialTheme.typography.bodySmall,
                         color = StatusColors.warn,
                     )
@@ -231,7 +239,9 @@ private fun describe(row: AppRow, folderReadable: Boolean, module: BackupsTunnel
         AppStatus.MISSING -> "no bundle in the folder" to StatusColors.warn
         AppStatus.SUSPICIOUS -> "dated in the future, not counted · $files" to StatusColors.warn
         AppStatus.UNKNOWN_DATE -> "present, date unknown · $files" to GlassColors.dim
-        AppStatus.INCOMPLETE -> "not judged: the folder has more files than one scan reads" to GlassColors.dim
+        AppStatus.NO_MANIFEST -> "${row.items} item bundle${if (row.items == 1) "" else "s"} but no manifest: incomplete, can't be imported" to StatusColors.warn
+        AppStatus.INCOMPLETE -> "not judged: files that may be its own were not read" to StatusColors.warn
+        AppStatus.UNREADABLE -> "not judged: a ${row.app.name} file could not be read" to StatusColors.warn
         AppStatus.UNTRACKED -> (if (newest != null) "$what $newest · ${row.ageDays} days ago · not watched" else "not watched") to GlassColors.dim
         null -> "no bundle seen · not watched" to GlassColors.dim
     }

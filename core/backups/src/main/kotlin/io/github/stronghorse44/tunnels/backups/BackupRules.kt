@@ -1,8 +1,10 @@
 package io.github.stronghorse44.tunnels.backups
 
 import io.github.stronghorse44.tunnels.engine.Rules
+import io.github.stronghorse44.tunnels.model.FindingDraft
 import io.github.stronghorse44.tunnels.model.FindingRule
 import io.github.stronghorse44.tunnels.model.Observation
+import io.github.stronghorse44.tunnels.model.RuleContext
 import io.github.stronghorse44.tunnels.model.Severity
 import java.time.Instant
 import java.time.ZoneId
@@ -21,7 +23,10 @@ object BackupRules {
     /** The picked folder cannot be read now: deleted, moved, or access removed. Without this the stale findings would clear unseen. */
     const val FOLDER_LOST = "BACKUP_FOLDER_LOST"
 
-    /** The folder holds more files than one scan reads, so nothing is judged stale or missing. */
+    /**
+     * The scan left files unread or a file could not be read. A warning when that keeps a watched app from being judged
+     * (a stale or missing backup could be hiding), a notice when every watched app was still judged.
+     */
     const val SCAN_INCOMPLETE = "BACKUP_SCAN_INCOMPLETE"
 
     fun all(zone: ZoneId = ZoneId.systemDefault()): List<FindingRule> = listOf(
@@ -30,7 +35,7 @@ object BackupRules {
         Rules.perSubject(DATE_SUSPICIOUS, Severity.NOTICE) { subject, obs -> suspiciousEvidence(subject, obs) },
         Rules.perSubject(DRILL_DUE, Severity.NOTICE) { subject, obs -> drillEvidence(subject, obs) },
         Rules.perSubject(FOLDER_LOST, Severity.WARN) { subject, obs -> lostEvidence(subject, obs) },
-        Rules.perSubject(SCAN_INCOMPLETE, Severity.NOTICE) { subject, obs -> incompleteEvidence(subject, obs) },
+        FindingRule { incomplete(it) },
     )
 
     fun dateOf(ms: Long, zone: ZoneId) = Instant.ofEpochMilli(ms).atZone(zone).toLocalDate().toString()
@@ -56,10 +61,18 @@ object BackupRules {
     }
 
     private fun missingEvidence(subject: String, obs: List<Observation>): String? {
-        if (appStatus(subject, obs) != AppStatus.MISSING) return null
         val name = BackupApps.nameOf(subject)
-        return "No $name bundle in the export folder, and $name is on your list of apps to watch " +
-            "(a bundle of it was found there before, or you added it). Export it again, or move the file back."
+        return when (appStatus(subject, obs)) {
+            AppStatus.MISSING ->
+                "No $name bundle in the export folder, and $name is on your list of apps to watch " +
+                    "(a bundle of it was found there before, or you added it). Export it again, or move the file back."
+            AppStatus.NO_MANIFEST -> {
+                val items = value(obs, BackupKeys.ITEMS) ?: "?"
+                "$name item files ($items) but no manifest: the export is incomplete and can't be imported. " +
+                    "$name writes the manifest last, so an export is only complete once it exists. Export again, or move the manifest file back."
+            }
+            else -> null
+        }
     }
 
     private fun suspiciousEvidence(subject: String, obs: List<Observation>): String? {
@@ -83,9 +96,38 @@ object BackupRules {
             "No app's backup can be checked until you choose the folder again, so nothing is reported stale or missing meanwhile."
     }
 
-    private fun incompleteEvidence(subject: String, obs: List<Observation>): String? {
-        if (subject != BackupKeys.FOLDER || value(obs, BackupKeys.TRUNCATED) != "true") return null
-        return "The export folder holds more files than one scan reads (${FolderScanner.MAX_HEADERS} headers, newest names first), " +
-            "so no app is judged stale or missing until it is tidied: move old exports into another folder, or pick a smaller one."
+    /** Watched apps the scan could not judge, by name, with the reason each was held. */
+    private fun hiddenApps(by: Map<String, List<Observation>>): List<Pair<String, AppStatus>> = BackupApps.all.mapNotNull { app ->
+        val obs = by[app.id] ?: return@mapNotNull null
+        val status = AppStatus.of(value(obs, BackupKeys.STATUS))
+        if (value(obs, BackupKeys.TRACKED) == "true" && (status == AppStatus.INCOMPLETE || status == AppStatus.UNREADABLE)) app.name to status!! else null
+    }
+
+    private fun incomplete(ctx: RuleContext): List<FindingDraft> {
+        val by = ctx.bySubject()
+        val folder = by[BackupKeys.FOLDER] ?: return emptyList()
+        val truncated = value(folder, BackupKeys.TRUNCATED) == "true"
+        val faults = value(folder, BackupKeys.FAULTS)?.toIntOrNull() ?: 0
+        if (FolderState.of(value(folder, BackupKeys.STATE)) != FolderState.OK || (!truncated && faults == 0)) return emptyList()
+        val hidden = hiddenApps(by)
+        val why = buildList {
+            if (truncated) {
+                add(
+                    "The export folder holds more files than one scan reads (${FolderScanner.MAX_HEADERS} headers at most, " +
+                        "${FolderScanner.MAX_PER_APP} per app name, newest names first).",
+                )
+            }
+            if (faults > 0) add("$faults file${if (faults == 1) "" else "s"} or folder${if (faults == 1) "" else "s"} could not be opened (the storage provider failed on ${if (faults == 1) "it" else "them"}).")
+        }.joinToString(" ")
+        val effect = if (hidden.isEmpty()) {
+            "Every app you watch was still judged from the newest file that was read."
+        } else {
+            hidden.joinToString("; ") { (name, status) ->
+                if (status == AppStatus.UNREADABLE) "A $name file could not be read, so $name is not judged" else "$name is not judged: files that may be its own were not read"
+            } + ". A stale or missing backup could be hiding there. " +
+                "Move old exports into another folder, pick a folder on the phone itself, or fix the file, then scan again."
+        }
+        val severity = if (hidden.isEmpty()) Severity.NOTICE else Severity.WARN
+        return listOf(FindingDraft(ctx.tunnelId, BackupKeys.FOLDER, SCAN_INCOMPLETE, severity, "$why $effect"))
     }
 }

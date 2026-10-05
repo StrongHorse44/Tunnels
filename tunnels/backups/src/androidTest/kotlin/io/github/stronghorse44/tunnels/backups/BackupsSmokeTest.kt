@@ -150,8 +150,8 @@ class BackupsSmokeTest {
 
     @Test
     fun lumenPerItemFilesAreCountedNotOpenedAndRaiseNothing() {
-        repeat(600) { File(dir, "lumen-20261003T101500Z-$it.fwx").writeBytes(ByteArray(2_000) { 4 }) }
-        File(dir, "lumen-20261003T101500Z.fwx").writeBytes(bundle("lumen", 2))
+        repeat(600) { File(dir, "lumen-20261003-101500Z-$it.fwx").writeBytes(ByteArray(2_000) { 4 }) }
+        File(dir, "lumen-20261003-101500Z.fwx").writeBytes(bundle("lumen", 2))
         File(dir, "tunnels.fwx").writeBytes(bundle("tunnels", 1))
         File(dir, "prikey.fwx").writeBytes(bundle("prikey", 1))
         runBlocking { module.config.update { it.copy(seen = setOf("lumen", "tunnels", "prikey")) } }
@@ -160,6 +160,17 @@ class BackupsSmokeTest {
         assertEquals("600", value(obs, "lumen", "items"))
         assertEquals("false", value(obs, "folder", "truncated"))
         assertTrue(drafts(obs).isEmpty())
+    }
+
+    @Test
+    fun lumenItemFilesWithoutAManifestRaiseAWarningWithAnAction() {
+        repeat(5) { File(dir, "lumen-20261003-101500Z-$it.fwx").writeBytes(ByteArray(100) { 4 }) }
+        val obs = scan()
+        assertEquals("no-manifest", value(obs, "lumen", "status"))
+        val draft = drafts(obs).single()
+        assertEquals(BackupRules.MISSING, draft.kind)
+        assertEquals(Severity.WARN, draft.severity)
+        assertEquals("Open Lumen", module.actionsFor(draft).first().label)
     }
 
     @Test

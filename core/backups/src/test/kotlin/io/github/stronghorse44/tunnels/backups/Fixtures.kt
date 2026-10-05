@@ -29,6 +29,12 @@ object Fixtures {
         return h.toByteArray()
     }
 
+    private val STAMP = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss'Z'").withZone(ZoneOffset.UTC)
+
+    /** A file name as the export spec writes it: `<app>-<yyyyMMdd-HHmmss>Z.fwx`, or `...Z-<n>.fwx` for one of Lumen's items. */
+    fun name(app: String, createdMs: Long, item: Int? = null): String =
+        "$app-${STAMP.format(java.time.Instant.ofEpochMilli(createdMs))}" + (item?.let { "-$it" } ?: "") + ".fwx"
+
     private fun u(v: Long, n: Int) = ByteArray(n) { (v ushr (8 * (n - 1 - it))).toByte() }
 
     fun legacy(): ByteArray = "TSNAPE1".toByteArray() + ByteArray(300) { 1 }

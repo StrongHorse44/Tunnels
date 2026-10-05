@@ -18,6 +18,7 @@ object BackupKeys {
     const val UNREADABLE = "unreadable"
     const val SKIPPED = "skipped"
     const val TRUNCATED = "truncated"
+    const val FAULTS = "faults"
 
     // App (and Other)
     const val STATUS = "status"
@@ -59,11 +60,12 @@ object BackupObservations {
             add(BackupKeys.FOLDER, BackupKeys.UNREADABLE, scan.unreadable)
             add(BackupKeys.FOLDER, BackupKeys.SKIPPED, scan.skipped)
             add(BackupKeys.FOLDER, BackupKeys.TRUNCATED, scan.truncated)
+            add(BackupKeys.FOLDER, BackupKeys.FAULTS, scan.faults)
             for (app in BackupApps.all) {
                 val found = scan.apps[app.id]
                 val tracked = settings.isTracked(app.id, foundNow = found != null)
                 if (!tracked && found == null) continue
-                val status = Freshness.status(tracked, found, nowMs, settings.thresholdDays, incomplete = scan.truncated)
+                val status = Freshness.status(tracked, found, nowMs, settings.thresholdDays, hold = scan.holdOf(app.id))
                 add(app.id, BackupKeys.STATUS, status.wire)
                 add(app.id, BackupKeys.TRACKED, tracked)
                 add(app.id, BackupKeys.FILES, found?.files ?: 0)
