@@ -29,9 +29,9 @@ let the header be read, and that would happen in the background check too. Pick 
 | old `TSNAPE1` Tunnels export | Tunnels, "old format", with the file's own last-modified date (it has no header date) |
 | a header dated more than a day ahead of the clock | **suspicious**, never counted as fresh (a planted file cannot hide a stale backup) |
 | anything that is not a readable FWX v1 header, or a file the storage provider fails on (any error, not only I/O) | counted as "not readable as a bundle"; the scan goes on |
-| an old Tunnels file with no last-modified time | **present, date unknown**: counts as a file and is not missing. It also keeps a *dated old-format file* from being called stale (it may be newer), but not an FWX bundle: the old format is no longer written, so an FWX header is always the later export, and a 400-day-old FWX bundle is stale whatever undated old files sit beside it |
+| an old Tunnels file with no last-modified time | **present, date unknown**: counts as a file and is not missing. It also keeps a *dated old-format file* from being called stale (it may be newer), but only while the app has **no FWX header date at all**: the old format is no longer written, so an FWX header is always the later export. With one, the newest dated file is judged as it is: an undated `.tsnap`, a `.tsnap` dated 100 days ago and a 400-day-old FWX bundle are **stale** (100 days), not "date unknown" |
 | Lumen per-item files and no manifest bundle | **incomplete export**: a warning (`BACKUP_MISSING`, "item files but no manifest: the export is incomplete and can't be imported") |
-| a file or folder the storage provider fails on (cannot be opened or listed) | counted, and the app it may belong to is **not judged** ("a Prikey file could not be read"), never called missing |
+| a file or folder the storage provider fails on (cannot be opened or listed) | counted, and the app it may belong to is **not judged**, never called missing. When the failed file's own name says it is the app's, the text is "A Prikey file could not be read"; when the file has no app name or a folder would not list, it only *may* be: "A file that may be Prikey's could not be read" |
 
 A header's MAC needs the passphrase, so nothing here is verified. The wording says "the newest bundle header says <date>", never
 "backup verified": only a restore drill proves a backup.
@@ -49,12 +49,20 @@ backup. A `BACKUP_FOLDER_LOST` warning says so instead of the stale findings van
 missing the question is whether an unread file could belong to the app. If a group's newest-named file was read and every header
 read in it names the same app (the group's own app, when the name says one), the unread files are older exports of that app, and it
 is still judged from its newest: 510 Tunnels exports do not hide Prikey, and 510 Mardi Gras exports whose newest read one is 40 days
-old are stale. Otherwise the app is **not judged** (status "not judged", never stale, missing or suspicious): the app the group's
+old are stale. "Read" has to date something: when no read in a group gave a date (every header is in the future, or the files are old-format
+ones with no modified time), nothing there says how old the app's exports are, so the scan keeps reading that group's older names (past the 64 per group, up to the 500-header bound) until one gives a
+date. If names are still unread when the bound is reached, the app is **not judged** (never "suspicious" and never stale), and a watched one
+raises the warning: seventy future-dated Prikey files with a 45-day-old one beneath them are stale, not suspicious. When such a
+pile has no app name (`backup-…`) and every header read in it names one app, only that app is held, not every app. Otherwise the app is **not judged** (status "not judged", never stale, missing or suspicious): the app the group's
 name points to, or every app when the name points to none (a mixed pile named `backup-…`, a folder that would not list, a folder
 with more than 20,000 entries, a file that fails to open and is the newest of its group). One `BACKUP_SCAN_INCOMPLETE` finding says
 so: a **warning** when it keeps a watched app from being judged, a **notice** (it never raises the background notification) when
-every watched app was still judged. It says "A Prikey file could not be read" when a file failed to open, which is not the same as
-"No Prikey bundle in the export folder".
+no watched app was held back. A notice says "Every app you watch was still judged from the newest file that was read" only when that is
+so for each of them; otherwise it says what is different, per case: an app whose files are all undated ("Tunnels has files but none says when
+it was made, so its age is not judged") or an app with an undated old-format file beside dated ones ("Tunnels has an old-format
+file with no date that may be newer than its dated ones, so its age is not judged"), or an app whose newest file is named for another app ("Tunnels was judged from a file whose
+name says it is another app's; check that file"), and "Every other app" for the rest. With no watched app the sentence is left out. A failed file's wording is in the table above; it
+is not the same as "No Prikey bundle in the export folder".
 
 ## Findings
 
@@ -64,9 +72,9 @@ All are state findings: they clear on the next scan once the state is fixed.
 |---|---|---|---|
 | `BACKUP_STALE` | a watched app's newest header is older than your limit (1, 7, 14, 30, 60, 90 or 180 days; default 30) | warning | Open <app> / Stop watching <app> |
 | `BACKUP_MISSING` | a watched app has no bundle in the folder, or (Lumen) has item files but no manifest bundle | warning | the same |
-| `BACKUP_DATE_SUSPICIOUS` | every dated bundle of a watched app is dated in the future | notice | the same |
+| `BACKUP_DATE_SUSPICIOUS` | every dated bundle of a watched app is dated in the future, and every file of the app was read | notice | the same |
 | `BACKUP_FOLDER_LOST` | a folder was chosen and cannot be read now (deleted, moved, access removed) | warning | Open Backups to choose the folder / Forget the folder |
-| `BACKUP_SCAN_INCOMPLETE` | files were left unread or a file or folder could not be opened | warning when a watched app is not judged because of it, else notice | Open Backups |
+| `BACKUP_SCAN_INCOMPLETE` | files were left unread or a file or folder could not be opened | warning when a watched app is not judged because of it (including a pile of future-dated files that never gave a date), else notice | Open Backups |
 | `RESTORE_DRILL_DUE` | you set a "last restore drill" date and it is 90 or more days ago | notice | Open Snapshots to try an import / I did a drill today |
 
 "Open <app>" starts the app's launcher screen (`getLaunchIntentForPackage`, which relies on the `QUERY_ALL_PACKAGES`
@@ -77,7 +85,7 @@ refresh". If you never set a drill date there is no reminder.
 ## Stored
 
 Observations (30-day retention and the 12-snapshot rule, as for every tunnel): per app `status`, `newest_ms`, `age_days`,
-`files`, `schema`, `tracked`; plus `folder` (`state`, counts), `other` and `drill`. `age_days` moves with the clock alone, so it
+`files`, `schema`, `tracked` (and, only when true, `misnamed` and `failed_named`); plus `folder` (`state`, counts), `other` and `drill`. `age_days` moves with the clock alone, so it
 is a volatile key (a background check stores no snapshot for it). The folder's tree URI, the limit, your watch choices and the
 drill date are encrypted settings (`backups.folder`, `backups.config`); they are not part of an export bundle.
 
@@ -98,3 +106,5 @@ names the tunnel and kind ("Backups: Backup stale"), never the app.
    "Backups: Backup folder lost" (tunnel and kind only, never an app). "Forget the folder" ends with a line saying backup monitoring
    is now off until you choose a folder again (with no folder there is no finding at all, so it says so).
 5. Set the drill date to a day more than 90 days ago: a reminder appears. Tap "I did a drill today": it clears.
+6. Old-format export beside an older FWX one: put a Tunnels `.tsnap` file (its last-modified date more than your limit ago) and a Tunnels
+   `.fwx` export older still in the folder. Tunnels shows **stale** with the `.tsnap` file's date and a warning, not "date unknown".

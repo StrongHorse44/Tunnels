@@ -30,6 +30,12 @@ object BackupKeys {
     const val SUSPICIOUS = "suspicious"
     const val ITEMS = "items"
     const val UNDATED = "undated"
+
+    /** The newest file is named for another registry app than the one it holds. */
+    const val MISNAMED = "misnamed"
+
+    /** Status `unreadable`: the failed file's own name says it is this app's (else it only may be). */
+    const val FAILED_NAMED = "failed_named"
     const val THRESHOLD_DAYS = "threshold_days"
 
     /** Moves with the clock alone (also on the drill subject). */
@@ -73,6 +79,8 @@ object BackupObservations {
                 if (found != null && found.suspicious > 0) add(app.id, BackupKeys.SUSPICIOUS, found.suspicious)
                 if (found != null && found.items > 0) add(app.id, BackupKeys.ITEMS, found.items)
                 if (found != null && found.undated > 0) add(app.id, BackupKeys.UNDATED, found.undated)
+                if (found != null && found.newestMisnamed) add(app.id, BackupKeys.MISNAMED, true)
+                if (status == AppStatus.UNREADABLE && app.id in scan.failedNamed) add(app.id, BackupKeys.FAILED_NAMED, true)
                 if (found != null && found.newestMs > 0) {
                     add(app.id, BackupKeys.NEWEST_MS, found.newestMs)
                     add(app.id, BackupKeys.AGE_DAYS, Freshness.ageDays(found.newestMs, nowMs))

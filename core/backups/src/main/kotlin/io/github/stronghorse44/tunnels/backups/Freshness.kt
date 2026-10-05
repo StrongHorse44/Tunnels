@@ -60,7 +60,8 @@ object Freshness {
      *
      * An old-format file with no usable date ([AppSummary.undated]) may be newer than an old-format file that has one, so
      * it keeps that one from being called stale. It cannot be newer than an FWX header's date: the old format is no longer
-     * written, so an FWX bundle is always the later export.
+     * written, so an FWX bundle is always the later export. So the override applies only when the app has no FWX header
+     * date at all ([AppSummary.headerMs]); with one, the newest dated file is judged as it is.
      */
     fun status(tracked: Boolean, found: AppSummary?, nowMs: Long, thresholdDays: Int, hold: Hold? = null): AppStatus {
         val newest = found?.newestMs ?: 0L
@@ -70,7 +71,7 @@ object Freshness {
         return when {
             !tracked -> AppStatus.UNTRACKED
             newest > 0 && nowMs - newest <= thresholdDays * DAY_MS -> AppStatus.FRESH
-            newest > 0 && undated && found != null && found.fromFileDate -> AppStatus.UNKNOWN_DATE
+            newest > 0 && undated && found != null && found.fromFileDate && found.headerMs == 0L -> AppStatus.UNKNOWN_DATE
             newest > 0 -> if (hold != null) notJudged else AppStatus.STALE
             undated -> AppStatus.UNKNOWN_DATE
             onlyItems -> if (hold != null) notJudged else AppStatus.NO_MANIFEST

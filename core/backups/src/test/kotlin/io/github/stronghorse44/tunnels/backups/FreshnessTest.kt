@@ -92,4 +92,13 @@ class FreshnessTest {
         assertEquals(AppStatus.UNREADABLE, Freshness.status(true, null, now, 30, Hold.FAILED))
         assertEquals(AppStatus.UNTRACKED, Freshness.status(false, null, now, 30, Hold.FAILED))
     }
+
+    @Test
+    fun theUndatedOverrideNeedsAppWithoutAnyFwxHeaderDate() {
+        // Dated old-format file 100 days old (the newest), an undated one, and an FWX header 400 days old.
+        val withHeader = AppSummary("tunnels", 3, now - 100 * day, 0, true, 0, 0, 1, headerMs = now - 400 * day)
+        assertEquals(AppStatus.STALE, Freshness.status(true, withHeader, now, 30))
+        assertEquals(AppStatus.UNKNOWN_DATE, Freshness.status(true, withHeader.copy(headerMs = 0L), now, 30))
+        assertEquals(AppStatus.FRESH, Freshness.status(true, withHeader.copy(newestMs = now - 3 * day), now, 30))
+    }
 }

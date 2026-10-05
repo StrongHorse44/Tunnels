@@ -16,6 +16,8 @@ data class AppRow(
     val suspicious: Int,
     val items: Int,
     val undated: Int,
+    /** Unreadable because a file named for this app failed; false when only a file that may be its own did. */
+    val failedNamed: Boolean = false,
 )
 
 data class DrillView(val status: DrillStatus, val last: LocalDate?, val ageDays: Long?)
@@ -51,6 +53,7 @@ data class BackupView(
                     suspicious = v(app.id, BackupKeys.SUSPICIOUS)?.toIntOrNull() ?: 0,
                     items = v(app.id, BackupKeys.ITEMS)?.toIntOrNull() ?: 0,
                     undated = v(app.id, BackupKeys.UNDATED)?.toIntOrNull() ?: 0,
+                    failedNamed = v(app.id, BackupKeys.FAILED_NAMED) == "true",
                 )
             }
             return BackupView(
