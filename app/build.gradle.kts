@@ -41,6 +41,8 @@ android {
         release {
             // Kept off for now: readable, reproducible output while the app is small.
             isMinifyEnabled = false
+            // No git commit hash in META-INF: the APK is the same whichever checkout built it.
+            vcsInfo { include = false }
             // No signing config, on purpose: Gradle never sees the release key. assembleRelease writes
             // app-release-unsigned.apk, which release.yml's `sign` job aligns and signs (docs/RELEASING.md).
         }

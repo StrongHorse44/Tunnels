@@ -23,7 +23,7 @@ new permission needs a line in the module's `permissions.allow` and in `permissi
 
 **The debug pin proves little; the release pin does not.** Anyone can sign an APK with `app/debug.keystore`,
 so a match with `baseline.json`'s pin says nothing about who built the APK; it only catches an accidental key
-change. The release key lives only in the `signing` environment's secrets and on the owner's phone, so a match
+change. The release key lives only in the `signing` environment's secrets, on the owner's phone and in the owner's own backups, so a match
 with `baseline.release.json`'s pin shows the APK was signed with it. `release.yml`'s `release-check` job runs
 `gate.py cert --baseline gate/baseline.release.json --require-pin` on the signed APK before the `publish` job
 (`ci.yml`'s runs `gate.py cert --require-pin` against `baseline.json` for the debug build): either refuses an

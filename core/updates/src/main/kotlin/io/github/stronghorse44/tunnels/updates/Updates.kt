@@ -178,7 +178,7 @@ object UpdateErrors {
             "GitHub turned the request away (403), usually its limit for requests without a token. Add a token, or try again in an hour."
         code == 403 -> "GitHub refused access (403). The token needs read-only access to the contents of ${UpdateSource.OWNER}/${UpdateSource.REPO}."
         code == 404 && !hasToken ->
-            "GitHub answered Not Found (404). The repository may have moved; if this is a private fork, Tunnels needs a read-only token to see its releases."
+            "GitHub answered Not Found (404). The repository may have been moved or renamed."
         code == 404 -> "GitHub answered Not Found (404): the token cannot see ${UpdateSource.OWNER}/${UpdateSource.REPO}. Give it access to that repository."
         code in 500..599 -> "GitHub had a problem ($code). Try again in a minute."
         else -> "GitHub answered $code."

@@ -1,42 +1,44 @@
 # The vX.Y.Z release channel (docs/RELEASING.md): release-signed APKs, published as the GitHub release vX.Y.Z.
 #
-# Triggers
-#   push of a v* tag    builds, gates and signs the tagged commit if it is on the integration branch or main,
-#                       then publishes it after the owner approves the `publish` environment.
-#   workflow_dispatch   inputs `version` (vX.Y.Z) and `publish` (default false). publish=false is a DRY RUN: it
-#                       builds, runs the release gate and rehearses signing with a throwaway key, and stops;
-#                       `sign`, `release-check` and `publish` do not run, so nothing is signed or published.
-#                       publish=true runs the whole chain and creates the tag and the release; it is refused
-#                       unless the run is on the integration branch or main, same as a tag.
+# Trigger: workflow_dispatch ONLY (no tag trigger: a tag can name any commit, with any workflow file, and
+# the `signing` environment has no reviewer, so a tag push must not be able to reach the key). Inputs:
+#   version   exactly vMAJOR.MINOR.PATCH (for example v0.1.0)
+#   publish   default false. false is a DRY RUN: it builds, runs the release gate and rehearses signing with a
+#             throwaway key, and stops; `sign`, `release-check` and `publish` do not run, so nothing is signed or
+#             published. true runs the whole chain and, at the end, creates the tag and the release. It is
+#             refused unless the run is on the integration branch or main.
 #
 # Signing split (the program's spec 5.1). The four signing secrets are secrets of the `signing` environment
-# (restricted to the integration branch, main and v* tags; no reviewers) and are referenced in exactly one job,
-# `sign`. That job checks out nothing and runs no repository or third-party code: only GitHub's own actions, gh,
-# the runner's JDK 17 and its Android SDK tools. No job that runs this repository's code references a secret.
-# The release is built UNSIGNED by `build`, which also runs the release gate (gate/gate.py against
-# gate/baseline.release.json) and a signing rehearsal with a throwaway key.
+# (restricted to the integration branch, main and, until the owner removes the policy, v* tags; no reviewers) and
+# are referenced in exactly one job, `sign`. That job checks out nothing and runs no repository or third-party
+# code: only GitHub's own actions, gh, the runner's JDK 17 and its Android SDK tools. No job that runs this
+# repository's code references a secret. The release is built UNSIGNED by `build`, which also runs the release
+# gate (gate/gate.py against gate/baseline.release.json) and a signing rehearsal with a throwaway key.
 #
 #   build          no environment. unsigned APK, tests, gate, rehearsal            -> unsigned-apk
-#   sign           environment: signing. ref check, decode key, align, sign, verify -> signed-apk
+#   sign           environment: signing. ref check, decode key, align, sign, verify -> signed-apk (1 day)
 #   release-check  certificate pin (gate.py cert --require-pin), version, order    -> checked sha256
-#   publish        environment: publish (the owner's approval). attest, release
+#   publish        environment: publish (the owner's approval). attest, tag, release
+#
+# Who can push to the integration branch and main is the control on the key: a publish=true dispatch from
+# either one signs without a reviewer (one approval per release, at `publish`). The signed APK exists as a run
+# artifact (downloadable by signed-in users, 1 day) before that approval.
 #
 # Every job after `build` is gated by a job-level `if:` written against the event context (never against an
-# output a build step could set). A publishing run must be a v* tag push, or a dispatch with publish=true on the
-# integration branch or main; sign and release-check also check the built commit is on one of those branches
-# (compare API against the branch's SHA) before anything is decoded or published.
+# output a build step could set): a dispatch with publish=true on the integration branch or main. sign and
+# release-check also check the built commit is on one of those branches (compare API against the branch's SHA)
+# before anything is decoded or published.
 #
-# Version: the tag (or the `version` input) must be exactly vMAJOR.MINOR.PATCH, each a number from 0 to 999
-# without leading zeros, not v0.0.0. versionName is MAJOR.MINOR.PATCH and versionCode is
-# MAJOR*1000000 + MINOR*1000 + PATCH, so versions order the way their codes do. release-check refuses a version
-# whose code is not above every other vX.Y.Z release's (rollback is a higher version, never a lower one).
-# The release is named by its tag, vX.Y.Z; the in-app updater follows exactly those tags (core/updates).
+# Version: `version` must be exactly vMAJOR.MINOR.PATCH, each a number from 0 to 999 without leading zeros,
+# not v0.0.0. versionName is MAJOR.MINOR.PATCH and versionCode is MAJOR*1000000 + MINOR*1000 + PATCH, so
+# versions order the way their codes do. release-check and publish (with gh only) refuse a version whose code
+# is not above every other vX.Y.Z release's (rollback is a higher version, never a lower one), and a version
+# whose release or tag already exists at another commit. The release is named by its tag, vX.Y.Z; the in-app
+# updater follows exactly those tags (core/updates).
 
 name: Release
 
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
     inputs:
       version:
@@ -82,17 +84,11 @@ jobs:
       - name: Version and what this run does
         id: plan
         env:
-          EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
-          REF_NAME: ${{ github.ref_name }}
           INPUT_VERSION: ${{ inputs.version }}
           INPUT_PUBLISH: ${{ inputs.publish }}
         run: |
-          if [ "$EVENT" = push ]; then
-            tag="$REF_NAME"
-          else
-            tag="$INPUT_VERSION"
-          fi
+          tag="$INPUT_VERSION"
           re='^v(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'
           if [[ ! "$tag" =~ $re ]]; then
             echo "::error::The version must look like v1.2.3 (each part 0-999, no leading zeros), got '$tag'"; exit 1
@@ -103,18 +99,14 @@ jobs:
           fi
           echo "name=${tag#v}" >> "$GITHUB_OUTPUT"
           echo "code=$code" >> "$GITHUB_OUTPUT"
-          if [ "$EVENT" = workflow_dispatch ]; then
-            if [ "$INPUT_PUBLISH" = true ]; then
-              if [ "$REF" != refs/heads/ccr-dff99af5-ij1rle ] && [ "$REF" != refs/heads/main ]; then
-                echo "::error::publish=true only runs from the integration branch or main, not from $REF. Run it there, or leave publish off for a dry run."
-                exit 1
-              fi
-              echo "::notice::Publishing $tag (version code $code) from $REF, after the signing job and the owner's approval."
-            else
-              echo "::notice::DRY RUN of $tag (version code $code): builds, gates and rehearses signing; nothing is signed or published."
+          if [ "$INPUT_PUBLISH" = true ]; then
+            if [ "$REF" != refs/heads/ccr-dff99af5-ij1rle ] && [ "$REF" != refs/heads/main ]; then
+              echo "::error::publish=true only runs from the integration branch or main, not from $REF. Run it there, or leave publish off for a dry run."
+              exit 1
             fi
+            echo "::notice::Publishing $tag (version code $code) from $REF, after the signing job and the owner's approval."
           else
-            echo "::notice::Tag push: building $tag (version code $code); it is signed and published only if its commit is on the integration branch or main."
+            echo "::notice::DRY RUN of $tag (version code $code): builds, gates and rehearses signing; nothing is signed or published."
           fi
 
       # Fails closed before anything is built: no release without a reviewed release baseline.
@@ -205,9 +197,13 @@ jobs:
       - name: Release gate (compare the unsigned release APK with gate/baseline.release.json)
         id: gate
         run: |
+          # The pinned build-tools, not the newest installed (gate.py reads these two variables).
+          export APKSIGNER="$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/apksigner"
+          export AAPT2="$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/aapt2"
           python3 gate/gate.py check --baseline gate/baseline.release.json --require-tools --require-pin \
             --apk app/build/outputs/apk/release/app-release-unsigned.apk --deps "$RUNNER_TEMP/gradle.log" \
             --generated build/gate/baseline.generated.json
+          unset APKSIGNER AAPT2
           python3 -m unittest discover -s gate
 
       # The same zipalign and apksigner commands the sign job runs, with a throwaway key made here, so a run
@@ -321,9 +317,8 @@ jobs:
   # approval is the `publish` environment's, at the end.
   sign:
     if: >-
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
-      (github.event_name == 'workflow_dispatch' && inputs.publish &&
-       (github.ref == 'refs/heads/ccr-dff99af5-ij1rle' || github.ref == 'refs/heads/main'))
+      github.event_name == 'workflow_dispatch' && inputs.publish &&
+      (github.ref == 'refs/heads/ccr-dff99af5-ij1rle' || github.ref == 'refs/heads/main')
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -447,7 +442,9 @@ jobs:
           name: signed-apk
           path: signed/app-release.apk
           if-no-files-found: error
-          retention-days: 30
+          # One day: this is a release-signed APK that exists before the owner has approved anything. Approve the
+          # same day, or start the run again.
+          retention-days: 1
 
   # Read-only checks before the owner is asked to approve: the commit is on a release branch, the signed APK is
   # the one `sign` uploaded, it is this app at this version, and it carries the certificate pinned in
@@ -455,9 +452,8 @@ jobs:
   # token and no signing secret; the publish job below runs no repository code.
   release-check:
     if: >-
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
-      (github.event_name == 'workflow_dispatch' && inputs.publish &&
-       (github.ref == 'refs/heads/ccr-dff99af5-ij1rle' || github.ref == 'refs/heads/main'))
+      github.event_name == 'workflow_dispatch' && inputs.publish &&
+      (github.ref == 'refs/heads/ccr-dff99af5-ij1rle' || github.ref == 'refs/heads/main')
     needs: [build, sign]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -497,21 +493,18 @@ jobs:
           echo "::error::$TARGET is not on ccr-dff99af5-ij1rle or main, so it is not published."
           exit 1
 
-      # The version, from the event again (not from the build job), and the rule that a version is higher than
-      # every other vX.Y.Z release. Rolling back is releasing a higher version.
-      - name: Version, and that it is above every earlier release
+      # The version, from the event again (not from the build job); the rule that a version is higher than every
+      # other vX.Y.Z release (rolling back is releasing a higher version); and that a release or tag that already
+      # exists for this version points at the commit being published, so a re-dispatch of a published version at
+      # another commit stops here, before the owner is asked to approve anything.
+      - name: Version, order and what already exists
         id: version
         env:
           GH_TOKEN: ${{ github.token }}
-          EVENT: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
           INPUT_VERSION: ${{ inputs.version }}
+          TARGET: ${{ needs.build.outputs.sha }}
         run: |
-          if [ "$EVENT" = push ]; then
-            tag="$REF_NAME"
-          else
-            tag="$INPUT_VERSION"
-          fi
+          tag="$INPUT_VERSION"
           re='^v(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'
           if [[ ! "$tag" =~ $re ]]; then
             echo "::error::The version must look like v1.2.3 (each part 0-999, no leading zeros), got '$tag'"; exit 1
@@ -520,6 +513,15 @@ jobs:
           if [ "$code" -lt 1 ]; then
             echo "::error::v0.0.0 is not a release version"; exit 1
           fi
+          # Only a 404 means "not there": any other API failure stops the job.
+          out=
+          lookup() {
+            local err
+            err=$(mktemp -p "$RUNNER_TEMP")
+            if out=$(gh api "$1" 2> "$err"); then rm -f "$err"; return 0; fi
+            if grep -q 'HTTP 404' "$err"; then rm -f "$err"; out=; return 1; fi
+            cat "$err" >&2; exit 1
+          }
           # Read into a variable first: a failed API call must stop the job, not read as "no earlier release".
           others=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --jq '.[].tag_name')
           highest=0
@@ -532,6 +534,22 @@ jobs:
           if [ "$code" -le "$highest" ]; then
             echo "::error::$tag (version code $code) is not above the highest earlier release (version code $highest). A release must be a higher version than every other vX.Y.Z; to roll back, release a higher version."
             exit 1
+          fi
+          if lookup "repos/$GITHUB_REPOSITORY/releases/tags/$tag"; then
+            existing=$(jq -r .target_commitish <<< "$out")
+            if [ "$existing" != "$TARGET" ]; then
+              echo "::error::Release $tag already exists for '$existing', not this commit ($TARGET). A published version is never replaced by another commit; release a higher version."
+              exit 1
+            fi
+          elif lookup "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag"; then
+            sha=$(jq -r .object.sha <<< "$out")
+            if [ "$(jq -r .object.type <<< "$out")" = tag ]; then
+              sha=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq .object.sha)
+            fi
+            if [ "$sha" != "$TARGET" ]; then
+              echo "::error::Tag $tag exists at $sha, not at the commit being published ($TARGET)."
+              exit 1
+            fi
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "name=${tag#v}" >> "$GITHUB_OUTPUT"
@@ -553,8 +571,14 @@ jobs:
             echo "::error::$apk ($actual) is not the file the sign job uploaded ($SIGNED)"
             exit 1
           fi
-          python3 gate/gate.py cert --baseline gate/baseline.release.json --require-pin --apk "$apk"
+          # The pinned build-tools, not the newest installed (gate.py reads these two variables).
           tools="$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION"
+          if [ ! -x "$tools/apksigner" ] || [ ! -x "$tools/aapt2" ]; then
+            echo "::error::build-tools $BUILD_TOOLS_VERSION is not on this runner (has: $(ls "$ANDROID_HOME/build-tools" | tr '\n' ' ')). Update BUILD_TOOLS_VERSION."
+            exit 1
+          fi
+          APKSIGNER="$tools/apksigner" AAPT2="$tools/aapt2" \
+            python3 gate/gate.py cert --baseline gate/baseline.release.json --require-pin --apk "$apk"
           badging=$("$tools/aapt2" dump badging "$apk" | grep '^package:')
           echo "$badging"
           for want in "name='io.github.stronghorse44.tunnels'" "versionCode='$CODE'" "versionName='$NAME'"; do
@@ -570,9 +594,8 @@ jobs:
   # group lives on this job alone, so builds and signing for later runs are not held while a publish waits.
   publish:
     if: >-
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
-      (github.event_name == 'workflow_dispatch' && inputs.publish &&
-       (github.ref == 'refs/heads/ccr-dff99af5-ij1rle' || github.ref == 'refs/heads/main'))
+      github.event_name == 'workflow_dispatch' && inputs.publish &&
+      (github.ref == 'refs/heads/ccr-dff99af5-ij1rle' || github.ref == 'refs/heads/main')
     needs: [build, release-check]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -596,8 +619,6 @@ jobs:
           CHECKED: ${{ needs.release-check.outputs.apk_sha256 }}
           TAG: ${{ needs.release-check.outputs.tag }}
           NAME: ${{ needs.release-check.outputs.name }}
-          EVENT: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           actual=$(sha256sum apks/app-release.apk | cut -d' ' -f1)
@@ -605,9 +626,8 @@ jobs:
             echo "::error::apks/app-release.apk ($actual) is not the APK release-check checked ($CHECKED)"
             exit 1
           fi
-          if [ "$EVENT" = push ]; then expected="$REF_NAME"; else expected="$INPUT_VERSION"; fi
-          if [ -z "$TAG" ] || [ "$TAG" != "$expected" ] || [ "v$NAME" != "$TAG" ]; then
-            echo "::error::release-check checked '$TAG' ('$NAME'), not the requested '$expected'"
+          if [ -z "$TAG" ] || [ "$TAG" != "$INPUT_VERSION" ] || [ "v$NAME" != "$TAG" ]; then
+            echo "::error::release-check checked '$TAG' ('$NAME'), not the requested '$INPUT_VERSION'"
             exit 1
           fi
 
@@ -623,9 +643,10 @@ jobs:
         with:
           subject-path: tunnels-${{ needs.release-check.outputs.name }}.apk
 
-      # Creates the release (and, for a dispatch, the tag at the built commit) with gh only: no third-party
-      # action runs next to the writing token. The release is named by its tag, vX.Y.Z, which is what the
-      # in-app updater follows.
+      # Creates the tag at the built commit and the release with gh only: no third-party action runs next to the
+      # writing token, and no repository code. The release is named by its tag, vX.Y.Z, which is what the in-app
+      # updater follows. The version-order and existing-release checks are made again here, after the approval
+      # wait, because two runs may have been approved in either order.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -635,12 +656,36 @@ jobs:
           TARGET: ${{ needs.build.outputs.sha }}
         run: |
           apk="tunnels-$NAME.apk"
+          re='^v(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'
+          [[ "$TAG" =~ $re ]]
+          code=$(( BASH_REMATCH[1] * 1000000 + BASH_REMATCH[2] * 1000 + BASH_REMATCH[3] ))
+          # Only a 404 means "not there": any other API failure stops the job.
+          out=
+          lookup() {
+            local err
+            err=$(mktemp -p "$RUNNER_TEMP")
+            if out=$(gh api "$1" 2> "$err"); then rm -f "$err"; return 0; fi
+            if grep -q 'HTTP 404' "$err"; then rm -f "$err"; out=; return 1; fi
+            cat "$err" >&2; exit 1
+          }
+          others=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --jq '.[].tag_name')
+          highest=0
+          while read -r other; do
+            if [ "$other" != "$TAG" ] && [[ "$other" =~ $re ]]; then
+              c=$(( BASH_REMATCH[1] * 1000000 + BASH_REMATCH[2] * 1000 + BASH_REMATCH[3] ))
+              if [ "$c" -gt "$highest" ]; then highest=$c; fi
+            fi
+          done <<< "$others"
+          if [ "$code" -le "$highest" ]; then
+            echo "::error::$TAG (version code $code) is not above the highest release now published (version code $highest). Nothing is published; release a higher version."
+            exit 1
+          fi
           # A re-run after a partly finished publish finds the release already there. Its APK is replaced only
           # when the release already points at the commit being published (a re-run of that commit); anything
           # else is a different build trying to overwrite a published one. The generated notes carry no APK
           # hash, so there is nothing to refresh.
-          if gh release view "$TAG" > /dev/null 2>&1; then
-            existing=$(gh release view "$TAG" --json targetCommitish --jq .targetCommitish)
+          if lookup "repos/$GITHUB_REPOSITORY/releases/tags/$TAG"; then
+            existing=$(jq -r .target_commitish <<< "$out")
             if [ "$existing" != "$TARGET" ]; then
               echo "::error::Release $TAG already exists for '$existing', not this commit ($TARGET). Not replacing its APK."
               exit 1
@@ -648,11 +693,11 @@ jobs:
             gh release upload "$TAG" "$apk" "$apk.sha256" --clobber
             exit 0
           fi
-          # A tag with no release (a tag push, or a stray tag) must already be the commit being published,
-          # or gh would attach this APK to another commit's tag.
-          if ref=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" 2> /dev/null); then
-            sha=$(jq -r .object.sha <<< "$ref")
-            if [ "$(jq -r .object.type <<< "$ref")" = tag ]; then
+          # A tag with no release (a stray tag) must already be the commit being published, or gh would attach
+          # this APK to another commit's tag.
+          if lookup "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG"; then
+            sha=$(jq -r .object.sha <<< "$out")
+            if [ "$(jq -r .object.type <<< "$out")" = tag ]; then
               sha=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq .object.sha)
             fi
             if [ "$sha" != "$TARGET" ]; then

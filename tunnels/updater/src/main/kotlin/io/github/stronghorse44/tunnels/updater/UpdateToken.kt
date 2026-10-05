@@ -8,7 +8,7 @@ import kotlinx.coroutines.withContext
 import java.time.Instant
 
 /**
- * The optional read-only GitHub token: the repository is public, so it only raises GitHub's rate limit or reads a private fork. It lives in the encrypted store (SQLCipher, Keystore-
+ * The optional read-only GitHub token: the repository is public, so it only raises GitHub's request limit. It lives in the encrypted store (SQLCipher, Keystore-
  * wrapped key) as the single row of its own events stream, so it is never in an export, goes with an uninstall,
  * and, like every event, is forgotten after 30 days without use: each successful check saves it again.
  */

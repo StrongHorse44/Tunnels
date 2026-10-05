@@ -221,7 +221,7 @@ class UpdatesTest {
 
     @Test
     fun errorsSayWhatToDo() {
-        assertTrue(UpdateErrors.forHttp(404, hasToken = false).contains("private fork"))
+        assertTrue(UpdateErrors.forHttp(404, hasToken = false).contains("moved or renamed"))
         assertTrue(UpdateErrors.forHttp(404, hasToken = true).contains("cannot see StrongHorse44/Tunnels"))
         assertTrue(UpdateErrors.forHttp(401, hasToken = true).contains("paste a new one"))
         assertTrue(UpdateErrors.forHttp(403, hasToken = false).contains("Add a token"))

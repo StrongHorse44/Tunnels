@@ -1,7 +1,8 @@
 # Releasing Tunnels
 
 This repository is **public**. Nothing secret is in it: the release signing key lives only in GitHub
-environment secrets and on the owner's phone, and every secret is read by exactly one workflow job.
+environment secrets, on the owner's phone and in the owner's own backups, and every secret is read by exactly one
+workflow job.
 
 ## Two channels, two packages
 
@@ -10,7 +11,7 @@ environment secrets and on the owner's phone, and every secret is read by exactl
 | Package | `io.github.stronghorse44.tunnels.debug` | `io.github.stronghorse44.tunnels` |
 | Version name | `0.1.0-dev.N-debug`, version code `N` (the CI run number) | `X.Y.Z`, version code `X*1000000 + Y*1000 + Z` |
 | Signed with | the public key committed in `app/debug.keystore` (anyone can sign with it) | the owner's release key (never in the repository) |
-| Published by | `ci.yml`, on every push to the integration branch, as a prerelease named **Debug build #N** (`debug-N`) | `release.yml`, on a `v*` tag or a manual run, as the release **vX.Y.Z** |
+| Published by | `ci.yml`, on every push to the integration branch, as a prerelease named **Debug build #N** (`debug-N`) | `release.yml`, by a manual run only, as the release **vX.Y.Z** |
 | APK name | `tunnels-debug-N.apk` + `.sha256` | `tunnels-X.Y.Z.apk` + `.sha256` |
 | Approval | the `publish` environment waits for the owner | the same `publish` environment waits for the owner |
 | The in-app updater follows | `debug-N` prereleases only | `vX.Y.Z` releases only |
@@ -51,13 +52,30 @@ hold the same value). Then:
 
 Set up in the repository's **Settings → Environments** (the mobile browser works; the GitHub app has no
 environment settings). Both are limited to **Deployment branches and tags → Selected**:
-branch `ccr-dff99af5-ij1rle`, branch `main`, tag pattern `v*`. A run from any other ref cannot read either
-environment's secrets, whatever its workflow file says.
+branch `ccr-dff99af5-ij1rle` and branch `main`. A run from any other ref cannot read either environment's
+secrets, whatever its workflow file says.
+
+**Owner step: remove the `v*` tag policy from the `signing` environment** (and from `publish`, which no longer
+needs it either). `release.yml` no longer runs on tags, and a tag can point at any commit with any workflow
+file: with no reviewer on `signing`, a `v*` policy would let a pushed tag reach the key.
 
 | Environment | Holds | Reviewers | Used by |
 | --- | --- | --- | --- |
-| `signing` | four secrets: `KEYSTORE_BASE64`, `KEY_ALIAS`, `KEYSTORE_PASSWORD`, `KEY_PASSWORD` | none | the `sign` job of `release.yml`, and nothing else |
+| `signing` | four secrets: `KEYSTORE_BASE64`, `KEY_ALIAS`, `KEYSTORE_PASSWORD`, `KEY_PASSWORD` | none, by design | the `sign` job of `release.yml`, and nothing else |
 | `publish` | no secrets | `StrongHorse44` (required) | the final job of `release.yml` and the publish job of `ci.yml`: the owner's approval |
+
+**What actually protects the key.** `signing` has no reviewer, so that a release needs one approval (at
+`publish`), not two. The control on the key is therefore **who can push to the integration branch and to
+`main`**: a manual run with `publish` ticked from either branch signs the commit it was started on without
+asking anyone. The workflow file on those branches is reviewed code, and the `sign` job runs no repository code;
+nothing else can read the secrets. Also:
+
+- Agents (Claude sessions) act through tokens tied to the owner's GitHub account, so "agents do not start
+  release runs or approve them" is a **policy**, not a control. The program overseer starts dry runs
+  (`publish` off) only; a publishing run and every approval are the owner's.
+- A run with `publish` ticked produces a **release-signed APK as a run artifact (`signed-apk`) before anyone has
+  approved anything**. Signed-in users with read access to the repository (it is public) can download
+  artifacts, so the artifact is kept for 1 day only. Approve on the same day, or start the run again.
 
 Secrets are **environment** secrets, not repository secrets. To add them from Termux without showing them
 (`pkg install gh`, `gh auth login` once):
@@ -72,27 +90,27 @@ gh secret set KEY_PASSWORD --env signing --repo StrongHorse44/Tunnels
 ## Cutting a release from the phone
 
 Pick the next version `vMAJOR.MINOR.PATCH` (each part 0 to 999, no leading zeros). It must be **higher** than
-every earlier release; the run refuses a lower or equal one.
+every earlier release; the run refuses a lower or equal one, and a version whose release or tag already exists
+at another commit. Releases start from a **manual run only**; there is no tag trigger.
 
-1. **Start the run.** Either:
-   - **Manual run (recommended).** github.com in the phone's browser → the repository → **Actions → Release →
-     Run workflow**. Branch: `ccr-dff99af5-ij1rle` (or `main`), `version`: `v0.1.0`, `publish`: ticked.
-     The workflow creates the tag and the release itself, at the commit it built. The GitHub app can show and
-     approve runs but, as far as we know, cannot fill in the Run workflow form; use the browser.
-   - **Tag.** In Termux: `git tag v0.1.0 <commit>` and `git push origin v0.1.0`, where `<commit>` is on the
-     integration branch or `main`. Do **not** use **Releases → Draft a new release** to make the tag: that
-     creates a release first, and the workflow then refuses to overwrite a release it did not make.
-2. **Dry run first, whenever the workflow or the build changed.** The same form with `publish` left off builds,
-   runs the release gate and rehearses signing with a throwaway key, and publishes nothing; the `sign` job
-   does not even start, so the key is not touched.
-3. **Wait for the build** (about 15 minutes), the signing job and the release check. If a check fails, the run
-   stops before you are asked to approve anything.
-4. **Approve.** The run then shows **Waiting for review** on the `publish` environment. In the GitHub app: the
-   notification, or the repository → Actions → the run → **Review deployments → publish → Approve**.
+1. **Dry run first, whenever the workflow or the build changed.** github.com in the phone's browser → the
+   repository → **Actions → Release → Run workflow**. Branch: any; `version`: `v0.1.0`; `publish`: **off**.
+   It builds, runs the release gate and rehearses signing with a throwaway key, and publishes nothing; the
+   `sign` job does not even start, so the key is not touched. (The program overseer starts dry runs.)
+2. **The release.** The same form, branch `ccr-dff99af5-ij1rle` (or `main`), `version` `v0.1.0`, `publish`
+   **ticked**. The run refuses any other branch. The workflow creates the tag and the release itself, at the
+   commit it built. The GitHub app can show and approve runs but, as far as we know, cannot fill in the Run
+   workflow form; use the browser.
+3. **Wait for the build.** The build takes several minutes, then the signing job and the release check. If a
+   check fails, the run stops before you are asked to approve anything.
+4. **Approve, the same day.** The run then shows **Waiting for review** on the `publish` environment. In the
+   GitHub app: the notification, or the repository → Actions → the run → **Review deployments → publish →
+   Approve**. The signed APK the run holds expires after 1 day; if it did, start the run again.
 5. The release **vX.Y.Z** appears on the Releases page with `tunnels-X.Y.Z.apk` and its `.sha256`.
    Install it: tap the APK in the browser or Obtainium, or use **update** inside an installed release.
 
-Agents do not start release runs or approve them; the program overseer starts the dry run, the owner approves.
+Do not create the tag or the release by hand (**Releases → Draft a new release**): the workflow creates both,
+and it stops if a release or tag for that version already exists at another commit.
 
 ### What the workflow does
 
@@ -101,12 +119,14 @@ and rehearses signing with a throwaway key; `sign` (environment `signing`, no ch
 checks the commit is on the integration branch or `main`, decodes the key into a private temporary file,
 aligns (`zipalign -P 16`), signs with `apksigner` (v2 only, PKCS12) and verifies; `release-check` runs
 `gate.py cert --require-pin` against the pinned release certificate and checks package, version name and
-version code; `publish` (environment `publish`) attaches a build provenance attestation and creates the release.
-Only the `sign` job references the secrets, and only the `publish` job can write to the repository.
+version code, and that no release or tag for this version exists at another commit; `publish` (environment
+`publish`) checks the version order again with `gh` only (two approved runs cannot publish a lower version last),
+attaches a build provenance attestation, and creates the tag and the release. Only the `sign` job references the
+secrets, and only the `publish` job can write to the repository. `gate.py cert` and `aapt2` run from the pinned
+build-tools (36.0.0), not the newest installed.
 
 Version code: `MAJOR*1000000 + MINOR*1000 + PATCH`, so versions order the way their codes do (`v0.1.0` is
-1000, `v1.2.3` is 1002003). The code is computed by the workflow from the tag or the `version` input, never
-typed.
+1000, `v1.2.3` is 1002003). The code is computed by the workflow from the `version` input, never typed.
 
 ## The gate and the release baseline
 
@@ -149,7 +169,7 @@ as the installed copy and matching the checksum. Android then asks you to confir
 - GrapheneOS: turn on Tunnels' **Network** permission for the check (App info → Permissions → Network), and off
   again afterwards. Tunnels never connects in the background.
 - The repository is public, so the check needs no token. An optional read-only token (Contents, read-only, on
-  this repository only) raises GitHub's request limit or reads a private fork; it is stored in the encrypted
+  this repository only) raises GitHub's request limit; it is stored in the encrypted
   database, sent to `api.github.com` only, and forgotten after 30 days without a check.
 
 ## Moving from the debug install to the release install
