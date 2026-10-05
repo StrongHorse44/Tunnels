@@ -81,8 +81,8 @@ Design language: geological cross-section. Home screen is a stack of strata, sur
 ## Principles (hard rules)
 1. Offline by default. Phase 1 declares no INTERNET permission. Later, the GrapheneOS Network toggle stays off except during a session.
 2. Nothing leaves the device. No analytics, crash reporting, cloud sync, or SDKs that phone home. Snapshot exports are manual, encrypted files.
-3. Store summaries, not raw data. "App X contacted 14 domains today," not packet captures. "Tracker seen at 3 places," not a GPS trail.
-4. Short retention. Events expire after 30 days. Keep the last 12 snapshots plus pinned ones.
+3. Store summaries, not raw data. "App X contacted 14 domains today," not packet captures. "Tracker seen at 3 places," not a GPS trail. Exception (Q6): the cell logbook's keyed hashed sets per place (CLAUDE.md rule 3).
+4. Short retention. Events expire after 30 days. Keep the last 12 snapshots plus pinned ones. Exception (Q6): the cell logbook's hashed sets last until cleared, capped in code.
 5. Encrypted at rest. SQLCipher with key wrapped by Android Keystore (StrongBox when available). Optional app lock via device credentials.
 6. Opt-in per tunnel. Fresh install asks for nothing. Permissions requested only when opening the tunnel that needs them, with a one-line reason.
 8. Every security finding has an action. Findings without one go in Explore.

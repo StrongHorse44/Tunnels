@@ -18,8 +18,15 @@ Full spec: `docs/HANDOFF.md`. Read it before starting work.
    encrypted files only.
 3. **Store summaries, not raw data.** Aggregate counts and facts ("App X contacted
    14 domains today"), never packet captures, full traffic, or location trails.
+   One exception, hashed sets (RJ, Q6, 2026-10-03): the Surroundings cell logbook may keep,
+   per place, a keyed hash of the place's ~250 m grid cell with sets of keyed hashes of the
+   serving cells, tracking areas and operators the phone used there, and a capped scan count.
+   The key is an HMAC key in the Android keystore that never leaves it. Never a coordinate,
+   a raw cell identity, a timestamp or an order of visits.
 4. **Short retention.** Events expire after 30 days. Keep the last 12 snapshots
-   plus pinned ones. Enforce in code, not by convention.
+   plus pinned ones. Enforce in code, not by convention. The hashed sets allowed under
+   rule 3 are the one exception: they last until the user clears them, and their size is
+   capped in code (64 places; per place 48 cells, 16 tracking areas, 8 operators).
 5. **Encrypted at rest.** All persistent data goes through Room + SQLCipher. The
    DB key is random and wrapped by an Android Keystore key (StrongBox when
    available). No plaintext DataStore/SharedPreferences for observations or
