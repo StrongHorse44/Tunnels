@@ -11,7 +11,7 @@ import javax.crypto.SecretKey
  * The keyed hash behind the phone's places and the cell logbook: HMAC-SHA256 under an Android Keystore key that is
  * created on first use, can only sign, and never leaves the keystore. A token is the first 16 bytes of the result as
  * 32 lowercase hex characters. Off this phone (an export, a copied database) nobody can compute it, so the hashes
- * cannot be turned back into places or cells.
+ * cannot be turned back into places or cells. Nothing here logs an input or a token.
  */
 object SurroundingsKey {
     private const val KEY_ALIAS = "tunnels.surroundings.place"
