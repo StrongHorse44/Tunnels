@@ -64,8 +64,11 @@ no-egress claim can be verified. See [docs/HANDOFF.md](docs/HANDOFF.md).
 
 ## Building
 
-- Every push to the integration branch publishes a numbered debug build (`Debug build #N`) on the
-  Releases page; `v*` tags produce signed releases ([docs/RELEASING.md](docs/RELEASING.md)).
+- Two release channels ([docs/RELEASING.md](docs/RELEASING.md)). Every push to the integration branch publishes
+  a numbered debug build (`Debug build #N`, package `...tunnels.debug`, signed with the public debug key) on the
+  Releases page. A `vX.Y.Z` release (package `...tunnels`, signed with the owner's release key) is cut on
+  demand by the Release workflow, from a `v*` tag or a manual run, after the owner approves it. The two install
+  side by side; the in-app updater follows only its own channel.
 - Android modules compile in GitHub Actions; the plain-Kotlin `core/*` modules also build and test
   locally with `scripts/jvm-check/run.sh :core:NAME:test`.
 - Layout, CI and conventions: [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md).
