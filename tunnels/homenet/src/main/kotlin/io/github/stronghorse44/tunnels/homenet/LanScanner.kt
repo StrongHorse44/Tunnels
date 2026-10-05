@@ -195,8 +195,10 @@ class LanScanner(private val context: Context) {
                             if (outcome.registrationRefused) failures.incrementAndGet()
                         }
                         val resolved = outcome.info ?: return@withPermit
-                        val address = when (val pick = MdnsAddress.pick(resolved.hostAddresses) { LanScope.accepts(it, prefixes, own) }) {
+                        val address = when (val pick = MdnsAddress.pick(resolved.hostAddresses, { LanScope.accepts(it, prefixes, own) }, { LanScope.isOwn(it, own) })) {
                             is MdnsPick.Use -> pick.address
+                            // The phone's own service: not a device, counted nowhere.
+                            MdnsPick.Own -> return@withPermit
                             // Only link-local addresses: counted for its own line on the panel, not probed, not "outside".
                             MdnsPick.LinkLocalOnly -> {
                                 linkLocalOnly.incrementAndGet()

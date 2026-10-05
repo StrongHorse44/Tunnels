@@ -67,6 +67,7 @@ class HomeNetworkSmokeTest {
             reason in setOf(LanKeys.REASON_NO_WIFI, LanKeys.REASON_NETWORK_UNKNOWN, LanKeys.REASON_NOT_CONFIRMED),
         )
         assertTrue(obs.none { it.key == LanKeys.SCAN_NETWORK || it.key == LanKeys.HOSTS_TOTAL })
+        assertTrue("a refused scan writes no census key", obs.none { it.key.startsWith("census:") || it.key == LanKeys.HOST_IDS })
         assertEquals(obs.size, obs.map { it.key }.toSet().size)
 
         // Second scan is just as quiet and describes the same state.
@@ -192,6 +193,9 @@ class HomeNetworkSmokeTest {
         val tvIds = listOf(DeviceIdentity.token(tag.repeat(8), "u", "3f2a9c10-1111-2222-3333-444455556666"), token(tag, "living room tv"))
         val snapshots = ArrayList<Long>()
         val findingId = Finding.findingId(LanKeys.TUNNEL_ID, DeviceCensus.subject("Living Room TV", tvIds[0]), LanRules.UNKNOWN_DEVICE)
+        // The same device raised once more under its other token (a lost SSDP reply), and an unrelated stranger.
+        val twinId = Finding.findingId(LanKeys.TUNNEL_ID, DeviceCensus.subject("Living Room TV", tvIds[1]), LanRules.UNKNOWN_DEVICE)
+        val strangerId = Finding.findingId(LanKeys.TUNNEL_ID, DeviceCensus.subject("Stranger", token(tag, "stranger")), LanRules.UNKNOWN_DEVICE)
         try {
             snapshots += insertSnapshot(
                 5, tag, DeviceCensus.STATE_SET, known = listOf(listed),
@@ -202,6 +206,14 @@ class HomeNetworkSmokeTest {
                 listOf(
                     FindingEntity(
                         findingId, LanKeys.TUNNEL_ID, DeviceCensus.subject("Living Room TV", tvIds[0]), LanRules.UNKNOWN_DEVICE, "NOTICE",
+                        now, now, "A device that is not on your list", sticky = true,
+                    ),
+                    FindingEntity(
+                        twinId, LanKeys.TUNNEL_ID, DeviceCensus.subject("Living Room TV", tvIds[1]), LanRules.UNKNOWN_DEVICE, "NOTICE",
+                        now, now, "A device that is not on your list", sticky = true,
+                    ),
+                    FindingEntity(
+                        strangerId, LanKeys.TUNNEL_ID, DeviceCensus.subject("Stranger", token(tag, "stranger")), LanRules.UNKNOWN_DEVICE, "NOTICE",
                         now, now, "A device that is not on your list", sticky = true,
                     ),
                 ),
@@ -215,6 +227,8 @@ class HomeNetworkSmokeTest {
             assertEquals(listOf(DeviceCensus.eventSummary(tvIds)), mine.map { it.summary })
             assertEquals(DeviceCensus.KIND_ACK, mine.single().kind)
             assertTrue(store.dao.findings().single { it.id == findingId }.dismissed)
+            assertTrue("the same device under its other token goes too", store.dao.findings().single { it.id == twinId }.dismissed)
+            assertFalse("a stranger stays", store.dao.findings().single { it.id == strangerId }.dismissed)
             val after = census.census(tag)
             assertEquals(DeviceCensus.STATE_SET, after.state)
             assertEquals(setOf(listed) + tvIds, after.known)
@@ -227,6 +241,56 @@ class HomeNetworkSmokeTest {
             // Acknowledgements are events: after 30 days they are gone, and so is what only they held.
             store.maintain(Instant.now().plus(Duration.ofDays(31)))
             assertTrue(census.events().none { it.subject == tag })
+        } finally {
+            store.dao.deleteSnapshots(snapshots)
+            store.dao.deleteFindings(listOf(findingId, twinId, strangerId))
+        }
+    }
+
+    @Test
+    fun anExpiredResetDoesNotRevivePastTheEventLife() = runBlocking {
+        val tag = "5e7c0b0d"
+        val pinnedTag = "5e7c0b0e"
+        val census = CensusStore(context)
+        val snapshots = ArrayList<Long>()
+        val thirtyOneDays = 31L * 24 * 60
+        try {
+            // A list left in an old unpinned snapshot, with no reset event any more: it must not come back, or be pinned again.
+            val old = insertSnapshot(thirtyOneDays, tag, DeviceCensus.STATE_SET, known = listOf(token(tag, "tv")))
+            snapshots += old
+            census.settle(tag)
+            assertFalse(pinned(old))
+            val list = census.census(tag)
+            assertEquals(DeviceCensus.STATE_UNSET, list.state)
+            assertTrue(list.known.isEmpty())
+            assertFalse(pinned(old))
+            // A pinned one is the list however old it is.
+            snapshots += insertSnapshot(thirtyOneDays, pinnedTag, DeviceCensus.STATE_SET, pinned = true, known = listOf(token(pinnedTag, "tv")))
+            assertEquals(DeviceCensus.STATE_SET, census.census(pinnedTag).state)
+        } finally {
+            store.dao.deleteSnapshots(snapshots)
+        }
+    }
+
+    @Test
+    fun aFullListRefusesMineAndWritesNothing() = runBlocking {
+        val tag = "5e7c0b0f"
+        val census = CensusStore(context)
+        val snapshots = ArrayList<Long>()
+        val newcomer = listOf(token(tag, "newcomer"))
+        val subject = DeviceCensus.subject("Newcomer", newcomer[0])
+        val findingId = Finding.findingId(LanKeys.TUNNEL_ID, subject, LanRules.UNKNOWN_DEVICE)
+        try {
+            snapshots += insertSnapshot(
+                5, tag, DeviceCensus.STATE_SET, known = (1..DeviceCensus.MAX_KNOWN).map { token(tag, "device $it") },
+                hosts = mapOf("192.168.1.50" to newcomer),
+            )
+            val now = System.currentTimeMillis()
+            store.dao.upsertFindings(listOf(FindingEntity(findingId, LanKeys.TUNNEL_ID, subject, LanRules.UNKNOWN_DEVICE, "NOTICE", now, now, "e", sticky = true)))
+            assertEquals(DeviceCensus.MAX_KNOWN, census.census(tag).known.size)
+            assertEquals(CensusMessages.FULL, census.ack(subject))
+            assertTrue("nothing was written", census.events().none { it.subject == tag })
+            assertFalse("the finding stays", store.dao.findings().single { it.id == findingId }.dismissed)
         } finally {
             store.dao.deleteSnapshots(snapshots)
             store.dao.deleteFindings(listOf(findingId))

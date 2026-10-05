@@ -154,5 +154,5 @@ Device checks to make on the Pixel 10 (the Device checks screen walks through mo
   of the confirmed network's addresses is the only way to see them, and is parked (revisit if the cameras turn out to be
   silent). `ACCESS_LOCAL_NETWORK` is needed only when targetSdk moves to 37: that build must name the permission, ask for
   it when Home network opens with a one-line reason, and is a gate change. The census pins only Home-network-only
-  snapshots (one per network, moved to the newest), so a list that only mixed snapshots carry is not kept past retention.
+  snapshots (one per network, moved to the newest, which also moves or removes the pin on such a snapshot of that network that was pinned by hand), so a list that only mixed snapshots carry is not kept past retention.
   A "Start the list again" does not dismiss UNKNOWN_DEVICE findings already raised; they expire at 30 days or on Dismiss.

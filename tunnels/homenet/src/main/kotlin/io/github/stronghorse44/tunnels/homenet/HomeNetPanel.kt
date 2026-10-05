@@ -390,8 +390,9 @@ private fun CensusCard(summary: LanSummary, scanning: Boolean, note: String?, on
                 style = MaterialTheme.typography.labelSmall, color = GlassColors.dim,
             )
             Text(
-                "The list is kept in one pinned Home network snapshot per network (see Snapshots). After tapping Mine, scan once " +
-                    "to save it there before you export.",
+                "The list is kept in one pinned Home network snapshot per network (see Snapshots); the census only pins a snapshot " +
+                    "that holds nothing but Home network, and it also moves or removes the pin on such a snapshot of this network that " +
+                    "you pinned by hand. After tapping Mine, scan once to save it there before you export.",
                 style = MaterialTheme.typography.labelSmall, color = GlassColors.dim,
             )
         }

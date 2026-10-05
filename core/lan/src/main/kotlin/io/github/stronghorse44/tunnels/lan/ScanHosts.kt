@@ -115,6 +115,9 @@ sealed interface MdnsPick {
     /** Every offered address was link-local and none was usable: nothing to record, and not "outside this network". */
     data object LinkLocalOnly : MdnsPick
 
+    /** The phone's own service (its own addresses, with or without its link-local ones): not a host, counted nowhere. */
+    data object Own : MdnsPick
+
     /** Nothing offered lies inside the network; [first] is the address to count as dropped (null when none was offered). */
     data class OutOfScope(val first: InetAddress?) : MdnsPick
 }
@@ -123,15 +126,17 @@ object MdnsAddress {
     /**
      * Prefers an address inside the confirmed network ([inScope]): IPv4 first, then a non-link-local IPv6 one; never
      * loopback or wildcard. With none usable the answer says why: [MdnsPick.LinkLocalOnly] when every offered address
-     * is link-local (IPv6 fe80::/10, IPv4 169.254/16), else [MdnsPick.OutOfScope].
+     * is link-local (IPv6 fe80::/10, IPv4 169.254/16), else [MdnsPick.OutOfScope]. A service whose addresses are the
+     * phone's own ([isOwn], link-local ones aside) is [MdnsPick.Own].
      */
-    fun pick(all: List<InetAddress>, inScope: (InetAddress) -> Boolean): MdnsPick {
+    fun pick(all: List<InetAddress>, inScope: (InetAddress) -> Boolean, isOwn: (InetAddress) -> Boolean = { false }): MdnsPick {
         val inside = all.filter(inScope)
         val v4 = inside.filterIsInstance<Inet4Address>().firstOrNull { !it.isLoopbackAddress && !it.isAnyLocalAddress }
         if (v4 != null) return MdnsPick.Use(v4.hostAddress.orEmpty())
         val v6 = inside.filterIsInstance<Inet6Address>().firstOrNull { !it.isLoopbackAddress && !it.isLinkLocalAddress && !it.isAnyLocalAddress }
         if (v6 != null) return MdnsPick.Use(v6.hostAddress.orEmpty().substringBefore('%'))
+        if (all.any(isOwn) && all.all { isOwn(it) || it.isLinkLocalAddress }) return MdnsPick.Own
         if (all.isNotEmpty() && all.all { it.isLinkLocalAddress }) return MdnsPick.LinkLocalOnly
-        return MdnsPick.OutOfScope(all.firstOrNull { !it.isLinkLocalAddress } ?: all.firstOrNull())
+        return MdnsPick.OutOfScope(all.firstOrNull { !it.isLinkLocalAddress && !isOwn(it) } ?: all.firstOrNull { !it.isLinkLocalAddress } ?: all.firstOrNull())
     }
 }

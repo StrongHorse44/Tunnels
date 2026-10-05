@@ -48,7 +48,7 @@
 > A device is recognised by identity tokens (salted hashes of its SSDP UUID or mDNS instance names, or a shape of vendor,
 > model and services; never its address or open ports), kept as summaries in the scan's observations and carried from scan to
 > scan; acknowledgements are events that expire at 30 days, and Tunnels keeps one Home-network-only snapshot per network
-> pinned so the list outlives snapshot retention. Devices that announce nothing on mDNS or SSDP are invisible to it (no
+> pinned so the list outlives snapshot retention (it never pins a snapshot that holds other tunnels' data, and it also moves or removes the pin on a Home-network-only snapshot of that network that was pinned by hand). Devices that announce nothing on mDNS or SSDP are invisible to it (no
 > address sweep, OQ67). It also closes the B03 follow-ups: the gateway is recorded before discovery and outside the 50-host
 > cap, and link-local-only mDNS services have their own count. No new permission, host or dependency. See
 > `core/lan` `DeviceCensus`, `DeviceIdentity` and `CensusPins`.

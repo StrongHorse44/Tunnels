@@ -91,6 +91,21 @@ class MdnsAddressTest {
     private val prefixes = listOf(ip("192.168.1.0") to 24, ip("fe80::") to 64, ip("fd00::") to 64)
     private val own = listOf(ip("192.168.1.2"))
     private val inScope: (InetAddress) -> Boolean = { LanScope.accepts(it, prefixes, own) }
+    private val isOwn: (InetAddress) -> Boolean = { LanScope.isOwn(it, own) }
+
+    @Test
+    fun theOwnServiceIsNeitherDroppedNorLinkLocal() {
+        // The phone advertises a service: its own address, maybe with its link-local ones. Not a device, counted nowhere.
+        assertEquals(MdnsPick.Own, MdnsAddress.pick(listOf(ip("192.168.1.2"), ip("fe80::2")), inScope, isOwn))
+        assertEquals(MdnsPick.Own, MdnsAddress.pick(listOf(ip("fe80::2"), ip("192.168.1.2")), inScope, isOwn))
+        val ownLinkLocal = { a: InetAddress -> a == ip("fe80::2") }
+        assertEquals(MdnsPick.Own, MdnsAddress.pick(listOf(ip("fe80::2")), inScope, ownLinkLocal))
+        // Another device's link-local address is still link-local only; own plus an outside address is still outside.
+        assertEquals(MdnsPick.LinkLocalOnly, MdnsAddress.pick(listOf(ip("fe80::9")), inScope, isOwn))
+        assertEquals(MdnsPick.OutOfScope(ip("10.9.9.9")), MdnsAddress.pick(listOf(ip("192.168.1.2"), ip("10.9.9.9")), inScope, isOwn))
+        // Without the own check the old answer is unchanged.
+        assertEquals(MdnsPick.OutOfScope(ip("192.168.1.2")), MdnsAddress.pick(listOf(ip("192.168.1.2")), inScope))
+    }
 
     @Test
     fun linkLocalOnlyIsNotOutOfScope() {
@@ -110,7 +125,7 @@ class MdnsAddressTest {
         // No IPv4 inside: a unique-local IPv6 one, never the link-local one.
         assertEquals(MdnsPick.Use("fd00:0:0:0:0:0:0:30"), MdnsAddress.pick(listOf(ip("fe80::30"), ip("fd00::30")), inScope))
         // The phone's own address and loopback are not a device.
-        assertEquals(MdnsPick.OutOfScope(ip("192.168.1.2")), MdnsAddress.pick(listOf(ip("192.168.1.2")), inScope))
+        assertEquals(MdnsPick.Own, MdnsAddress.pick(listOf(ip("192.168.1.2")), inScope, isOwn))
     }
 
     @Test

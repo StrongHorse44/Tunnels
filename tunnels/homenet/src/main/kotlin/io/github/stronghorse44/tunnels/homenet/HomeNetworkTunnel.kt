@@ -100,7 +100,7 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
                     models = host.models.toList(),
                 )
                 val kind = HostKinds.infer(evidence)
-                val name = host.names.firstOrNull() ?: if (host.ip == gateway) result.router.description?.label else null
+                val name = DeviceIdentity.canonicalName(host.names.toList()) ?: if (host.ip == gateway) result.router.description?.label else null
                 val services = (host.mdnsTypes.map(MdnsTypes::shortName) + host.ssdpTypes.map(Ssdp::shortType)).distinct().take(12)
                 val open = host.openPorts.toList()
                 val riskyPorts = PortCatalog.riskyOf(open)

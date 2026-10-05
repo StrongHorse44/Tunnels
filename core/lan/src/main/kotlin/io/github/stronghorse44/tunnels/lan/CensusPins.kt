@@ -33,14 +33,18 @@ object CensusPins {
 
     /**
      * The target is the newest (taken_at, then id) Home-network-only snapshot of [tag] whose list is `set` and that was
-     * taken after [lastReset]; it is pinned if it is not already. Every other pinned Home-network-only census snapshot
+     * taken after [lastReset] and either pinned already or taken within the 30 days an event lives (a reset expires with its
+     * event; an old unpinned list must not be pinned back to life then); it is pinned if it is not already. Every other pinned Home-network-only census snapshot
      * of [tag] is unpinned, including one the user pinned by hand. A snapshot with no census, one of another network
      * and a mixed one (other tunnels' data in it) are never touched.
      */
-    fun plan(snaps: List<CensusSnap>, tag: String, lastReset: Long?): PinPlan {
+    fun plan(snaps: List<CensusSnap>, tag: String, lastReset: Long?, now: Long): PinPlan {
         val mine = snaps.filter { it.tag == tag && it.state != null && it.homenetOnly }
         val target = mine
-            .filter { it.state == DeviceCensus.STATE_SET && (lastReset == null || it.takenAt > lastReset) }
+            .filter {
+                it.state == DeviceCensus.STATE_SET && (lastReset == null || it.takenAt > lastReset) &&
+                    DeviceCensus.isCurrent(it.takenAt, it.pinned, now)
+            }
             .maxWithOrNull(compareBy<CensusSnap> { it.takenAt }.thenBy { it.id })
         val unpin = mine.filter { it.pinned && it.id != target?.id }.map { it.id }
         return PinPlan(pin = target?.takeIf { !it.pinned }?.id, unpin = unpin)

@@ -54,7 +54,7 @@ class CensusStore(context: Context) {
     fun baseline(tag: String): DeviceCensus.Baseline? = runBlocking { baselineNow(tag) }
 
     private suspend fun baselineNow(tag: String): DeviceCensus.Baseline? =
-        walk().firstNotNullOfOrNull { DeviceCensus.baselineOf(tag, it.takenAt, it.observations) }
+        walk().firstNotNullOfOrNull { DeviceCensus.baselineOf(tag, it.takenAt, it.observations, it.pinned) }
 
     /** The acknowledgement and reset events, newest first. */
     fun events(): List<DeviceCensus.CensusEvent> = runBlocking { eventsNow() }
@@ -71,8 +71,13 @@ class CensusStore(context: Context) {
         } catch (_: Throwable) {
             // Pins are bookkeeping; the baseline lookup does not need them.
         }
+        listNow(tag)
+    }
+
+    /** The list as the next scan would compute it, without moving any pin. */
+    private suspend fun listNow(tag: String): DeviceCensus.Census {
         val folded = DeviceCensus.fold(tag, eventsNow())
-        DeviceCensus.compute(baselineNow(tag), folded.lastReset, folded.acks)
+        return DeviceCensus.compute(baselineNow(tag), folded.lastReset, folded.acks, System.currentTimeMillis())
     }
 
     /**
@@ -90,7 +95,7 @@ class CensusStore(context: Context) {
             // Which tunnels a snapshot holds is one more query; ask it only of the snapshots the plan could touch.
             if (snap.tag == tag && snap.state != null) snap.copy(homenetOnly = dao.tunnelsIn(w.id) == listOf(LanKeys.TUNNEL_ID)) else snap
         }
-        val plan = CensusPins.plan(snaps, tag, lastReset)
+        val plan = CensusPins.plan(snaps, tag, lastReset, System.currentTimeMillis())
         plan.pin?.let { dao.setPinned(it, true) }
         plan.unpin.forEach { dao.setPinned(it, false) }
     }
@@ -107,10 +112,18 @@ class CensusStore(context: Context) {
             for (w in walk()) {
                 val tag = LanKeys.value(DeviceCensus.summaryOf(w.observations), LanKeys.SCAN_NETWORK) ?: continue
                 val ids = hostsWithIds(w.observations).map { it.second }.firstOrNull { primary in it } ?: continue
+                // A full list refuses the acknowledgement: nothing is written and the finding stays.
+                if (!DeviceCensus.fits(listNow(tag).known, ids)) return@guarded CensusMessages.FULL
                 store.recordEvent(DeviceCensus.STREAM, DeviceCensus.KIND_ACK, tag, DeviceCensus.eventSummary(ids))
-                // The acknowledgement is what counts; a finding that cannot be dismissed just stays until it is.
+                // The acknowledgement is what counts; findings that cannot be dismissed just stay until they are. Every
+                // finding of this device goes, not only the one tapped: a device that announces several names, or whose
+                // SSDP reply was lost once, may have been raised under another primary token.
                 try {
+                    val own = ids.toSet()
                     store.dao.dismissFinding(Finding.findingId(LanKeys.TUNNEL_ID, subject, LanRules.UNKNOWN_DEVICE))
+                    store.dao.findingsFor(LanKeys.TUNNEL_ID)
+                        .filter { it.kind == LanRules.UNKNOWN_DEVICE && DeviceCensus.parsePrimary(it.subject) in own }
+                        .forEach { store.dao.dismissFinding(it.id) }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Throwable) {
@@ -127,13 +140,25 @@ class CensusStore(context: Context) {
             val newest = walk().firstOrNull { LanKeys.value(DeviceCensus.summaryOf(it.observations), LanKeys.SCAN_NETWORK) == tag }
                 ?: return@guarded CensusMessages.NO_SCAN_FOR_SETUP
             val withIds = hostsWithIds(newest.observations)
+            val known = listNow(tag).known.toMutableSet()
             var added = 0
+            var notFitting = 0
             for ((_, ids) in withIds) {
                 if (ids.isEmpty()) continue
+                // A device whose tokens would pass the cap is refused, like a single Mine.
+                if (!DeviceCensus.fits(known, ids)) {
+                    notFitting++
+                    continue
+                }
                 store.recordEvent(DeviceCensus.STREAM, DeviceCensus.KIND_ACK, tag, DeviceCensus.eventSummary(ids))
+                known += ids
                 added++
             }
-            if (added == 0) CensusMessages.NOTHING_TO_ADD else CensusMessages.setupDone(added, withIds.size - added)
+            when {
+                added == 0 && notFitting > 0 -> CensusMessages.FULL
+                added == 0 -> CensusMessages.NOTHING_TO_ADD
+                else -> CensusMessages.setupDone(added, withIds.count { it.second.isEmpty() }, notFitting)
+            }
         }
     }
 

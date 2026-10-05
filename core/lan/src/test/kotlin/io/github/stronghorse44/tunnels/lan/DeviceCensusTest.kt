@@ -17,16 +17,19 @@ class DeviceCensusTest {
     /** Distinct valid tokens: u000...0 style, numbered. */
     private fun tok(n: Int, type: Char = 'n') = type + "%016x".format(n)
 
+    private val now = 2_000L
+    private fun compute(baseline: Baseline?, lastReset: Long?, acks: List<Ack>, at: Long = now) = DeviceCensus.compute(baseline, lastReset, acks, at)
+
     private fun set(vararg n: Int) = Baseline(1_000, DeviceCensus.STATE_SET, n.map { tok(it) }.toSet())
 
     @Test
     fun noBaselineAndNoAcksIsUnset() {
-        val c = DeviceCensus.compute(null, null, emptyList())
+        val c = compute(null, null, emptyList())
         assertEquals(DeviceCensus.STATE_UNSET, c.state)
         assertTrue(c.known.isEmpty())
         assertFalse(c.full)
         // An unset baseline carries nothing forward.
-        val unset = DeviceCensus.compute(Baseline(5, DeviceCensus.STATE_UNSET, emptySet()), null, emptyList())
+        val unset = compute(Baseline(5, DeviceCensus.STATE_UNSET, emptySet()), null, emptyList())
         assertEquals(DeviceCensus.STATE_UNSET, unset.state)
     }
 
@@ -39,6 +42,8 @@ class DeviceCensusTest {
         )
         val b = DeviceCensus.baselineOf(tag, 77, mine)!!
         assertEquals(77, b.takenAt)
+        assertFalse(b.pinned)
+        assertTrue(DeviceCensus.baselineOf(tag, 77, mine, pinned = true)!!.pinned)
         assertEquals(setOf(tok(1), tok(2)), b.known)
         assertNull("another network's snapshot", DeviceCensus.baselineOf("ffffeeee", 77, mine))
         assertNull("no census in that snapshot", DeviceCensus.baselineOf(tag, 77, mine.filter { it.key == LanKeys.SCAN_NETWORK }))
@@ -64,28 +69,57 @@ class DeviceCensusTest {
     @Test
     fun acksAfterTheLastResetOnly() {
         val acks = listOf(Ack(100, listOf(tok(1))), Ack(300, listOf(tok(2), tok(3))), Ack(200, listOf(tok(4))))
-        val c = DeviceCensus.compute(null, 150, acks)
+        val c = compute(null, 150, acks)
         assertEquals(setOf(tok(2), tok(3), tok(4)), c.known)
         assertEquals(DeviceCensus.STATE_SET, c.state)
-        assertEquals(setOf(tok(1), tok(2), tok(3), tok(4)), DeviceCensus.compute(null, null, acks).known)
+        assertEquals(setOf(tok(1), tok(2), tok(3), tok(4)), compute(null, null, acks).known)
         // An acknowledgement at the instant of the reset is before it.
-        assertTrue(DeviceCensus.compute(null, 300, acks).known.isEmpty())
+        assertTrue(compute(null, 300, acks).known.isEmpty())
         // A baseline plus acks is their union.
-        assertEquals(setOf(tok(9), tok(2), tok(3), tok(4), tok(1)), DeviceCensus.compute(set(9), null, acks).known)
+        assertEquals(setOf(tok(9), tok(2), tok(3), tok(4), tok(1)), compute(set(9), null, acks).known)
     }
 
     @Test
     fun resetNewerThanBaselineEmptiesTheList() {
-        val c = DeviceCensus.compute(set(1, 2), lastReset = 2_000, acks = emptyList())
+        val c = compute(set(1, 2), lastReset = 2_000, acks = emptyList())
         assertEquals(DeviceCensus.STATE_UNSET, c.state)
         assertTrue(c.known.isEmpty())
         // A reset at the baseline's own instant is not older than it either.
-        assertEquals(DeviceCensus.STATE_UNSET, DeviceCensus.compute(set(1, 2), lastReset = 1_000, acks = emptyList()).state)
+        assertEquals(DeviceCensus.STATE_UNSET, compute(set(1, 2), lastReset = 1_000, acks = emptyList()).state)
+    }
+
+    @Test
+    fun anExpiredResetDoesNotRevivePastTheEventLife() {
+        // A reset is an event and expires at 30 days, but an old unpinned list stays in its snapshot: with the event gone
+        // (lastReset null) that list must not come back.
+        val day = 24L * 60 * 60 * 1000
+        val old = Baseline(0, DeviceCensus.STATE_SET, setOf(tok(1), tok(2)))
+        val later = 31 * day
+        val c = compute(old, lastReset = null, acks = emptyList(), at = later)
+        assertEquals(DeviceCensus.STATE_UNSET, c.state)
+        assertTrue(c.known.isEmpty())
+        // The same list, pinned, still stands; so does an unpinned one inside the 30 days.
+        assertEquals(DeviceCensus.STATE_SET, compute(old.copy(pinned = true), null, emptyList(), later).state)
+        assertEquals(DeviceCensus.STATE_SET, compute(old, null, emptyList(), 29 * day).state)
+        assertEquals("exactly 30 days is expired", DeviceCensus.STATE_UNSET, compute(old, null, emptyList(), 30 * day).state)
+        assertTrue(DeviceCensus.isCurrent(1, false, 1 + 30 * day - 1))
+        // Acknowledgements are events too, so they are inside their own life by construction.
+        assertEquals(setOf(tok(3)), compute(old, null, listOf(Ack(later - 1, listOf(tok(3)))), later).known)
+    }
+
+    @Test
+    fun fitsCountsOnlyTokensNotYetListed() {
+        val full = (1..512).map { tok(it) }.toSet()
+        assertTrue(DeviceCensus.fits(full, listOf(tok(3), tok(4))))
+        assertFalse(DeviceCensus.fits(full, listOf(tok(3), tok(900))))
+        assertTrue(DeviceCensus.fits((1..510).map { tok(it) }.toSet(), listOf(tok(900), tok(901))))
+        assertFalse(DeviceCensus.fits((1..511).map { tok(it) }.toSet(), listOf(tok(900), tok(901))))
+        assertTrue(DeviceCensus.fits(emptySet(), emptyList()))
     }
 
     @Test
     fun baselineTakenAfterResetCounts() {
-        val c = DeviceCensus.compute(set(1, 2), lastReset = 999, acks = emptyList())
+        val c = compute(set(1, 2), lastReset = 999, acks = emptyList())
         assertEquals(DeviceCensus.STATE_SET, c.state)
         assertEquals(setOf(tok(1), tok(2)), c.known)
     }
@@ -98,7 +132,7 @@ class DeviceCensusTest {
             Ack(10, listOf(tok(700), tok(701), tok(702))),
             Ack(20, listOf(tok(800))),
         )
-        val c = DeviceCensus.compute(base, null, acks)
+        val c = compute(base, null, acks)
         assertEquals(DeviceCensus.MAX_KNOWN, c.known.size)
         assertTrue(c.full)
         assertTrue("the base is kept whole", (1..510).all { tok(it) in c.known })
@@ -106,11 +140,11 @@ class DeviceCensusTest {
         assertTrue(tok(700) in c.known && tok(701) in c.known)
         assertFalse(tok(702) in c.known || tok(800) in c.known || tok(900) in c.known)
         // Exactly full without overflow is not "full".
-        val exact = DeviceCensus.compute(Baseline(1, DeviceCensus.STATE_SET, (1..511).map { tok(it) }.toSet()), null, listOf(Ack(5, listOf(tok(600), tok(1)))))
+        val exact = compute(Baseline(1, DeviceCensus.STATE_SET, (1..511).map { tok(it) }.toSet()), null, listOf(Ack(5, listOf(tok(600), tok(1)))))
         assertEquals(DeviceCensus.MAX_KNOWN, exact.known.size)
         assertFalse(exact.full)
         // An acknowledgement already on the list takes no room even when the list is full.
-        assertFalse(DeviceCensus.compute(Baseline(1, DeviceCensus.STATE_SET, (1..512).map { tok(it) }.toSet()), null, listOf(Ack(5, listOf(tok(3))))).full)
+        assertFalse(compute(Baseline(1, DeviceCensus.STATE_SET, (1..512).map { tok(it) }.toSet()), null, listOf(Ack(5, listOf(tok(3))))).full)
     }
 
     @Test

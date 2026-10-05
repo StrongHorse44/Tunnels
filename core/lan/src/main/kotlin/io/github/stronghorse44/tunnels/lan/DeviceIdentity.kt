@@ -76,6 +76,13 @@ object DeviceIdentity {
         return out.take(MAX_TOKENS)
     }
 
+    /**
+     * The name a host is shown and titled by: the one whose normalised form sorts first (ties by the text itself), so a
+     * device that announces several names, in whatever order, keeps one title. It is the name behind the first `n` token.
+     */
+    fun canonicalName(names: Collection<String>): String? =
+        names.filter { normalizeName(it) != null }.minWithOrNull(compareBy<String> { normalizeName(it) }.thenBy { it })?.trim()
+
     /** The primary token of a host's [ids] (the first one), or null for a host with no identity. */
     fun primaryOf(ids: List<String>): String? = ids.firstOrNull()?.takeIf(::isToken)
 }

@@ -1,5 +1,6 @@
 package io.github.stronghorse44.tunnels.lan
 
+import io.github.stronghorse44.tunnels.engine.RetentionPolicy
 import io.github.stronghorse44.tunnels.model.Observation
 
 /**
@@ -38,7 +39,7 @@ object DeviceCensus {
     private val tagPattern = Regex("[0-9a-f]{${NetworkFingerprint.PREFIX_LENGTH}}")
 
     /** The newest snapshot of one network that carries a set-up or empty list: when it was taken, its state, its tokens. */
-    data class Baseline(val takenAt: Long, val state: String, val known: Set<String>)
+    data class Baseline(val takenAt: Long, val state: String, val known: Set<String>, val pinned: Boolean = false)
 
     /** One acknowledgement: when, and the tokens of the device (primary first). */
     data class Ack(val at: Long, val ids: List<String>)
@@ -52,14 +53,29 @@ object DeviceCensus {
     data class Folded(val lastReset: Long?, val acks: List<Ack>)
 
     /**
-     * The list for this scan. The base is the [baseline]'s tokens when it was a set-up list and was taken after the last
-     * reset; then come the acknowledgements after the last reset, oldest first, until [MAX_KNOWN] tokens (what does not
+     * True when a snapshot may still stand for the list: it is pinned, or it was taken within the 30 days an event lives.
+     * A reset is only an event and expires; an old unpinned list that survived it (snapshots are never deleted by age)
+     * must not come back to life once the event is gone. A reset always postdates the snapshots it ends, so one older than
+     * the event's life was either before a reset that has expired or simply too old to trust.
+     */
+    fun isCurrent(takenAt: Long, pinned: Boolean, now: Long): Boolean =
+        pinned || now - takenAt < RetentionPolicy.EVENT_TTL.toMillis()
+
+    /** True when all of a device's tokens that are not yet listed still fit under [MAX_KNOWN]. */
+    fun fits(known: Set<String>, ids: List<String>): Boolean =
+        known.size + ids.take(DeviceIdentity.MAX_TOKENS).filter { DeviceIdentity.isToken(it) && it !in known }.distinct().size <= MAX_KNOWN
+
+    /**
+     * The list for this scan at time [now]. The base is the [baseline]'s tokens when it was a set-up list, was taken after
+     * the last reset and is current ([isCurrent]); then come the acknowledgements after the last reset, oldest first, until [MAX_KNOWN] tokens (what does not
      * fit sets `full`). `set` when anything is on the list, else `unset`.
      */
-    fun compute(baseline: Baseline?, lastReset: Long?, acks: List<Ack>): Census {
+    fun compute(baseline: Baseline?, lastReset: Long?, acks: List<Ack>, now: Long): Census {
         val known = LinkedHashSet<String>()
         var full = false
-        if (baseline != null && baseline.state == STATE_SET && (lastReset == null || baseline.takenAt > lastReset)) {
+        if (baseline != null && baseline.state == STATE_SET && (lastReset == null || baseline.takenAt > lastReset) &&
+            isCurrent(baseline.takenAt, baseline.pinned, now)
+        ) {
             baseline.known.filter(DeviceIdentity::isToken).sorted().take(MAX_KNOWN).forEach { known += it }
         }
         for (ack in acks.filter { lastReset == null || it.at > lastReset }.sortedBy { it.at }) {
@@ -96,12 +112,12 @@ object DeviceCensus {
      * A snapshot whose state is `unavailable` carries none (nothing was judged then): it is skipped, so an
      * unreadable store at one scan never hides the list kept in an older snapshot.
      */
-    fun baselineOf(tag: String, takenAt: Long, observations: List<Observation>): Baseline? {
+    fun baselineOf(tag: String, takenAt: Long, observations: List<Observation>, pinned: Boolean = false): Baseline? {
         val summary = summaryOf(observations)
         if (LanKeys.value(summary, LanKeys.SCAN_NETWORK) != tag) return null
         return when (val state = LanKeys.value(summary, LanKeys.CENSUS_STATE)) {
-            STATE_SET -> Baseline(takenAt, state, parseKnown(LanKeys.value(summary, LanKeys.CENSUS_KNOWN)))
-            STATE_UNSET -> Baseline(takenAt, state, emptySet())
+            STATE_SET -> Baseline(takenAt, state, parseKnown(LanKeys.value(summary, LanKeys.CENSUS_KNOWN)), pinned)
+            STATE_UNSET -> Baseline(takenAt, state, emptySet(), pinned)
             else -> null
         }
     }
@@ -158,11 +174,14 @@ object CensusMessages {
     const val NOT_IN_SCAN = "Not in a recent scan of this network: scan again while it is connected, then tap Mine."
     const val NO_SCAN_FOR_SETUP = "No recent scan of this network: scan it while it is connected, then tap These are all mine."
     const val NOT_SAVED = "Tunnels' encrypted store could not be changed, so nothing was saved."
+    const val FULL = "The list is full (${DeviceCensus.MAX_KNOWN} entries): nothing was added. Start the list again to make room."
     const val NOTHING_TO_ADD = "No device in the last scan gave anything to recognise it by, so nothing was added."
     const val RESET = "The list was cleared. Scan again to start it over."
 
-    fun setupDone(added: Int, unrecognisable: Int): String {
+    fun setupDone(added: Int, unrecognisable: Int, notFitting: Int = 0): String {
         val base = (if (added == 1) "1 device added." else "$added devices added.") + " Scan again to start the census."
-        return if (unrecognisable == 0) base else "$base $unrecognisable gave nothing to recognise it by and stay off the list."
+        val none = if (unrecognisable == 0) "" else " $unrecognisable gave nothing to recognise it by and stay off the list."
+        val full = if (notFitting == 0) "" else " The list is full, so $notFitting did not fit."
+        return base + none + full
     }
 }

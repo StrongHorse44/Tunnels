@@ -148,6 +148,21 @@ class DeviceIdentityTest {
     }
 
     @Test
+    fun canonicalNameIsTheSmallestNormalisedOneWhateverTheOrder() {
+        assertEquals("Bedroom Speaker", DeviceIdentity.canonicalName(listOf("Kitchen Speaker", "Bedroom Speaker")))
+        assertEquals("Bedroom Speaker", DeviceIdentity.canonicalName(listOf("Bedroom Speaker", "Kitchen Speaker")))
+        // Compared normalised: case, spacing and the conflict suffix do not decide it.
+        assertEquals("apple TV (2)", DeviceIdentity.canonicalName(listOf("Zebra", "apple TV (2)", "Banana")))
+        assertEquals("TV", DeviceIdentity.canonicalName(listOf("Tv", "TV", " ")))
+        assertNull(DeviceIdentity.canonicalName(listOf(" ", "")))
+        assertNull(DeviceIdentity.canonicalName(emptyList()))
+        // It is the name behind the first n token, which is the primary one when there is no UUID.
+        val names = listOf("Kitchen Speaker", "Bedroom Speaker")
+        val first = DeviceIdentity.token(net, "n", DeviceIdentity.normalizeName(DeviceIdentity.canonicalName(names)!!)!!)
+        assertEquals(first, tokens(record(names = names))[0])
+    }
+
+    @Test
     fun uuidOfUsnRejectsJunk() {
         assertEquals(uuidA, Ssdp.uuidOf("uuid:$uuidA::upnp:rootdevice"))
         assertEquals(uuidA, Ssdp.uuidOf("uuid:$uuidA"))
