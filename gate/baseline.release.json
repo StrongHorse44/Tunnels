@@ -142,7 +142,7 @@
       "write_permission": null,
       "grant_uri_permissions": false,
       "authorities": [
-        "io.github.stronghorse44.tunnels.debug.androidx-startup"
+        "io.github.stronghorse44.tunnels.androidx-startup"
       ],
       "foreground_service_type": null,
       "actions": [],
@@ -158,7 +158,7 @@
       "write_permission": null,
       "grant_uri_permissions": false,
       "authorities": [
-        "io.github.stronghorse44.tunnels.debug.shizuku"
+        "io.github.stronghorse44.tunnels.shizuku"
       ],
       "foreground_service_type": null,
       "actions": [],
@@ -536,8 +536,6 @@
       "androidx.compose.foundation:foundation-layout-android",
       "androidx.compose.material3:material3",
       "androidx.compose.material3:material3-android",
-      "androidx.compose.material:material",
-      "androidx.compose.material:material-android",
       "androidx.compose.material:material-icons-core",
       "androidx.compose.material:material-icons-core-android",
       "androidx.compose.material:material-ripple",
