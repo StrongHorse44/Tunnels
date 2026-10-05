@@ -1,110 +1,117 @@
 # Release gate
 
-`baseline.json` records what the shipped APK (the release build) can do: its permissions (with
-`maxSdkVersion` and `usesPermissionFlags`), `uses-feature` declarations, application-level `meta-data`,
-components another app or the system can reach (exported ones, plus every service, receiver and
-provider) with their intent-filter actions, categories and data, the resource files their providers
-point at (FileProvider's paths), package queries, native libraries and any code outside the main dex
-files, network API types (arrays of them too), host and URL literals (suffix literals such as
-`.githubusercontent.com` too), digests of model and data assets, runtime and file dependencies, SDK
-levels, `debuggable`, backup and cleartext-traffic flags, the network security config's trust anchors,
-cleartext rules and pins, and the signing certificate. The Build workflow builds the release APK, runs `gate.py check`
-against this file, and fails on any difference. So a change to what Prikey can do only gets in if the
-same pull request changes `baseline.json`, where the owner sees it before merging. In a pull request the
-gate also lists, as warnings, every field the pull request changes in `baseline.json` itself.
+Two baselines record what each channel's APK can do. `baseline.json` is the **debug** build, published as
+"Debug build #N" (package `io.github.stronghorse44.tunnels.debug`, `debuggable: true`, signed with the public key
+committed in `app/debug.keystore`). `baseline.release.json` is the **release** build, published as `vX.Y.Z`
+(package `io.github.stronghorse44.tunnels`, `debuggable: false`, no Compose `PreviewActivity`,
+`releaseRuntimeClasspath`, signed with the owner's release key, whose certificate is pinned in
+`signing.cert_sha256`). Each records permissions (with `maxSdkVersion` and `usesPermissionFlags`), components
+another app or the system can reach (exported ones, plus every service, receiver and provider) with their
+intent-filter actions, categories and data, package queries, native libraries and any code outside the main dex
+files, network API types, host and URL literals, runtime and file dependencies, SDK levels, `debuggable`, backup
+and cleartext-traffic flags, the network security config's trust anchors, cleartext rules and pins, and the
+signing certificate. `ci.yml` builds both variants on every run, runs `gate.py check` on the debug APK against
+`baseline.json` and on the unsigned release APK against `baseline.release.json`, and fails on any difference,
+before anything is published; it fails closed if either file is missing. `release.yml` checks the release APK
+against the release baseline again and the signed file's certificate against its pin. So a change to what
+Tunnels can do only gets in if the same pull request changes the matching baseline, where the owner sees it
+before merging. In a pull request the gate also lists, as warnings, every field the pull request changes in
+either baseline.
 
-The release job runs `gate.py cert --require-pin`: it refuses to publish an APK that is unsigned or
-signed with a certificate other than `signing.cert_sha256`.
+It sits next to the per-module `permissions.allow` files and the `verifyPermissions` task, which stay: a
+new permission needs a line in the module's `permissions.allow` and in `permissions.requested` here.
+
+**The debug pin proves little; the release pin does not.** Anyone can sign an APK with `app/debug.keystore`,
+so a match with `baseline.json`'s pin says nothing about who built the APK; it only catches an accidental key
+change. The release key lives only in the `signing` environment's secrets, on the owner's phone and in the owner's own backups, so a match
+with `baseline.release.json`'s pin shows the APK was signed with it. `release.yml`'s `release-check` job runs
+`gate.py cert --baseline gate/baseline.release.json --require-pin` on the signed APK before the `publish` job
+(`ci.yml`'s runs `gate.py cert --require-pin` against `baseline.json` for the debug build): either refuses an
+APK that is unsigned or signed with another certificate. See `docs/RELEASING.md`.
+
+The debug baseline records debug-specific content because it ships: `debuggable: true` and the `.debug`
+provider authorities. Compose's `PreviewActivity` (from `ui-tooling`, exported by its library manifest) is
+removed from the debug APK by `app/src/debug/AndroidManifest.xml`, so neither baseline has it.
+`DebugProbesKt.bin` in `extra_code` is not debug-only: it is a resource of kotlinx-coroutines-core-jvm 1.10.2
+(not kotlinx-coroutines-debug), and both builds carry it (minification is off and there is no packaging
+exclude for it).
 
 The full contract (fields, normalisation, exit codes) is `specs/gate-baseline.md` in the program repo.
 `gate.py` uses only the Python standard library; in CI it cross-checks its manifest reading against
 `aapt2 dump badging` and `aapt2 dump permissions`. `file-dependencies.init.gradle` lists file
-dependencies and desugaring modules, which `gradle dependencies` doesn't show.
+dependencies and desugaring modules, which `gradle dependencies` doesn't show. `gate.py`, `test_gate.py`,
+`annotate-file.sh`, `file-dependencies.init.gradle` and `testdata/` are copied byte for byte from Prikey's
+`gate/`; a fix goes to Prikey first.
 
 ## When the gate fails
 
 The log lists each difference as `GATE + field: value` (new in the APK), `GATE - field: value` (gone
 from the APK) or `GATE ~ field: old -> new`, and then prints the whole baseline this APK would need
-(also as `baseline-generated` notice annotations, see below). If the change is intended, replace
-`baseline.json` with it in the pull request, give every new `hosts` or `network_api` entry a `note`
+(also as `baseline-generated` notice annotations for the debug build and `baseline-release-generated` for the
+release build, see below). If the change is intended, replace `baseline.json` or `baseline.release.json` with it in the pull request, give every new `hosts` or `network_api` entry a `note`
 saying why it is there (an entry without a note fails the check), and list the change under GATE
 CHANGES in the pull request description.
 
-For many entries from one domain or one library, a `notes` rule fills the note: `{"field": "hosts",
+Most `hosts` entries are the tracker and public-suffix lists (`core/dns` `TrackerDomains.kt`,
+`PublicSuffix.kt`), matched locally and never contacted. They have a note each, not a catch-all rule, so a
+host that appears in the APK without being in a list has no note and fails the check until someone looks.
+`notes` rules exist for the cases where many entries share one owner or library: `{"field": "hosts",
 "suffix": "doubleclick.net", "note": "..."}` (a literal domain of two labels or more; it matches that
 domain and its subdomains) or `{"field": "network_api", "prefix": "Lorg/bouncycastle/", "note": "..."}`
-(a type package of two segments or more). Patterns are refused, so no rule can note a host nobody has
-looked at. A filled note starts with `(rule <suffix or prefix>)`, and a pull request's new entries are
-listed with their notes.
+(a type package of two segments or more). Patterns are refused. Every network type's note names the module
+and the toggle that gates it, except read-only state types (`ConnectivityManager`, `LinkProperties`,
+`NetworkCapabilities`, `TransportInfo`, `WifiInfo`, `WifiManager`, `ScanResult`, `WifiSsid`), whose notes say
+they are read-only state getters with no sockets and no egress, and library-only references (AndroidX,
+Apache commons, zxing), whose notes say so. Hosts and network types must trace to `tunnels/traffic`, `tunnels/homenet` or
+`tunnels/updater`, to a data set matched locally, or to a library string that is never contacted.
 
 With the Android SDK and Google's Maven repository at hand, the same can be done locally:
 
 ```sh
-./gradlew --init-script gate/file-dependencies.init.gradle -Pgate.configuration=releaseRuntimeClasspath \
-  assembleRelease :app:dependencies --configuration releaseRuntimeClasspath gateFileDependencies > build/gradle.log
-python3 gate/gate.py generate --apk app/build/outputs/apk/release/app-release-unsigned.apk --deps build/gradle.log
+./gradlew --init-script gate/file-dependencies.init.gradle -Pgate.configuration=debugRuntimeClasspath \
+  assembleDebug :app:dependencies --configuration debugRuntimeClasspath gateFileDependencies > build/gradle.log
+python3 gate/gate.py generate --apk app/build/outputs/apk/debug/app-debug.apk --deps build/gradle.log
 ```
 
 `python3 gate/gate.py fingerprint --apk <published apk>` prints the signing certificate's SHA-256 from
 the APK's signing block, for setting the pin where the SDK is missing. It reads one scheme (the highest
 of v3.1, v3, v2) and each signer's first certificate, so it fits single-signer v2/v3 apps without key
-rotation; the release job's `gate.py cert`, which verifies with `apksigner`, is authoritative. Run the
+rotation; the publish check's `gate.py cert`, which verifies with `apksigner`, is authoritative. Run the
 script's own tests with `python3 -m unittest discover -s gate`.
 
 ## Gate 2.1 (`python3 gate/gate.py --version`; the baseline schema is still 2)
 
-The 2.1 additions are optional sections, so every baseline written before them still loads and checks.
-A section that is missing from a baseline counts as empty: it only differs from an APK that has entries,
-and then `check` reports them as additions (`GATE + uses_features: …`). `generate` writes a section only
-when the APK has entries, so a baseline without any is regenerated byte for byte. Adopting it is: copy the
-new gate into a repo, run its CI once, and commit the baseline it prints in the same pull request, with a
-note for every new `hosts` and `network_api` entry (a `notes` rule fills some). Never land the new
-`gate.py` without its regenerated baseline: the repo's CI is red until then.
+`gate.py` 2.1 adds optional sections to both baselines. A baseline without them still loads and checks: a
+missing section counts as empty, so it only differs from an APK that has entries (`GATE + uses_features: ...`),
+and `generate` writes a section only when the APK has entries. Never land a new `gate.py` without both
+regenerated baselines: CI is red until they match.
 
-- `network_api` also records array descriptors (`[Ljavax/net/ssl/TrustManager;`, `[[Ljava/net/URL;`), each
-  with its own note. A `network_api` prefix rule covers arrays of the library's types too; framework
-  arrays still get a note each.
-- `hosts` also records suffix literals with their leading dot (`.githubusercontent.com`, and
-  `*.example.com` as `.example.com`). A `hosts` rule on `example.com` covers `.example.com` too.
-- `uses_features`: sorted `NAME;required=true|false` (`glEsVersion=0x30000;required=true` for a GL
-  version, `NAME;version=0x400003;required=true` for a feature with a version).
-- `meta_data`: sorted application-level `<meta-data>`; the attribute's own name is kept, so an entry is
-  `NAME;value=TEXT` or `NAME;resource=TEXT` (a bare `NAME` when it has neither). A reference is resolved
-  through `resources.arsc`: a file becomes `NAME;resource=sha256:DIGEST` (the digest of the file's content,
-  as for `provider_resources`); a value becomes `NAME;value=TEXT` or `NAME;resource=TEXT` after the
-  attribute that held the reference (a framework resource is `NAME;resource=android:0x01040001`), with `|`
-  between values that differ by configuration. A reference that is a file in one configuration and a value in another, or that does not
-  resolve, is exit 2. A component's own meta-data is not recorded.
-- `provider_resources`: for every provider `<meta-data android:resource>` (FileProvider's `file_paths.xml`)
-  `{provider, meta, sha256, elements}`. `elements` is the compiled XML as one JSON array per element
-  (`[1,"cache-path",[["name","share"],["path","share/"]]]`) and `sha256` is the digest of those lines
-  joined by newlines, so a widened sharing boundary is a baseline change and the pull request shows which
-  path was added. Attributes are sorted by key. A key is `android:NAME` for an attribute whose resource ID
-  is one the gate knows (`ATTR_IDS`), whatever its namespace, and for an attribute in the Android
-  namespace with no known ID; an Android-namespace attribute whose name is a known one but whose ID is
-  missing or different, or a name that disagrees with its known ID, is exit 2. Any other attribute is its
-  plain `NAME` without a namespace, or `{namespace URI}NAME`. A value is the attribute's raw string when
-  it has one (for any type); with no raw string, a boolean is `true`/`false`, an integer (decimal or hex
-  typed) its decimal value, anything else `(type 0xTT)0xDDDDDDDD` (type and data in lower-case hex, two
-  and eight digits); a resource reference is `null`. JSON escapes quotes and
-  newlines, so a value can't spell out another attribute or element, and an element with two attributes
-  that read as one key is refused (exit 2), as is a string attribute with no raw copy or whose raw and
-  typed copies differ, and a reference that also carries a raw string (the platform reads one or the
-  other depending on the reader). The file's name is left out (a release build shortens it,
-  e.g. `res/8K.xml`) and so are attribute order and the compiler's version. The format is frozen:
-  baselines hold these digests. Variants that differ by configuration are separated by a `---` line; a
-  file that is not compiled XML gives one `raw sha256 …` line.
-- `assets`: `{path, sha256, size}` of the inflated content of every top-level APK entry matching
-  `scan.asset_digest_paths` (zip globs matched case-insensitively, `*` also matches `/`; nested archives are not looked into;
-  `null` is an error, a missing key means the defaults). When the
-  key is missing the defaults are `*.tflite`, `*.onnx`, `*.ort` and `*.task`; a list in the baseline
-  replaces them (`[]` turns it off), so a repo whose models have other names lists them (for example
-  `["assets/models/*", "assets/ocr/*"]`). A swapped model shows as `GATE ~ assets:` with both digests.
-- `--compare-to` names the baseline file it was given: "the base branch has no <the `--baseline`
-  argument>", so a repo with `gate/baseline.release.json` is told so.
-- `gate.py` has no guard against replacing a published APK (`gh release upload --clobber`): that check
-  lives in the publishing job of the workflow (see `build.yml`, "may replace the APK only of a release made
-  from this very commit").
+- `uses_features`: sorted `NAME;required=true|false` (`glEsVersion=0x30000;required=true` for a GL version,
+  `NAME;version=0x400003;required=true` for a feature with a version). Tunnels records the pairing screen's
+  optional camera.
+- `meta_data`: sorted application-level `<meta-data>` as `NAME;value=TEXT` or `NAME;resource=TEXT`; a reference
+  is resolved through `resources.arsc` (a file becomes `NAME;resource=sha256:DIGEST`, a framework resource
+  `NAME;resource=android:0x...`, values that differ by configuration are joined with `|`). A reference that is a
+  file in one configuration and a value in another, or that does not resolve, is exit 2. A component's own
+  meta-data is not recorded. Tunnels records Shizuku's `moe.shizuku.client.V3_SUPPORT` marker.
+- `provider_resources`: for every provider `<meta-data android:resource>` (FileProvider's paths file)
+  `{provider, meta, sha256, elements}`, so a widened sharing boundary is a baseline change. Tunnels has none.
+  The canonical form of the compiled XML is frozen: one JSON array per element or text node
+  (`[DEPTH,"tag",[["key","value"],...]]`, attributes sorted by key; a key is `android:NAME` for a resource ID the
+  gate knows, whatever its namespace, else the plain name or `{namespace URI}NAME`; a value is the raw string,
+  else `true`/`false`, an unsigned integer, `null` for a reference, or `(type 0xTT)0xDDDDDDDD`). An element with
+  two attributes that read as one key, a string attribute with no raw copy or with differing copies, and a
+  reference that also carries a raw string are exit 2. `sha256` is the digest of the lines joined by newlines;
+  configuration variants are separated by a `---` line.
+- `assets`: `{path, sha256, size}` for top-level APK entries matching `scan.asset_digest_paths` (case-insensitive
+  zip globs; a missing key means the defaults `*.tflite`, `*.onnx`, `*.ort`, `*.task`; `[]` turns it off; `null`
+  is an error). Tunnels ships no model files and leaves the key out.
+- `network_api` also records array descriptors (`[Landroid/net/Network;`), and `hosts` also records suffix
+  literals with their leading dot (`*.compute.amazonaws.com` is `.compute.amazonaws.com`). Each needs a note
+  like any other entry. A `hosts` rule on `example.com` covers `.example.com`; `amazonaws.com` cannot be a
+  rule (patterns and public suffixes are refused), so those suffixes get a note each.
+- `--compare-to` names the baseline file it was given in its "the base branch has no ..." message, so a
+  missing `baseline.release.json` on the base branch is reported as that file.
 
 ## Dependency verification metadata
 
@@ -112,9 +119,8 @@ note for every new `hosts` and `network_api` entry (a `notes` rule fills some). 
 Gradle with `--dependency-verification=strict`, so a swapped dependency or plugin fails the build before
 it runs. It was written on Linux, so it pins the Linux `aapt2`; a local build on macOS or Windows needs
 `--dependency-verification=lenient` (never in CI). After changing a dependency, delete the file in the
-pull request: the next run writes a new one from the real build tasks (the build job and the emulator
-job each write theirs), attaches both as `verification-metadata-build` and
-`verification-metadata-instrumented`, and fails. Commit the union of the two files.
+pull request: the next run writes a new one from the real build tasks (every Gradle job writes its own and
+attaches it as `verification-metadata-<job>`), and fails. Commit the union of the files.
 
 ## Bringing a file back from CI without downloading artifacts
 

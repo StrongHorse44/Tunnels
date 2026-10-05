@@ -150,25 +150,6 @@ baseline; `release.yml` checks the release again. A pull request that changes wh
 matching baseline and lists it under GATE CHANGES. The release baseline cannot be missing: both workflows fail
 closed without it.
 
-`gate/README.md` is the shared text, identical in every repo of the program (gate.py 2.1), so what is specific
-to Tunnels lives here:
-
-- **Debug-only content is recorded in the debug baseline** because that build ships: `debuggable: true`, the
-  `.debug` provider authorities and `DebugProbesKt.bin` in `extra_code` (the file also ships in the release
-  build, from kotlinx-coroutines-core-jvm).
-- **Hosts and network types must trace to `tunnels/traffic`, `tunnels/homenet` or `tunnels/updater`**, to a data
-  set matched locally (the tracker lists and `PublicSuffix.kt` in `core/dns`), or to a library string that is
-  never contacted. Each such entry has its own note rather than a catch-all `notes` rule, so a host that
-  appears without being in a list has no note and fails the check until someone looks. Suffix literals that
-  gate 2.1 records with a leading dot (`.compute.amazonaws.com`, from `*.compute.amazonaws.com`) get a note each.
-- **`permissions.allow` stays.** The per-module `permissions.allow` files and `verifyPermissions` are the
-  per-module view; `permissions.requested` in the baselines is the whole-APK view. A new permission needs both.
-- **The pin in `baseline.json` proves little** (the debug key is public): it only catches an accidental key
-  change. The pin in `baseline.release.json` is what `gate.py cert --require-pin` enforces before publishing.
-- **Adopting a new gate version** is one pull request: the shared files, then both baselines regenerated with
-  the new gate against the latest APK of each channel (`gate.py generate`; it keeps the notes and the pin). CI is
-  red until both baselines match, by design.
-
 ## Verifying a release
 
 The `sign` job log prints the signing certificate; it must match the pin in `gate/baseline.release.json`.
