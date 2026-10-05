@@ -36,6 +36,8 @@ class BackupFindingsTest {
         val calls = mutableListOf<String>()
         override suspend fun openApp(app: BackupApp): String = "opened ${app.id}".also { calls += it }
         override suspend fun openSnapshots(): String = "snapshots".also { calls += it }
+        override suspend fun openBackups(): String = "backups".also { calls += it }
+        override suspend fun forgetFolder(): String = "forgot".also { calls += it }
         override suspend fun stopTracking(appId: String): String = "stopped $appId".also { calls += it }
         override suspend fun recordDrill(): String = "drill".also { calls += it }
     }
@@ -126,7 +128,7 @@ class BackupFindingsTest {
     @Test
     fun aFolderThatCannotBeReadIsNotAMissingBackup() {
         val m = Fixtures.Memory().also { it.failRoot = true }
-        assertTrue(findings(m, seen).isEmpty())
+        assertEquals(listOf("backups|folder|BACKUP_FOLDER_LOST"), findings(m, seen).map { it.id })
         val obs = BackupObservations.build(FolderScanner.scan(m, now), seen, now, today)
         assertEquals(FolderState.LOST, BackupView.from(obs).folder)
         assertTrue(obs.none { it.subject == "prikey" })
@@ -205,5 +207,82 @@ class BackupFindingsTest {
         }
         assertTrue(actions.forDraft(FindingDraft("backups", "drill", BackupRules.DRILL_DUE, Severity.NOTICE, "x")).isNotEmpty())
         assertNotNull(BackupApps.byId("tunnels"))
+    }
+
+    @Test
+    fun aLostFolderRaisesAWarningInsteadOfClearingTheStaleFindingsUnseen() {
+        val two = BackupSettings(seen = setOf("tunnels", "prikey"))
+        // Stale findings exist from an earlier scan; the folder is then deleted.
+        val before = Fixtures.Memory().file("p.fwx", bundle("prikey", 60)).file("t.fwx", bundle("tunnels", 70))
+        val stale = findings(before, two)
+        assertEquals(setOf("backups|prikey|BACKUP_STALE", "backups|tunnels|BACKUP_STALE"), stale.map { it.id }.toSet())
+
+        val gone = Fixtures.Memory().also { it.failRoot = true }
+        val obs = BackupObservations.build(FolderScanner.scan(gone, now), two, now, today)
+        val update = FindingsEngine.derive(RuleContext("backups", obs, emptyList(), false), rules, actions::forDraft, stale, Instant.ofEpochMilli(now))
+        val lost = update.upserts.single()
+        assertEquals("backups|folder|BACKUP_FOLDER_LOST", lost.id)
+        assertEquals(Severity.WARN, lost.severity)
+        assertEquals(listOf("Open Backups to choose the folder", "Forget the folder"), lost.actions.map { it.label })
+        assertEquals("the stale findings are replaced, not left looking current", 2, update.removals.size)
+        assertEquals("backups", runSuspend { (lost.actions.first() as FindingAction.Perform).run() }.let { env.calls.last() })
+
+        // The folder comes back: the warning goes.
+        val back = BackupObservations.build(FolderScanner.scan(before, now), two, now, today)
+        val cleared = FindingsEngine.derive(RuleContext("backups", back, emptyList(), false), rules, actions::forDraft, update.upserts, Instant.ofEpochMilli(now))
+        assertTrue(cleared.removals.contains("backups|folder|BACKUP_FOLDER_LOST"))
+    }
+
+    @Test
+    fun noFolderChosenIsNotALostFolder() {
+        val obs = BackupObservations.build(FolderScan.NONE, seen, now, today)
+        assertTrue(rules.flatMap { it.evaluate(RuleContext("backups", obs, emptyList(), true)) }.isEmpty())
+    }
+
+    @Test
+    fun theLumenPerItemProbeRaisesNothingFalse() {
+        // 600 per-item files fill the folder; the manifest is fresh, the other apps are fresh.
+        val m = Fixtures.Memory()
+        repeat(600) { m.file("lumen-20261003T101500Z-$it.fwx", ByteArray(50_000) { 7 }) }
+        m.file("lumen-20261003T101500Z.fwx", bundle("lumen", 2))
+        m.file("tunnels.fwx", bundle("tunnels", 1)).file("prikey.fwx", bundle("prikey", 3))
+        val out = findings(m, BackupSettings(seen = setOf("lumen", "tunnels", "prikey")))
+        assertTrue(out.map { it.id }.toString(), out.isEmpty())
+        assertEquals("the item files are never opened", setOf("lumen-20261003T101500Z.fwx", "tunnels.fwx", "prikey.fwx"), m.opened.toSet())
+    }
+
+    @Test
+    fun aFolderTooBigToReadIsReportedIncompleteAndJudgesNothing() {
+        val m = Fixtures.Memory()
+        // These sort first (name descending) and use up the bound; tunnels and prikey sort last and are never read.
+        repeat(FolderScanner.MAX_HEADERS + 10) { m.file("zz-%04d.fwx".format(it), bundle("mardigras", 1)) }
+        m.file("aa-tunnels.fwx", bundle("tunnels", 99)).file("bb-prikey.fwx", bundle("prikey", 99))
+        val out = findings(m, seen)
+        assertEquals(listOf("backups|folder|BACKUP_SCAN_INCOMPLETE"), out.map { it.id })
+        assertEquals(Severity.NOTICE, out.single().severity)
+        assertEquals(listOf("Open Backups"), out.single().actions.map { it.label })
+        val view = BackupView.from(BackupObservations.build(FolderScanner.scan(m, now), seen, now, today))
+        assertEquals(AppStatus.INCOMPLETE, view.apps.first { it.app.id == "prikey" }.status)
+        assertEquals(AppStatus.INCOMPLETE, view.apps.first { it.app.id == "tunnels" }.status)
+        assertEquals(AppStatus.FRESH, view.apps.first { it.app.id == "mardigras" }.status)
+        assertTrue(view.truncated)
+    }
+
+    @Test
+    fun anOldFormatExportWithNoFileDateIsPresentNotMissing() {
+        val m = Fixtures.Memory().file("old.tsnap", Fixtures.legacy(), modified = 0)
+        val s = BackupSettings(seen = setOf("tunnels"))
+        assertTrue(findings(m, s).isEmpty())
+        val view = BackupView.from(BackupObservations.build(FolderScanner.scan(m, now), s, now, today))
+        val row = view.apps.first { it.app.id == "tunnels" }
+        assertEquals(AppStatus.UNKNOWN_DATE, row.status)
+        assertEquals(1, row.files)
+        assertEquals(1, row.undated)
+    }
+
+    @Test
+    fun anUndatedFileKeepsAnOldDatedBundleFromBeingCalledStale() {
+        val m = Fixtures.Memory().file("old.tsnap", Fixtures.legacy(), modified = 0).file("t.fwx", bundle("tunnels", 80))
+        assertTrue(findings(m, BackupSettings(seen = setOf("tunnels"))).isEmpty())
     }
 }

@@ -41,6 +41,8 @@ object Fixtures {
         val bytesRead = HashMap<String, Int>()
         val opened = mutableListOf<String>()
         var failRoot = false
+        val failOpen = HashMap<String, Throwable>()
+        val failList = HashMap<String, Throwable>()
 
         fun file(name: String, bytes: ByteArray, modified: Long = NOW, dir: Node? = null): Memory {
             val node = Node(FolderEntry((dir?.entry?.id ?: "") + "/" + name, name, false, modified, bytes.size.toLong()), bytes)
@@ -59,11 +61,13 @@ object Fixtures {
 
         override fun list(dir: FolderEntry?): List<FolderEntry> {
             if (failRoot && dir == null) throw IOException("gone")
+            dir?.let { d -> failList[d.name]?.let { throw it } }
             return (if (dir == null) root else find(dir.id)!!.children).map { it.entry }
         }
 
         override fun open(file: FolderEntry): InputStream {
             opened += file.name
+            failOpen[file.name]?.let { throw it }
             val bytes = find(file.id)!!.bytes!!
             return object : ByteArrayInputStream(bytes) {
                 override fun read(): Int = super.read().also { if (it >= 0) bytesRead.merge(file.name, 1, Int::plus) }

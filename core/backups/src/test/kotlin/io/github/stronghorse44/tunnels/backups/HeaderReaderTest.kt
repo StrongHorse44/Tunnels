@@ -72,4 +72,16 @@ class HeaderReaderTest {
         val r = HeaderReader.read { throw java.io.IOException("denied") }
         assertEquals(HeaderRead.Unreadable("IO"), r)
     }
+
+    @Test
+    fun anyProviderExceptionIsJustAnUnreadableFile() {
+        assertEquals(HeaderRead.Unreadable("PROVIDER"), HeaderReader.read { throw IllegalArgumentException("bad uri") })
+        assertEquals(HeaderRead.Unreadable("PROVIDER"), HeaderReader.read { throw IllegalStateException("closed") })
+        assertEquals(HeaderRead.Unreadable("DENIED"), HeaderReader.read { throw SecurityException("no grant") })
+        // A failure while reading, not only while opening.
+        val broken = object : java.io.InputStream() {
+            override fun read(): Int = throw UnsupportedOperationException("provider")
+        }
+        assertEquals(HeaderRead.Unreadable("PROVIDER"), HeaderReader.read { broken })
+    }
 }

@@ -5,7 +5,7 @@ import java.io.FileInputStream
 import java.io.IOException
 import java.io.InputStream
 
-/** A [FolderSource] over a plain directory: for the JVM tests and the emulator smoke test, where there is no SAF tree. */
+/** A [FolderSource] over a plain directory, for the tests. (The emulator test carries its own copy.) */
 class FileFolderSource(private val root: File) : FolderSource {
     override fun list(dir: FolderEntry?): List<FolderEntry> {
         val d = if (dir == null) root else File(dir.id)

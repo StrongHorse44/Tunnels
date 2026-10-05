@@ -32,35 +32,43 @@ object HeaderReader {
         }
     } catch (e: FwxException) {
         if (e.code == FwxError.LEGACY) HeaderRead.Legacy else HeaderRead.Unreadable(e.code.name)
-    } catch (_: IOException) {
-        HeaderRead.Unreadable("IO")
     } catch (_: SecurityException) {
         HeaderRead.Unreadable("DENIED")
+    } catch (_: IOException) {
+        HeaderRead.Unreadable("IO")
+    } catch (e: Throwable) {
+        // A storage provider can throw anything (IllegalArgumentException, IllegalStateException, ...): that one file
+        // is unreadable, and the scan goes on. Only a dying VM is let through.
+        if (e is VirtualMachineError) throw e
+        HeaderRead.Unreadable("PROVIDER")
+    }
+}
+
+/** Ends after [left] bytes, whatever the file holds: the guard that keeps a header read from touching the payload. */
+internal class Capped(input: InputStream, private var left: Int) : FilterInputStream(input) {
+    override fun read(): Int {
+        if (left <= 0) return -1
+        val b = super.read()
+        if (b >= 0) left--
+        return b
     }
 
-    /** Ends after [limit] bytes. */
-    private class Capped(input: InputStream, private var left: Int) : FilterInputStream(input) {
-        override fun read(): Int {
-            if (left <= 0) return -1
-            val b = super.read()
-            if (b >= 0) left--
-            return b
-        }
-
-        override fun read(b: ByteArray, off: Int, len: Int): Int {
-            if (left <= 0) return -1
-            if (len == 0) return 0
-            val n = super.read(b, off, minOf(len, left))
-            if (n > 0) left -= n
-            return n
-        }
-
-        override fun skip(n: Long): Long {
-            val k = super.skip(minOf(n, left.toLong()))
-            if (k > 0) left -= k.toInt()
-            return k
-        }
-
-        override fun markSupported() = false
+    override fun read(b: ByteArray, off: Int, len: Int): Int {
+        if (left <= 0) return -1
+        if (len == 0) return 0
+        val n = super.read(b, off, minOf(len, left))
+        if (n > 0) left -= n
+        return n
     }
+
+    override fun skip(n: Long): Long {
+        if (left <= 0 || n <= 0) return 0
+        val k = super.skip(minOf(n, left.toLong()))
+        if (k > 0) left -= k.toInt()
+        return k
+    }
+
+    override fun available(): Int = minOf(super.available(), left)
+
+    override fun markSupported() = false
 }

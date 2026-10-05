@@ -89,7 +89,8 @@ internal fun BackupsPanel(module: BackupsTunnel, state: TunnelScreenState, scree
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Backups", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                "Reads only the plaintext header (the first 200 bytes or so) of each .fwx or .tsnap file in the folder you pick. " +
+                "Pick a folder on the phone's own storage: a cloud-backed folder may download whole files just to read a header, in the background check too. " +
+                    "Reads only the plaintext header (the first 200 bytes or so) of each .fwx or .tsnap file in the folder you pick. " +
                     "It never asks for a passphrase and never reads the encrypted part. A header's date is not checked without the " +
                     "passphrase, so this is a reminder, not proof: only a restore drill proves a backup.",
                 style = MaterialTheme.typography.bodySmall,
@@ -109,7 +110,7 @@ internal fun BackupsPanel(module: BackupsTunnel, state: TunnelScreenState, scree
             if (folder != null && view.folder == FolderState.LOST) {
                 Text(
                     "Tunnels cannot read this folder now (it was moved or deleted, or access was removed). Choose it again. " +
-                        "Until then no app is judged, so nothing is reported missing.",
+                        "Until then no app is judged; a warning says so.",
                     style = MaterialTheme.typography.bodySmall,
                     color = StatusColors.warn,
                 )
@@ -129,7 +130,12 @@ internal fun BackupsPanel(module: BackupsTunnel, state: TunnelScreenState, scree
                 }
                 Text(extras.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)
                 if (view.truncated) {
-                    Text("The folder has more files than are read in one scan; the picture may be incomplete.", style = MaterialTheme.typography.bodySmall, color = StatusColors.warn)
+                    Text(
+                        "The folder has more files than one scan reads (${FolderScanner.MAX_HEADERS} headers, newest names first), so no app is judged stale or missing. " +
+                            "Move old exports into another folder.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = StatusColors.warn,
+                    )
                 }
             }
 
@@ -144,7 +150,11 @@ internal fun BackupsPanel(module: BackupsTunnel, state: TunnelScreenState, scree
             // Apps
             Label("Apps")
             view.apps.forEach { row ->
-                AppRowView(row, view.folder == FolderState.OK, module, onWatch = { on -> change { module.config.update { it.withTracked(row.app.id, on) } } })
+                // Without a readable folder the scan describes no app, so the switch shows what the settings say
+                // (switched on by you, or seen in the folder before; both survive a change of folder).
+                val readable = view.folder == FolderState.OK
+                val shown = if (readable) row else row.copy(tracked = settings.isTracked(row.app.id))
+                AppRowView(shown, readable, module, onWatch = { on -> change { module.config.update { it.withTracked(row.app.id, on) } } })
             }
             if (view.otherFiles > 0) {
                 Text(
@@ -212,13 +222,16 @@ private fun AppRowView(row: AppRow, folderReadable: Boolean, module: BackupsTunn
 private fun describe(row: AppRow, folderReadable: Boolean, module: BackupsTunnel): Pair<String, Color> {
     if (!folderReadable) return (if (row.tracked) "watched" else "not watched") to GlassColors.dim
     val newest = row.newestMs?.let { BackupRules.dateOf(it, module.zoneId) }
-    val files = "${row.files} file${if (row.files == 1) "" else "s"}"
+    val files = "${row.files} file${if (row.files == 1) "" else "s"}" +
+        if (row.items > 0) " + ${row.items} item bundle${if (row.items == 1) "" else "s"}" else ""
     val what = if (row.fromFileDate) "old format, file date" else "header says"
     return when (row.status) {
         AppStatus.FRESH -> "$what $newest · ${row.ageDays} days ago · $files" to StatusColors.ok
         AppStatus.STALE -> "$what $newest · ${row.ageDays} days ago · $files · older than your limit" to StatusColors.warn
         AppStatus.MISSING -> "no bundle in the folder" to StatusColors.warn
         AppStatus.SUSPICIOUS -> "dated in the future, not counted · $files" to StatusColors.warn
+        AppStatus.UNKNOWN_DATE -> "present, date unknown · $files" to GlassColors.dim
+        AppStatus.INCOMPLETE -> "not judged: the folder has more files than one scan reads" to GlassColors.dim
         AppStatus.UNTRACKED -> (if (newest != null) "$what $newest · ${row.ageDays} days ago · not watched" else "not watched") to GlassColors.dim
         null -> "no bundle seen · not watched" to GlassColors.dim
     }

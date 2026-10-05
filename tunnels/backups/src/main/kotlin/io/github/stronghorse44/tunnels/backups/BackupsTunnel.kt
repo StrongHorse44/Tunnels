@@ -12,6 +12,7 @@ import io.github.stronghorse44.tunnels.model.Observation
 import io.github.stronghorse44.tunnels.model.PermissionSpec
 import io.github.stronghorse44.tunnels.model.ScanProgress
 import io.github.stronghorse44.tunnels.model.TunnelModule
+import io.github.stronghorse44.tunnels.runtime.TunnelActivity
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenActions
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenState
 import io.github.stronghorse44.tunnels.runtime.TunnelUi
@@ -125,6 +126,19 @@ class BackupsTunnel internal constructor(
             "Opening Snapshots."
         } catch (_: Exception) {
             "Snapshots could not be opened."
+        }
+
+        override suspend fun openBackups(): String = try {
+            context.startActivity(TunnelActivity.intent(context, id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            "Opening Backups."
+        } catch (_: Exception) {
+            "Backups could not be opened."
+        }
+
+        override suspend fun forgetFolder(): String {
+            clearFolder()
+            rescan()
+            return "Folder forgotten. Choose it again in the Backups screen."
         }
 
         override suspend fun stopTracking(appId: String): String {

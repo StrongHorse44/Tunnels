@@ -14,6 +14,12 @@ interface BackupEnv {
     /** Stops watching [appId] (it can be switched on again in the tunnel). */
     suspend fun stopTracking(appId: String): String
 
+    /** Opens this tunnel's own screen, where the folder is chosen. */
+    suspend fun openBackups(): String
+
+    /** Forgets the picked folder (and gives its grant back). */
+    suspend fun forgetFolder(): String
+
     /** Records today as the day of the last restore drill. */
     suspend fun recordDrill(): String
 }
@@ -26,6 +32,15 @@ class BackupActions(private val env: BackupEnv) {
                 FindingAction.Perform("Open Snapshots to try an import") { env.openSnapshots() },
                 FindingAction.Perform("I did a drill today") { env.recordDrill() },
             )
+        }
+        if (draft.kind == BackupRules.FOLDER_LOST) {
+            return listOf(
+                FindingAction.Perform("Open Backups to choose the folder") { env.openBackups() },
+                FindingAction.Perform("Forget the folder") { env.forgetFolder() },
+            )
+        }
+        if (draft.kind == BackupRules.SCAN_INCOMPLETE) {
+            return listOf(FindingAction.Perform("Open Backups") { env.openBackups() })
         }
         val app = BackupApps.byId(draft.subject) ?: return emptyList()
         val open = when {

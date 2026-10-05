@@ -14,6 +14,8 @@ data class AppRow(
     val files: Int,
     val fromFileDate: Boolean,
     val suspicious: Int,
+    val items: Int,
+    val undated: Int,
 )
 
 data class DrillView(val status: DrillStatus, val last: LocalDate?, val ageDays: Long?)
@@ -46,6 +48,8 @@ data class BackupView(
                     files = v(app.id, BackupKeys.FILES)?.toIntOrNull() ?: 0,
                     fromFileDate = v(app.id, BackupKeys.SOURCE) == BackupKeys.SOURCE_FILE_DATE,
                     suspicious = v(app.id, BackupKeys.SUSPICIOUS)?.toIntOrNull() ?: 0,
+                    items = v(app.id, BackupKeys.ITEMS)?.toIntOrNull() ?: 0,
+                    undated = v(app.id, BackupKeys.UNDATED)?.toIntOrNull() ?: 0,
                 )
             }
             return BackupView(

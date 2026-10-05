@@ -18,11 +18,19 @@ object BackupRules {
     const val DATE_SUSPICIOUS = "BACKUP_DATE_SUSPICIOUS"
     const val DRILL_DUE = "RESTORE_DRILL_DUE"
 
+    /** The picked folder cannot be read now: deleted, moved, or access removed. Without this the stale findings would clear unseen. */
+    const val FOLDER_LOST = "BACKUP_FOLDER_LOST"
+
+    /** The folder holds more files than one scan reads, so nothing is judged stale or missing. */
+    const val SCAN_INCOMPLETE = "BACKUP_SCAN_INCOMPLETE"
+
     fun all(zone: ZoneId = ZoneId.systemDefault()): List<FindingRule> = listOf(
         Rules.perSubject(STALE, Severity.WARN) { subject, obs -> staleEvidence(subject, obs, zone) },
         Rules.perSubject(MISSING, Severity.WARN) { subject, obs -> missingEvidence(subject, obs) },
         Rules.perSubject(DATE_SUSPICIOUS, Severity.NOTICE) { subject, obs -> suspiciousEvidence(subject, obs) },
         Rules.perSubject(DRILL_DUE, Severity.NOTICE) { subject, obs -> drillEvidence(subject, obs) },
+        Rules.perSubject(FOLDER_LOST, Severity.WARN) { subject, obs -> lostEvidence(subject, obs) },
+        Rules.perSubject(SCAN_INCOMPLETE, Severity.NOTICE) { subject, obs -> incompleteEvidence(subject, obs) },
     )
 
     fun dateOf(ms: Long, zone: ZoneId) = Instant.ofEpochMilli(ms).atZone(zone).toLocalDate().toString()
@@ -67,5 +75,17 @@ object BackupRules {
         val age = value(obs, BackupKeys.AGE_DAYS) ?: "?"
         return "Your last restore drill was on $last, $age days ago (a reminder comes ${BackupSettings.DRILL_EVERY_DAYS} days after the last). " +
             "A backup is only proven when you restore it: import one export into its app and check the data."
+    }
+
+    private fun lostEvidence(subject: String, obs: List<Observation>): String? {
+        if (subject != BackupKeys.FOLDER || FolderState.of(value(obs, BackupKeys.STATE)) != FolderState.LOST) return null
+        return "Tunnels cannot read the export folder now: it was moved or deleted, or its access was removed. " +
+            "No app's backup can be checked until you choose the folder again, so nothing is reported stale or missing meanwhile."
+    }
+
+    private fun incompleteEvidence(subject: String, obs: List<Observation>): String? {
+        if (subject != BackupKeys.FOLDER || value(obs, BackupKeys.TRUNCATED) != "true") return null
+        return "The export folder holds more files than one scan reads (${FolderScanner.MAX_HEADERS} headers, newest names first), " +
+            "so no app is judged stale or missing until it is tidied: move old exports into another folder, or pick a smaller one."
     }
 }

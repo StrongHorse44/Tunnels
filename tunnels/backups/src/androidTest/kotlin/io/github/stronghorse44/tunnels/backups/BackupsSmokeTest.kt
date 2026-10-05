@@ -141,6 +141,25 @@ class BackupsSmokeTest {
         assertEquals("lost", value(lost, "folder", "state"))
         assertNotNull(lost.firstOrNull { it.subject == "drill" })
         assertTrue(lost.none { it.subject == "prikey" })
+        // ... and says so, with an action, instead of letting the stale findings vanish.
+        val warning = lostModule.rules.flatMap { it.evaluate(RuleContext(lostModule.id, lost, emptyList(), true)) }.single()
+        assertEquals(BackupRules.FOLDER_LOST, warning.kind)
+        assertEquals(Severity.WARN, warning.severity)
+        assertTrue(lostModule.actionsFor(warning).isNotEmpty())
+    }
+
+    @Test
+    fun lumenPerItemFilesAreCountedNotOpenedAndRaiseNothing() {
+        repeat(600) { File(dir, "lumen-20261003T101500Z-$it.fwx").writeBytes(ByteArray(2_000) { 4 }) }
+        File(dir, "lumen-20261003T101500Z.fwx").writeBytes(bundle("lumen", 2))
+        File(dir, "tunnels.fwx").writeBytes(bundle("tunnels", 1))
+        File(dir, "prikey.fwx").writeBytes(bundle("prikey", 1))
+        runBlocking { module.config.update { it.copy(seen = setOf("lumen", "tunnels", "prikey")) } }
+        val obs = scan()
+        assertEquals("fresh", value(obs, "lumen", "status"))
+        assertEquals("600", value(obs, "lumen", "items"))
+        assertEquals("false", value(obs, "folder", "truncated"))
+        assertTrue(drafts(obs).isEmpty())
     }
 
     @Test

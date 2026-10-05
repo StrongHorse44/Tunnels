@@ -27,6 +27,8 @@ object BackupKeys {
     const val SOURCE = "source"
     const val TRACKED = "tracked"
     const val SUSPICIOUS = "suspicious"
+    const val ITEMS = "items"
+    const val UNDATED = "undated"
     const val THRESHOLD_DAYS = "threshold_days"
 
     /** Moves with the clock alone (also on the drill subject). */
@@ -61,12 +63,14 @@ object BackupObservations {
                 val found = scan.apps[app.id]
                 val tracked = settings.isTracked(app.id, foundNow = found != null)
                 if (!tracked && found == null) continue
-                val status = Freshness.status(tracked, found, nowMs, settings.thresholdDays)
+                val status = Freshness.status(tracked, found, nowMs, settings.thresholdDays, incomplete = scan.truncated)
                 add(app.id, BackupKeys.STATUS, status.wire)
                 add(app.id, BackupKeys.TRACKED, tracked)
                 add(app.id, BackupKeys.FILES, found?.files ?: 0)
                 add(app.id, BackupKeys.THRESHOLD_DAYS, settings.thresholdDays)
                 if (found != null && found.suspicious > 0) add(app.id, BackupKeys.SUSPICIOUS, found.suspicious)
+                if (found != null && found.items > 0) add(app.id, BackupKeys.ITEMS, found.items)
+                if (found != null && found.undated > 0) add(app.id, BackupKeys.UNDATED, found.undated)
                 if (found != null && found.newestMs > 0) {
                     add(app.id, BackupKeys.NEWEST_MS, found.newestMs)
                     add(app.id, BackupKeys.AGE_DAYS, Freshness.ageDays(found.newestMs, nowMs))
