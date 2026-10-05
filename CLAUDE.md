@@ -50,9 +50,11 @@ everything, so uninstall wipes all data and nothing goes to cloud backup.
 - `core:common` theme, shared composables, private staging area for incoming files
 - `tunnels:installer`, `tunnels:unzip` one module per tunnel group; each declares its own permissions
 - `core:metro` home well geometry, depth palette, and the older metro map layout (plain Kotlin, unit-tested)
-- `core:updates` + `tunnels:updater` in-app updates from GitHub releases (user-started; INTERNET allowed). Two
-  channels, told apart by the package: `io.github.stronghorse44.tunnels.debug` (Debug build #N) and
-  `io.github.stronghorse44.tunnels` (`vX.Y.Z`); the repo is public, so the update token is optional
+- `core:updates` + `tunnels:updater` in-app updates from GitHub releases (user-started; INTERNET allowed). One
+  published channel, `vX.Y.Z` (`io.github.stronghorse44.tunnels`); the debug package
+  (`io.github.stronghorse44.tunnels.debug`) is still built and gated by CI but no longer published (an old debug
+  install follows the old "Debug build #N" tags and sees nothing new); the repo is public, so the update token
+  is optional
 - `core:crossrules` + `tunnels:crossroads` Crossroads, a derived tunnel (joins other tunnels' data; a bead in the well)
 - `core:watchrules` + `tunnels:watch` findings inbox and opt-in background checks (JobScheduler, offline tunnels only)
 - `core:devicecheck` + `tunnels:devicecheck` device checks: confirms on the phone the readings Tunnels relies on
@@ -96,25 +98,30 @@ Google's Maven is not reachable from the cloud dev container: Android modules on
   `src/androidTest` that runs its `scan()` on the emulator.
 - Observations are summaries (counts, names, hashes, booleans), never raw payloads.
 - Every change goes up as a pull request from its own branch. Never push to the integration branch or
-  `main` directly. Two release channels exist, and neither publishes without the owner's approval (a merge alone
-  never publishes):
-  - "Debug build #N" prereleases (`ci.yml`): only a push to the integration branch publishes one, and
-    only after the release gate (`gate/baseline.json`, pinned to the committed public debug key), the
-    emulator smoke job and the certificate check pass; the `publish` environment then waits for the
-    owner's approval. Manual `ci.yml` runs build and test only and never publish; agents still don't
-    start them by hand, the program overseer may on a reviewed branch.
-  - `vX.Y.Z` releases (`release.yml`, since #15): started only by a manual run of `release.yml` with
-    `publish` ticked, from the integration branch or `main`, signed in the `sign` job under the
-    `signing` environment (the owner's release key, no reviewer; the environment admits only those two
-    branches) and gated against `gate/baseline.release.json`; the `publish` job waits for the owner's
-    approval and creates the tag. The owner starts publishing runs and approves them. The overseer may
-    start a dry run (`publish` off) on a reviewed branch; it builds, gates and rehearses and publishes
-    nothing. Agents never start a publishing run. Who can push to the two branches is the control on
-    the key.
+  `main` directly. One release channel exists, `vX.Y.Z`, and it never publishes without the owner's approval
+  (a merge alone never publishes):
+  - `ci.yml` builds, tests and gates the debug and release variants (and checks the `VERSION` file's format)
+    and publishes nothing; no job there holds a writing token. The "Debug build #N" prereleases are retired.
+    Manual `ci.yml` runs build and test only; agents still don't start them by hand, the program overseer may
+    on a reviewed branch.
+  - `vX.Y.Z` releases (`release.yml`): a release starts when a merge changes the `VERSION` file on the
+    integration branch (or when the owner starts a `publish` ticked run, for recovery). The version comes from
+    that file. The run signs in the `sign` job under the `signing` environment (the owner's release key, no
+    reviewer; the environment admits only the integration branch and `main`) and is gated against
+    `gate/baseline.release.json`; the `publish` job waits for the owner's approval and creates the tag. The
+    approval is required: it is the control on publishing, and rejecting it publishes nothing. The overseer
+    starts dry runs (`publish` off) on a reviewed branch only; they build, gate and rehearse and publish
+    nothing. Agents never start a publishing run: never by dispatching `release.yml` with `publish` ticked and
+    never by pushing a tag, and agents never approve or reject a pending deployment (the `publish` tap is the
+    owner's by rule; sessions act with the owner's GitHub identity, so the rule is the control). Who can push to
+    the two branches is the control on the key.
   Builder and reviewer agents never merge. The overseer may merge a PR only when review passed,
   CI is green and the PR has no gate change (no new or changed permission, network host, runtime
   dependency, native library, build type, signing config, release workflow or either baseline); a PR
-  with a gate change waits for the owner to merge.
+  with a gate change waits for the owner to merge. A PR whose only gate-relevant change is the `VERSION`
+  bump (a release) is not a gate change for this list: the overseer may merge it once reviewed and green, and
+  the owner's approval at `publish` is what releases it. A `VERSION` change combined with any real gate change
+  is a gate change, and the owner merges it.
 
 ## Workflow
 
