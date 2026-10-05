@@ -1,43 +1,75 @@
-# Builds, checks and publishes a signed release when a v* tag is pushed (docs/RELEASING.md).
+# The vX.Y.Z release channel (docs/RELEASING.md): release-signed APKs, published as the GitHub release vX.Y.Z.
 #
-# Signing needs four secrets: KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD. They are
-# environment secrets of the `publish` environment (restricted to the release branches and v* tags), which the
-# build job, the one that reads them, runs in. They are decoded only after the tag's commit is shown to be on a
-# release branch, and only in the build job. The environment's required reviewers therefore approve the build
-# job as well as the publish job.
-# The release gate (gate/gate.py) compares the signed release APK with gate/baseline.release.json, and the
-# release-check job checks its certificate against the one pinned there, so a build signed with another key is
-# never offered as an update. gate/baseline.release.json does not exist yet: until the release baseline is added
-# (the build that moves the app to release builds), this workflow stops at its first step.
+# Trigger: workflow_dispatch ONLY (no tag trigger: a tag can name any commit, with any workflow file, and
+# the `signing` environment has no reviewer, so a tag push must not be able to reach the key). Inputs:
+#   version   exactly vMAJOR.MINOR.PATCH (for example v0.1.0)
+#   publish   default false. false is a DRY RUN: it builds, runs the release gate and rehearses signing with a
+#             throwaway key, and stops; `sign`, `release-check` and `publish` do not run, so nothing is signed or
+#             published. true runs the whole chain and, at the end, creates the tag and the release. It is
+#             refused unless the run is on the integration branch or main.
 #
-# No job that runs this repository's build code holds a token that can write anything: publishing is in its own
-# job, which runs no repository code.
+# Signing split (the program's spec 5.1). The four signing secrets are secrets of the `signing` environment
+# (restricted to the integration branch and main; no reviewers) and are referenced in exactly one job, `sign`. That job checks out nothing and runs no repository or third-party
+# code: only GitHub's own actions, gh, the runner's JDK 17 and its Android SDK tools. No job that runs this
+# repository's code references a secret. The release is built UNSIGNED by `build`, which also runs the release
+# gate (gate/gate.py against gate/baseline.release.json) and a signing rehearsal with a throwaway key.
+#
+#   build          no environment. unsigned APK, tests, gate, rehearsal            -> unsigned-apk
+#   sign           environment: signing. ref check, decode key, align, sign, verify -> signed-apk (1 day)
+#   release-check  certificate pin (gate.py cert --require-pin), version, order    -> checked sha256
+#   publish        environment: publish (the owner's approval). attest, tag, release
+#
+# Who can push to the integration branch and main is the control on the key: a publish=true dispatch from
+# either one signs without a reviewer (one approval per release, at `publish`). The signed APK exists as a run
+# artifact (downloadable by signed-in users, 1 day) before that approval.
+#
+# Every job after `build` is gated by a job-level `if:` written against the event context (never against an
+# output a build step could set): a dispatch with publish=true on the integration branch or main. sign and
+# release-check also check the built commit is on one of those branches (compare API against the branch's SHA)
+# before anything is decoded or published.
+#
+# Version: `version` must be exactly vMAJOR.MINOR.PATCH, each a number from 0 to 999 without leading zeros,
+# not v0.0.0. versionName is MAJOR.MINOR.PATCH and versionCode is MAJOR*1000000 + MINOR*1000 + PATCH, so
+# versions order the way their codes do. release-check and publish (with gh only) refuse a version whose code
+# is not above every other vX.Y.Z release's (rollback is a higher version, never a lower one), and a version
+# whose release or tag already exists at another commit. The release is named by its tag, vX.Y.Z; the in-app
+# updater follows exactly those tags (core/updates).
 
 name: Release
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build, exactly vMAJOR.MINOR.PATCH (for example v0.1.0)"
+        required: true
+        type: string
+      publish:
+        description: "Publish it. Off = dry run: build, gate and rehearse only. Only from the integration branch or main."
+        required: false
+        default: false
+        type: boolean
 
 permissions: {}
 
-# Releases go one at a time and are never cancelled half way.
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
+env:
+  # The Android SDK build-tools that align, sign and verify the APK, by version, so the signing tools only
+  # change in a pull request. A dry run's rehearsal fails if the runner lacks them.
+  BUILD_TOOLS_VERSION: "36.0.0"
+  # The signature schemes of every release: v2 only, as in the program's other repos (v1 is never needed at
+  # minSdk 34). A later key rotation adds v3/v3.1 with a signing lineage. Each of v1-v4 must be set.
+  SIGNING_SCHEMES: "--v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled false --v4-signing-enabled false"
+  # tunnels-release.jks was made with JDK 17's keytool, which writes PKCS12.
+  KEYSTORE_TYPE: PKCS12
 
 jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    # The signing job: the four signing secrets are `publish` environment secrets, so only a run from a branch
-    # or tag the environment allows can read them, whatever this workflow file says.
-    environment: publish
     permissions:
       contents: read
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
-      name: ${{ steps.version.outputs.name }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -46,37 +78,55 @@ jobs:
       - id: commit
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      # Fails closed before anything is built or decoded: no release without a reviewed release baseline.
+      # Validates the version before anything is built, and refuses a publishing dispatch from the wrong ref
+      # (the later jobs would otherwise be skipped quietly and the run would look like it succeeded).
+      - name: Version and what this run does
+        id: plan
+        env:
+          REF: ${{ github.ref }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PUBLISH: ${{ inputs.publish }}
+        run: |
+          tag="$INPUT_VERSION"
+          re='^v(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'
+          if [[ ! "$tag" =~ $re ]]; then
+            echo "::error::The version must look like v1.2.3 (each part 0-999, no leading zeros), got '$tag'"; exit 1
+          fi
+          code=$(( BASH_REMATCH[1] * 1000000 + BASH_REMATCH[2] * 1000 + BASH_REMATCH[3] ))
+          if [ "$code" -lt 1 ]; then
+            echo "::error::v0.0.0 is not a release version"; exit 1
+          fi
+          echo "name=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$INPUT_PUBLISH" = true ]; then
+            if [ "$REF" != refs/heads/ccr-dff99af5-ij1rle ] && [ "$REF" != refs/heads/main ]; then
+              echo "::error::publish=true only runs from the integration branch or main, not from $REF. Run it there, or leave publish off for a dry run."
+              exit 1
+            fi
+            echo "::notice::Publishing $tag (version code $code) from $REF, after the signing job and the owner's approval."
+          else
+            echo "::notice::DRY RUN of $tag (version code $code): builds, gates and rehearses signing; nothing is signed or published."
+          fi
+
+      # Fails closed before anything is built: no release without a reviewed release baseline.
       - name: Require the release baseline
         run: |
           if [ ! -f gate/baseline.release.json ]; then
-            echo "::error::gate/baseline.release.json is missing, so there is no reviewed record of what a release build may do. It is added with the build that moves the app from debug to release builds; until then a v* tag does not publish."
+            echo "::error::gate/baseline.release.json is missing, so there is no reviewed record of what a release build may do. Nothing is built."
             exit 1
           fi
 
-      # A tag can name any commit. Only a commit that is on a release branch is built and signed; this runs
-      # before any build code, and the branch is resolved to its SHA first so a tag can't stand in for it.
-      - name: Check the tag's commit is on a release branch
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          for branch in ccr-dff99af5-ij1rle main; do
-            head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" --jq .object.sha) || continue
-            status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$head...$GITHUB_SHA" --jq .status) || continue
-            if [ "$status" = "identical" ] || [ "$status" = "behind" ]; then
-              echo "$GITHUB_SHA is on $branch."
-              exit 0
-            fi
-          done
-          echo "::error::$GITHUB_SHA is not on ccr-dff99af5-ij1rle or main, so it is not built or signed."
-          exit 1
+      # setup-java replaces JAVA_HOME_17_X64, so note the runner's own JDK 17 (the one the sign job uses) first,
+      # for the signing rehearsal.
+      - name: Note the runner's JDK 17
+        run: echo "RUNNER_JDK_17=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin
           java-version: "17"
 
-      # No build cache in the job that holds the signing key: a poisoned cache entry must not reach a signed release.
+      # No build cache: what is built here is what gets signed, and a poisoned cache entry must not reach it.
       - uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
         with:
           cache-disabled: true
@@ -99,44 +149,17 @@ jobs:
           fi
           echo "Gradle $version wrapper and distribution checksums match gradle.org"
 
-      - name: Version from tag
-        id: version
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          name="${TAG#v}"
-          if [[ ! "$name" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-            echo "::error::Tag must look like v1.2.3, got $TAG"; exit 1
-          fi
-          code=$(( BASH_REMATCH[1] * 1000000 + BASH_REMATCH[2] * 1000 + BASH_REMATCH[3] ))
-          echo "name=$name" >> "$GITHUB_OUTPUT"
-          echo "code=$code" >> "$GITHUB_OUTPUT"
-
-      # A tag push is the only trigger, and the commit was shown to be on a release branch above. The secrets
-      # are environment secrets of `publish` (this job's environment), not repository secrets.
-      - name: Decode keystore
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "::error::Environment secret KEYSTORE_BASE64 is not set in the publish environment. See docs/RELEASING.md."; exit 1
-          fi
-          umask 077
-          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
-
       - name: Dependency verification mode
         id: verify
         run: .github/scripts/verify-mode.sh
 
-      - name: Build signed release
+      # The release variant comes out unsigned (app/build.gradle.kts gives it no signing config): the sign job
+      # signs the finished file.
+      - name: Build the unsigned release
         env:
           VERIFY: ${{ steps.verify.outputs.flag }}
-          TUNNELS_KEYSTORE: ${{ runner.temp }}/release.jks
-          TUNNELS_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          TUNNELS_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          TUNNELS_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          VERSION_CODE: ${{ steps.version.outputs.code }}
-          VERSION_NAME: ${{ steps.version.outputs.name }}
+          VERSION_CODE: ${{ steps.plan.outputs.code }}
+          VERSION_NAME: ${{ steps.plan.outputs.name }}
         run: |
           set -o pipefail
           ./gradlew --no-daemon --stacktrace $VERIFY \
@@ -145,39 +168,112 @@ jobs:
             test verifyPermissions assembleRelease \
             :app:dependencies --configuration releaseRuntimeClasspath gateFileDependencies | tee "$RUNNER_TEMP/gradle.log"
 
-      - name: Check permissions and signature
+      - name: Check permissions and that the APK is unsigned
         run: |
-          apk=app/build/outputs/apk/release/app-release.apk
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          if [ ! -f "$apk" ]; then
+            echo "::error::$apk is missing: the release build must come out unsigned. Found:"
+            ls -la app/build/outputs/apk/release
+            exit 1
+          fi
           scripts/check-apk-permissions.sh "$apk" release
-          build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          "$build_tools/apksigner" verify --print-certs "$apk"
+          # A release that is already signed must never be re-signed by this path. Only apksigner's exit
+          # status decides; its message is logged, never matched.
+          tools="$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION"
+          if [ ! -x "$tools/apksigner" ]; then
+            echo "::error::build-tools $BUILD_TOOLS_VERSION is not on this runner (has: $(ls "$ANDROID_HOME/build-tools" | tr '\n' ' ')). Update BUILD_TOOLS_VERSION."
+            exit 1
+          fi
+          if said=$("$tools/apksigner" verify "$apk" 2>&1); then
+            echo "apksigner verify said: $said"
+            echo "::error::$apk already carries a valid signature; the release build must come out unsigned."
+            exit 1
+          fi
+          echo "apksigner verify refused the unsigned input, as expected: $said"
 
-      - name: Release gate (compare the release APK with gate/baseline.release.json)
+      # The certificate is compared in release-check, on the signed APK. --require-pin here only checks that
+      # the baseline holds a pin.
+      - name: Release gate (compare the unsigned release APK with gate/baseline.release.json)
         id: gate
         run: |
+          # The pinned build-tools, not the newest installed (gate.py reads these two variables).
+          export APKSIGNER="$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/apksigner"
+          export AAPT2="$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/aapt2"
           python3 gate/gate.py check --baseline gate/baseline.release.json --require-tools --require-pin \
-            --apk app/build/outputs/apk/release/app-release.apk --deps "$RUNNER_TEMP/gradle.log" \
+            --apk app/build/outputs/apk/release/app-release-unsigned.apk --deps "$RUNNER_TEMP/gradle.log" \
             --generated build/gate/baseline.generated.json
+          unset APKSIGNER AAPT2
           python3 -m unittest discover -s gate
 
+      # The same zipalign and apksigner commands the sign job runs, with a throwaway key made here, so a run
+      # shows that the pinned build-tools exist and that the result carries exactly the release's signature
+      # schemes. No secret is involved. It cannot catch a wrong keystore type for the real key.
+      - name: Rehearse release signing with a throwaway key
+        run: |
+          set -o pipefail
+          # The same JDK the sign job uses (the runner's JDK 17), not the one Gradle runs with.
+          if [ -z "$RUNNER_JDK_17" ] || [ ! -x "$RUNNER_JDK_17/bin/java" ]; then
+            echo "::error::The runner has no JDK 17 at JAVA_HOME_17_X64 (RUNNER_JDK_17 is '$RUNNER_JDK_17')."
+            exit 1
+          fi
+          export JAVA_HOME="$RUNNER_JDK_17"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          tools="$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION"
+          # Keep these two functions identical in the rehearsal (build job) and in the sign job. The expected
+          # "Verified using" lines follow from SIGNING_SCHEMES, so the flags and the checks cannot drift
+          # apart; v3.1 needs key rotation, never here. $1 is the file holding apksigner's verify output.
+          validate_schemes() {
+            local expected
+            expected=$(xargs -n2 <<< "$SIGNING_SCHEMES" | sed -E 's/^--v([0-9]+)-signing-enabled (true|false)$/\1 \2/')
+            if [ "$(cut -d' ' -f1 <<< "$expected" | sort | tr '\n' ' ')" != "1 2 3 4 " ]; then
+              echo "::error::SIGNING_SCHEMES must set each of --v1/--v2/--v3/--v4-signing-enabled to true or false, once"
+              return 1
+            fi
+          }
+          check_schemes() {
+            local expected v value name
+            validate_schemes || return 1
+            expected=$(xargs -n2 <<< "$SIGNING_SCHEMES" | sed -E 's/^--v([0-9]+)-signing-enabled (true|false)$/\1 \2/')
+            expected+=$'\n'"3.1 false"
+            while read -r v value; do
+              case "$v" in 1) name="v1 scheme (JAR signing)" ;; *) name="v$v scheme (APK Signature Scheme v$v)" ;; esac
+              grep -qxF "Verified using $name: $value" "$1" || { echo "::error::Expected 'Verified using $name: $value'"; return 1; }
+            done <<< "$expected"
+          }
+          validate_schemes
+          if [ ! -x "$tools/apksigner" ] || [ ! -x "$tools/zipalign" ]; then
+            echo "::error::build-tools $BUILD_TOOLS_VERSION is not on this runner (has: $(ls "$ANDROID_HOME/build-tools" | tr '\n' ' ')). Update BUILD_TOOLS_VERSION."
+            exit 1
+          fi
+          work="$RUNNER_TEMP/rehearsal"
+          mkdir -p "$work"
+          keytool -genkeypair -keystore "$work/throwaway.p12" -storetype "$KEYSTORE_TYPE" -storepass throwaway \
+            -keypass throwaway -alias throwaway -keyalg RSA -keysize 2048 -validity 1 -dname CN=throwaway
+          read -ra schemes <<< "$SIGNING_SCHEMES"
+          "$tools/zipalign" -P 16 -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$work/aligned.apk"
+          "$tools/apksigner" sign --ks "$work/throwaway.p12" --ks-type "$KEYSTORE_TYPE" --ks-key-alias throwaway \
+            --ks-pass pass:throwaway --key-pass pass:throwaway "${schemes[@]}" --out "$work/signed.apk" "$work/aligned.apk"
+          "$tools/zipalign" -c -P 16 4 "$work/signed.apk"
+          "$tools/apksigner" verify --print-certs -v "$work/signed.apk" | tee "$work/verify.txt"
+          check_schemes "$work/verify.txt"
+          rm -rf "$work"
+
+      # So a session that can't download artifacts can copy the baseline this APK would need.
       - name: Print the baseline this APK would need
         if: failure() && steps.gate.outcome == 'failure' && hashFiles('build/gate/baseline.generated.json') != ''
         run: |
           echo "::group::build/gate/baseline.generated.json"
           cat build/gate/baseline.generated.json
           echo "::endgroup::"
-          gate/annotate-file.sh build/gate/baseline.generated.json baseline-generated 0
+          gate/annotate-file.sh build/gate/baseline.generated.json baseline-release-generated 0
 
-      - name: Remove keystore
-        if: always()
-        run: rm -f "$RUNNER_TEMP/release.jks"
-
+      # The sign job signs exactly this file. 30 days; only the signed APK (1 day) has to outlive the approval wait.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: tunnels-release-apk
-          path: app/build/outputs/apk/release/app-release.apk
+          name: unsigned-apk
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
@@ -213,17 +309,159 @@ jobs:
           echo "::error::Dependencies were not verified: commit the gradle/verification-metadata.xml the jobs wrote (the union of every job's verification-metadata-* artifact; see gate/README.md)."
           exit 1
 
-  # Read-only checks before publishing: the commit is on a release branch and the APK is signed by the
-  # certificate pinned in gate/baseline.release.json. They run the repository's gate/ script, so they live in a
-  # job without a writing token; the publish job below runs no repository code.
-  release-check:
+  # Signs the APK the build job built. The only job that references the signing secrets, so it checks out
+  # nothing and runs no repository or third-party code: GitHub's own actions, gh and the runner's JDK 17 and
+  # Android SDK tools only. The secrets are secrets of the `signing` environment, which only the integration
+  # branch and main can use, whatever this file says. No reviewers on `signing`: the owner's one
+  # approval is the `publish` environment's, at the end.
+  sign:
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.publish &&
+      (github.ref == 'refs/heads/ccr-dff99af5-ij1rle' || github.ref == 'refs/heads/main')
     needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: signing
+    permissions:
+      contents: read
+    outputs:
+      apk_sha256: ${{ steps.sign.outputs.apk_sha256 }}
+    steps:
+      # The branches are resolved to their SHAs first, so a tag or branch with a similar name can't stand in.
+      - name: Check the commit is on the integration branch or main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ needs.build.outputs.sha }}
+        run: |
+          for branch in ccr-dff99af5-ij1rle main; do
+            head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" --jq .object.sha) || continue
+            status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$head...$TARGET" --jq .status) || continue
+            if [ "$status" = "identical" ] || [ "$status" = "behind" ]; then
+              echo "$TARGET is on $branch."
+              exit 0
+            fi
+          done
+          echo "::error::$TARGET is not on ccr-dff99af5-ij1rle or main, so it is not signed."
+          exit 1
+
+      # The runner's preinstalled JDK 17, the one the build job's rehearsal runs apksigner with (no action,
+      # nothing is downloaded into the job that holds the key).
+      - name: Use the runner's JDK 17
+        run: |
+          if [ ! -x "$JAVA_HOME_17_X64/bin/java" ]; then
+            echo "::error::The runner has no JDK 17 at JAVA_HOME_17_X64."
+            exit 1
+          fi
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: unsigned-apk
+          path: unsigned
+
+      - name: Sign the APK
+        id: sign
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -o pipefail
+          tools="$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION"
+          # Keep these two functions identical in the rehearsal (build job) and in the sign job. The expected
+          # "Verified using" lines follow from SIGNING_SCHEMES, so the flags and the checks cannot drift
+          # apart; v3.1 needs key rotation, never here. $1 is the file holding apksigner's verify output.
+          validate_schemes() {
+            local expected
+            expected=$(xargs -n2 <<< "$SIGNING_SCHEMES" | sed -E 's/^--v([0-9]+)-signing-enabled (true|false)$/\1 \2/')
+            if [ "$(cut -d' ' -f1 <<< "$expected" | sort | tr '\n' ' ')" != "1 2 3 4 " ]; then
+              echo "::error::SIGNING_SCHEMES must set each of --v1/--v2/--v3/--v4-signing-enabled to true or false, once"
+              return 1
+            fi
+          }
+          check_schemes() {
+            local expected v value name
+            validate_schemes || return 1
+            expected=$(xargs -n2 <<< "$SIGNING_SCHEMES" | sed -E 's/^--v([0-9]+)-signing-enabled (true|false)$/\1 \2/')
+            expected+=$'\n'"3.1 false"
+            while read -r v value; do
+              case "$v" in 1) name="v1 scheme (JAR signing)" ;; *) name="v$v scheme (APK Signature Scheme v$v)" ;; esac
+              grep -qxF "Verified using $name: $value" "$1" || { echo "::error::Expected 'Verified using $name: $value'"; return 1; }
+            done <<< "$expected"
+          }
+          unsigned=unsigned/app-release-unsigned.apk
+          if [ ! -f "$unsigned" ]; then
+            echo "::error::$unsigned is missing from the build job's unsigned-apk artifact."
+            exit 1
+          fi
+          validate_schemes
+          # A missing tool must fail here, not pass the guard below (a verify that cannot run also "fails").
+          if [ ! -x "$tools/apksigner" ] || [ ! -x "$tools/zipalign" ]; then
+            echo "::error::build-tools $BUILD_TOOLS_VERSION is not on this runner (has: $(ls "$ANDROID_HOME/build-tools" | tr '\n' ' ')). Update BUILD_TOOLS_VERSION."
+            exit 1
+          fi
+          # The input must be unsigned: a signed APK (say, debug-signed) is never re-signed by the release path.
+          # Only apksigner's exit status decides; its message is logged, never matched.
+          if said=$("$tools/apksigner" verify "$unsigned" 2>&1); then
+            echo "apksigner verify said: $said"
+            echo "::error::$unsigned already carries a valid signature; only an unsigned APK is signed here."
+            exit 1
+          fi
+          echo "apksigner verify refused the unsigned input, as expected: $said"
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::The signing secrets KEYSTORE_BASE64, KEY_ALIAS, KEYSTORE_PASSWORD and KEY_PASSWORD must all be set in the signing environment (docs/RELEASING.md). Nothing is published without them."
+            exit 1
+          fi
+          umask 077
+          keystore="$RUNNER_TEMP/tunnels-release.jks"
+          trap 'rm -f "$keystore" "$RUNNER_TEMP/aligned.apk"' EXIT
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          unset KEYSTORE_BASE64
+          read -ra schemes <<< "$SIGNING_SCHEMES"
+          mkdir signed
+          signed=signed/app-release.apk
+          "$tools/zipalign" -P 16 -f 4 "$unsigned" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" sign --ks "$keystore" --ks-type "$KEYSTORE_TYPE" --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD "${schemes[@]}" \
+            --out "$signed" "$RUNNER_TEMP/aligned.apk"
+          rm -f "$keystore" "$RUNNER_TEMP/aligned.apk"
+          "$tools/zipalign" -c -P 16 4 "$signed"
+          "$tools/apksigner" verify --print-certs -v "$signed" | tee "$RUNNER_TEMP/verify.txt"
+          check_schemes "$RUNNER_TEMP/verify.txt"
+          echo "apk_sha256=$(sha256sum "$signed" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Remove the keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/tunnels-release.jks" "$RUNNER_TEMP/aligned.apk"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: signed-apk
+          path: signed/app-release.apk
+          if-no-files-found: error
+          # One day: this is a release-signed APK that exists before the owner has approved anything. Approve the
+          # same day, or start the run again.
+          retention-days: 1
+
+  # Read-only checks before the owner is asked to approve: the commit is on a release branch, the signed APK is
+  # the one `sign` uploaded, it is this app at this version, and it carries the certificate pinned in
+  # gate/baseline.release.json. They run the repository's gate/ script, so they live in a job with no writing
+  # token and no signing secret; the publish job below runs no repository code.
+  release-check:
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.publish &&
+      (github.ref == 'refs/heads/ccr-dff99af5-ij1rle' || github.ref == 'refs/heads/main')
+    needs: [build, sign]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
     outputs:
       apk_sha256: ${{ steps.cert.outputs.apk_sha256 }}
+      tag: ${{ steps.version.outputs.tag }}
+      name: ${{ steps.version.outputs.name }}
     steps:
       # Only the gate files: the baseline of the commit the APK was built from, and the script.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -234,10 +472,11 @@ jobs:
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: tunnels-release-apk
+          name: signed-apk
           path: apks
 
-      - name: Check the commit is on a release branch
+      # The branches are resolved to their SHAs first, so a tag or branch with a similar name can't stand in.
+      - name: Check the commit is on the integration branch or main
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET: ${{ needs.build.outputs.sha }}
@@ -253,68 +492,220 @@ jobs:
           echo "::error::$TARGET is not on ccr-dff99af5-ij1rle or main, so it is not published."
           exit 1
 
-      # Fails on an unsigned APK or a certificate other than the one pinned, so a build signed with a
-      # different key is never offered as an update.
-      - name: Check the signing certificate against gate/baseline.release.json
+      # The version, from the event again (not from the build job); the rule that a version is higher than every
+      # other vX.Y.Z release (rolling back is releasing a higher version); and that a release or tag that already
+      # exists for this version points at the commit being published, so a re-dispatch of a published version at
+      # another commit stops here, before the owner is asked to approve anything.
+      - name: Version, order and what already exists
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.version }}
+          TARGET: ${{ needs.build.outputs.sha }}
+        run: |
+          tag="$INPUT_VERSION"
+          re='^v(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'
+          if [[ ! "$tag" =~ $re ]]; then
+            echo "::error::The version must look like v1.2.3 (each part 0-999, no leading zeros), got '$tag'"; exit 1
+          fi
+          code=$(( BASH_REMATCH[1] * 1000000 + BASH_REMATCH[2] * 1000 + BASH_REMATCH[3] ))
+          if [ "$code" -lt 1 ]; then
+            echo "::error::v0.0.0 is not a release version"; exit 1
+          fi
+          # Only a 404 means "not there": any other API failure stops the job.
+          out=
+          lookup() {
+            local err
+            err=$(mktemp -p "$RUNNER_TEMP")
+            if out=$(gh api "$1" 2> "$err"); then rm -f "$err"; return 0; fi
+            if grep -q 'HTTP 404' "$err"; then rm -f "$err"; out=; return 1; fi
+            cat "$err" >&2; exit 1
+          }
+          # Read into a variable first: a failed API call must stop the job, not read as "no earlier release".
+          others=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --jq '.[].tag_name')
+          highest=0
+          while read -r other; do
+            if [ "$other" != "$tag" ] && [[ "$other" =~ $re ]]; then
+              c=$(( BASH_REMATCH[1] * 1000000 + BASH_REMATCH[2] * 1000 + BASH_REMATCH[3] ))
+              if [ "$c" -gt "$highest" ]; then highest=$c; fi
+            fi
+          done <<< "$others"
+          if [ "$code" -le "$highest" ]; then
+            echo "::error::$tag (version code $code) is not above the highest earlier release (version code $highest). A release must be a higher version than every other vX.Y.Z; to roll back, release a higher version."
+            exit 1
+          fi
+          if lookup "repos/$GITHUB_REPOSITORY/releases/tags/$tag"; then
+            existing=$(jq -r .target_commitish <<< "$out")
+            if [ "$existing" != "$TARGET" ]; then
+              echo "::error::Release $tag already exists for '$existing', not this commit ($TARGET). A published version is never replaced by another commit; release a higher version."
+              exit 1
+            fi
+          elif lookup "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag"; then
+            sha=$(jq -r .object.sha <<< "$out")
+            if [ "$(jq -r .object.type <<< "$out")" = tag ]; then
+              sha=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq .object.sha)
+            fi
+            if [ "$sha" != "$TARGET" ]; then
+              echo "::error::Tag $tag exists at $sha, not at the commit being published ($TARGET)."
+              exit 1
+            fi
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "name=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+      # Fails on an unsigned APK or a certificate other than the one pinned, so a build signed with a different
+      # key is never offered as an update. The APK must also be the file `sign` uploaded, this app (not the
+      # debug package) and exactly this version.
+      - name: Check the signed APK
         id: cert
+        env:
+          SIGNED: ${{ needs.sign.outputs.apk_sha256 }}
+          NAME: ${{ steps.version.outputs.name }}
+          CODE: ${{ steps.version.outputs.code }}
         run: |
           apk=apks/app-release.apk
-          python3 gate/gate.py cert --baseline gate/baseline.release.json --require-pin --apk "$apk"
-          echo "apk_sha256=$(sha256sum "$apk" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          actual=$(sha256sum "$apk" | cut -d' ' -f1)
+          if [ -z "$SIGNED" ] || [ "$actual" != "$SIGNED" ]; then
+            echo "::error::$apk ($actual) is not the file the sign job uploaded ($SIGNED)"
+            exit 1
+          fi
+          # The pinned build-tools, not the newest installed (gate.py reads these two variables).
+          tools="$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION"
+          if [ ! -x "$tools/apksigner" ] || [ ! -x "$tools/aapt2" ]; then
+            echo "::error::build-tools $BUILD_TOOLS_VERSION is not on this runner (has: $(ls "$ANDROID_HOME/build-tools" | tr '\n' ' ')). Update BUILD_TOOLS_VERSION."
+            exit 1
+          fi
+          APKSIGNER="$tools/apksigner" AAPT2="$tools/aapt2" \
+            python3 gate/gate.py cert --baseline gate/baseline.release.json --require-pin --apk "$apk"
+          badging=$("$tools/aapt2" dump badging "$apk" | grep '^package:')
+          echo "$badging"
+          for want in "name='io.github.stronghorse44.tunnels'" "versionCode='$CODE'" "versionName='$NAME'"; do
+            if ! grep -qF " $want " <<< "$badging "; then
+              echo "::error::The APK's package line does not say $want"
+              exit 1
+            fi
+          done
+          echo "apk_sha256=$actual" >> "$GITHUB_OUTPUT"
 
+  # Publishes the release. Its environment waits for the owner's approval. It holds the only writing token and
+  # runs no repository code and no script from the repository: gh and GitHub's own actions only. The concurrency
+  # group is one constant for every ref, so a run from main and a run from the integration branch cannot publish
+  # at the same time (the order re-check below then sees the earlier one's release); it lives on this job alone, so
+  # builds and signing for later runs are not held while a publish waits. GitHub keeps one pending run per group:
+  # a run waiting behind another replaces an older waiting one, so start the replaced one again.
   publish:
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.publish &&
+      (github.ref == 'refs/heads/ccr-dff99af5-ij1rle' || github.ref == 'refs/heads/main')
     needs: [build, release-check]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    # Required reviewers on this environment make each publish wait for RJ's approval (docs/RELEASING.md).
     environment: publish
+    concurrency:
+      group: release-publish
+      cancel-in-progress: false
     permissions:
-      contents: write # creates the release and uploads the APK
+      contents: write # creates the tag and the release and uploads the APK
       id-token: write # signs the build provenance attestation
       attestations: write # stores the attestation next to the repository
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: tunnels-release-apk
+          name: signed-apk
           path: apks
 
-      # Publishes exactly the APK release-check checked.
-      - name: Check the APK is the one that was checked
+      # Publishes exactly the APK release-check checked, under the version it checked.
+      - name: Check the APK and the version are the ones that were checked
         env:
           CHECKED: ${{ needs.release-check.outputs.apk_sha256 }}
+          TAG: ${{ needs.release-check.outputs.tag }}
+          NAME: ${{ needs.release-check.outputs.name }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           actual=$(sha256sum apks/app-release.apk | cut -d' ' -f1)
           if [ -z "$CHECKED" ] || [ "$actual" != "$CHECKED" ]; then
             echo "::error::apks/app-release.apk ($actual) is not the APK release-check checked ($CHECKED)"
             exit 1
           fi
+          if [ -z "$TAG" ] || [ "$TAG" != "$INPUT_VERSION" ] || [ "v$NAME" != "$TAG" ]; then
+            echo "::error::release-check checked '$TAG' ('$NAME'), not the requested '$INPUT_VERSION'"
+            exit 1
+          fi
 
       - name: Name the APK for the release
         env:
-          NAME: ${{ needs.build.outputs.name }}
+          NAME: ${{ needs.release-check.outputs.name }}
         run: |
-          build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          "$build_tools/apksigner" verify apks/app-release.apk
-          version=$("$build_tools/aapt2" dump badging apks/app-release.apk | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -n 1)
-          if [ "$version" != "$NAME" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match the APK's versionName $version"
-            exit 1
-          fi
           cp apks/app-release.apk "tunnels-$NAME.apk"
+          # The in-app updater checks the download against this.
           sha256sum "tunnels-$NAME.apk" > "tunnels-$NAME.apk.sha256"
 
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: tunnels-${{ needs.build.outputs.name }}.apk
+          subject-path: tunnels-${{ needs.release-check.outputs.name }}.apk
 
-      - name: Publish GitHub release
+      # Creates the tag at the built commit and the release with gh only: no third-party action runs next to the
+      # writing token, and no repository code. The release is named by its tag, vX.Y.Z, which is what the in-app
+      # updater follows. The version-order and existing-release checks are made again here, after the approval
+      # wait. The constant concurrency group makes publishes one at a time across refs, so this sees the release
+      # an earlier run just made, whichever branch it came from.
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          NAME: ${{ needs.build.outputs.name }}
-        run: >
-          gh release create "$GITHUB_REF_NAME"
-          "tunnels-$NAME.apk"
-          "tunnels-$NAME.apk.sha256"
-          --title "Tunnels $NAME"
-          --generate-notes
+          TAG: ${{ needs.release-check.outputs.tag }}
+          NAME: ${{ needs.release-check.outputs.name }}
+          TARGET: ${{ needs.build.outputs.sha }}
+        run: |
+          apk="tunnels-$NAME.apk"
+          re='^v(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'
+          [[ "$TAG" =~ $re ]]
+          code=$(( BASH_REMATCH[1] * 1000000 + BASH_REMATCH[2] * 1000 + BASH_REMATCH[3] ))
+          # Only a 404 means "not there": any other API failure stops the job.
+          out=
+          lookup() {
+            local err
+            err=$(mktemp -p "$RUNNER_TEMP")
+            if out=$(gh api "$1" 2> "$err"); then rm -f "$err"; return 0; fi
+            if grep -q 'HTTP 404' "$err"; then rm -f "$err"; out=; return 1; fi
+            cat "$err" >&2; exit 1
+          }
+          others=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --jq '.[].tag_name')
+          highest=0
+          while read -r other; do
+            if [ "$other" != "$TAG" ] && [[ "$other" =~ $re ]]; then
+              c=$(( BASH_REMATCH[1] * 1000000 + BASH_REMATCH[2] * 1000 + BASH_REMATCH[3] ))
+              if [ "$c" -gt "$highest" ]; then highest=$c; fi
+            fi
+          done <<< "$others"
+          if [ "$code" -le "$highest" ]; then
+            echo "::error::$TAG (version code $code) is not above the highest release now published (version code $highest). Nothing is published; release a higher version."
+            exit 1
+          fi
+          # A re-run after a partly finished publish finds the release already there. Its APK is replaced only
+          # when the release already points at the commit being published (a re-run of that commit); anything
+          # else is a different build trying to overwrite a published one. The generated notes carry no APK
+          # hash, so there is nothing to refresh.
+          if lookup "repos/$GITHUB_REPOSITORY/releases/tags/$TAG"; then
+            existing=$(jq -r .target_commitish <<< "$out")
+            if [ "$existing" != "$TARGET" ]; then
+              echo "::error::Release $TAG already exists for '$existing', not this commit ($TARGET). Not replacing its APK."
+              exit 1
+            fi
+            gh release upload "$TAG" "$apk" "$apk.sha256" --clobber
+            exit 0
+          fi
+          # A tag with no release (a stray tag) must already be the commit being published, or gh would attach
+          # this APK to another commit's tag.
+          if lookup "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG"; then
+            sha=$(jq -r .object.sha <<< "$out")
+            if [ "$(jq -r .object.type <<< "$out")" = tag ]; then
+              sha=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq .object.sha)
+            fi
+            if [ "$sha" != "$TARGET" ]; then
+              echo "::error::Tag $TAG exists at $sha, not at the commit being published ($TARGET)."
+              exit 1
+            fi
+          fi
+          gh release create "$TAG" "$apk" "$apk.sha256" --target "$TARGET" --title "$TAG" --generate-notes

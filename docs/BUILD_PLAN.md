@@ -91,7 +91,8 @@ tests; Maven Central rate-limits (HTTP 429) are transient, retry.
 - `ci.yml`: integration, `main`, PRs, and manual runs (`workflow_dispatch`) on any branch. Full build,
   all unit tests, permission checks, the release gate (`gate/`), app emulator smoke test, and a numbered
   debug release on integration pushes only; pull requests and manual runs never publish.
-- `release.yml`: `v*` tags; see `docs/RELEASING.md`. `workflow-lint.yml`: zizmor on `.github/**` changes.
+- `release.yml`: manual runs only (`workflow_dispatch`, a dry run unless `publish` is ticked), signing in a separate
+  `sign` job; see `docs/RELEASING.md`. `workflow-lint.yml`: zizmor on `.github/**` changes.
 - Every Gradle job runs with `--dependency-verification=strict` against `gradle/verification-metadata.xml`;
   every action is pinned to a commit SHA (`gate/README.md`).
 
@@ -122,8 +123,8 @@ Device checks to make on the Pixel 10 (the Device checks screen walks through mo
 
 ## Follow-ups (deferred, not blockers)
 
-- Updates: when the repository goes public the token becomes optional (the API answers without one, at 60
-  requests an hour per address). Debug releases now carry `tunnels-debug-N.apk.sha256` for the updater.
+- Updates: the repository is public, so the token is optional (the API answers without one, at 60 requests an
+  hour per address; a token raises that limit). Both channels carry `<apk>.sha256` for the updater.
 - Surroundings places: verify on device how quickly a fix arrives indoors on GrapheneOS (fused provider,
   network location off by default) and how often scans end with "no fix"; those scans fall back to time.
 - Restricted settings: verify the Timeline and Notifications gates on GrapheneOS after "Allow restricted

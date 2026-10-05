@@ -53,8 +53,8 @@ whole file before it changes anything. What is in it, what an import does and ho
 And **in-app updates** (home screen → update ›): when you tap Check, Tunnels asks this repository's GitHub
 releases for a newer build of its channel (debug builds follow "Debug build #N", release builds the vX.Y.Z
 tags), downloads it, checks that it is the same app, newer, signed with the same key and matching the published
-SHA-256, and hands it to Android's installer. While the repository is private it needs a read-only token,
-kept in the encrypted store.
+SHA-256, and hands it to Android's installer. The repository is public, so no token is needed; an optional
+read-only token (a higher GitHub request limit) is kept in the encrypted store.
 
 ## Principles
 
@@ -65,8 +65,11 @@ no-egress claim can be verified. See [docs/HANDOFF.md](docs/HANDOFF.md).
 
 ## Building
 
-- Every push to the integration branch publishes a numbered debug build (`Debug build #N`) on the
-  Releases page; `v*` tags produce signed releases ([docs/RELEASING.md](docs/RELEASING.md)).
+- Two release channels ([docs/RELEASING.md](docs/RELEASING.md)). Every push to the integration branch publishes
+  a numbered debug build (`Debug build #N`, package `...tunnels.debug`, signed with the public debug key) on the
+  Releases page. A `vX.Y.Z` release (package `...tunnels`, signed with the owner's release key) is cut on
+  demand by the Release workflow (a manual run only), after the owner approves it. The two install
+  side by side; the in-app updater follows only its own channel.
 - Android modules compile in GitHub Actions; the plain-Kotlin `core/*` modules also build and test
   locally with `scripts/jvm-check/run.sh :core:NAME:test`.
 - Layout, CI and conventions: [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md).

@@ -8,7 +8,6 @@ plugins {
 
 val versionCodeProp = (findProperty("tunnels.versionCode") as String?)?.toInt() ?: 1
 val versionNameProp = (findProperty("tunnels.versionName") as String?) ?: "0.1.0-dev"
-val keystorePath: String? = System.getenv("TUNNELS_KEYSTORE")
 
 android {
     namespace = "io.github.stronghorse44.tunnels"
@@ -31,14 +30,6 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
-        if (keystorePath != null) {
-            create("release") {
-                storeFile = file(keystorePath)
-                storePassword = System.getenv("TUNNELS_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("TUNNELS_KEY_ALIAS")
-                keyPassword = System.getenv("TUNNELS_KEY_PASSWORD")
-            }
-        }
     }
 
     buildTypes {
@@ -50,7 +41,10 @@ android {
         release {
             // Kept off for now: readable, reproducible output while the app is small.
             isMinifyEnabled = false
-            signingConfig = signingConfigs.findByName("release")
+            // No commit stamp in META-INF: the APK can be rebuilt from a source tree that has no .git.
+            vcsInfo { include = false }
+            // No signing config, on purpose: Gradle never sees the release key. assembleRelease writes
+            // app-release-unsigned.apk, which release.yml's `sign` job aligns and signs (docs/RELEASING.md).
         }
     }
 

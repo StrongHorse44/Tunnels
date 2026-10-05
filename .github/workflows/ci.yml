@@ -2,12 +2,17 @@
 # permissions are allowed, the release gate (gate/baseline.json) matches the APK, the app launches on an
 # emulator, and a push to the integration branch publishes a numbered debug build.
 #
-# What ships today is the DEBUG variant, signed with the public key committed in app/debug.keystore. The release
-# gate (gate/gate.py) compares that APK with gate/baseline.json: a new permission, exported component, native
-# library, network API, host literal, runtime dependency, SDK level or backup flag fails the build unless the
-# same pull request updates the baseline (gate/README.md). The gate runs in this workflow before anything is
-# published, so an unlisted change can never reach Releases. The certificate pin proves little while the
-# signing key is public: it only catches an accidental key change (see docs/RELEASING.md).
+# This workflow publishes the DEBUG variant ("Debug build #N"), signed with the public key committed in
+# app/debug.keystore. The release gate (gate/gate.py) compares that APK with gate/baseline.json: a new
+# permission, exported component, native library, network API, host literal, runtime dependency, SDK level or
+# backup flag fails the build unless the same pull request updates the baseline (gate/README.md). The gate runs
+# in this workflow before anything is published, so an unlisted change can never reach Releases. The certificate
+# pin proves little while the signing key is public: it only catches an accidental key change.
+#
+# The RELEASE variant (the vX.Y.Z channel, signed by release.yml with the owner's key) is built here on every run
+# too, unsigned, and gated against gate/baseline.release.json, so a pull request that changes what a release can
+# do must change that baseline. This workflow never signs or publishes a release. If the release baseline is
+# missing, the run fails.
 #
 # Dependencies are checked against gradle/verification-metadata.xml. If that file is missing (delete it to
 # regenerate after a dependency change), every Gradle job writes one from its real tasks, attaches it to the
@@ -33,6 +38,10 @@ on:
   workflow_dispatch:
 
 permissions: {}
+
+env:
+  # The build-tools the release gate's apksigner/aapt2 come from, as in release.yml (the newest installed is not used).
+  BUILD_TOOLS_VERSION: "36.0.0"
 
 jobs:
   build:
@@ -109,6 +118,17 @@ jobs:
             test verifyPermissions assembleDebug assembleRelease \
             :app:dependencies --configuration debugRuntimeClasspath gateFileDependencies | tee "$RUNNER_TEMP/gradle.log"
 
+      # The release gate reads a dependency report for the release configuration; the step above produced the
+      # debug one. (A second Gradle run: one run cannot hold two :app:dependencies reports.)
+      - name: Release dependency report
+        env:
+          VERIFY: ${{ steps.verify.outputs.flag }}
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace $VERIFY \
+            --init-script gate/file-dependencies.init.gradle -Pgate.configuration=releaseRuntimeClasspath \
+            :app:dependencies --configuration releaseRuntimeClasspath gateFileDependencies | tee "$RUNNER_TEMP/gradle-release.log"
+
       - name: Check built APK permissions
         run: |
           scripts/check-apk-permissions.sh app/build/outputs/apk/debug/app-debug.apk debug
@@ -129,6 +149,28 @@ jobs:
             --deps "$RUNNER_TEMP/gradle.log" --generated build/gate/baseline.generated.json "${compare[@]}"
           python3 -m unittest discover -s gate
 
+      # The release variant, unsigned, against the release baseline (fails closed if there is none). The signing
+      # certificate is compared by release.yml on the signed APK, never here. In a pull request the gate lists
+      # every field the pull request changes in the release baseline.
+      - name: Release gate (compare the unsigned release APK with gate/baseline.release.json)
+        id: gate-release
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ ! -f gate/baseline.release.json ]; then
+            echo "::error::gate/baseline.release.json is missing, so there is no reviewed record of what a release build may do."
+            exit 1
+          fi
+          compare=()
+          if [ "$EVENT" = pull_request ]; then
+            compare=(--compare-to .gate-base/gate/baseline.release.json)  # absent if the base branch has none yet
+          fi
+          export APKSIGNER="$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/apksigner"
+          export AAPT2="$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/aapt2"
+          python3 gate/gate.py check --baseline gate/baseline.release.json --require-tools --require-pin \
+            --apk app/build/outputs/apk/release/app-release-unsigned.apk --deps "$RUNNER_TEMP/gradle-release.log" \
+            --generated build/gate/baseline.release.generated.json "${compare[@]}"
+
       # So a session that can't download artifacts can copy the baseline this APK would need.
       - name: Print the baseline this APK would need
         if: failure() && steps.gate.outcome == 'failure' && hashFiles('build/gate/baseline.generated.json') != ''
@@ -137,6 +179,14 @@ jobs:
           cat build/gate/baseline.generated.json
           echo "::endgroup::"
           gate/annotate-file.sh build/gate/baseline.generated.json baseline-generated 0
+
+      - name: Print the release baseline this APK would need
+        if: failure() && steps.gate-release.outcome == 'failure' && hashFiles('build/gate/baseline.release.generated.json') != ''
+        run: |
+          echo "::group::build/gate/baseline.release.generated.json"
+          cat build/gate/baseline.release.generated.json
+          echo "::endgroup::"
+          gate/annotate-file.sh build/gate/baseline.release.generated.json baseline-release-generated 0
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
