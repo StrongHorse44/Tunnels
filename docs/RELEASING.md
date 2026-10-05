@@ -115,6 +115,9 @@ and it stops if a release or tag for that version already exists at another comm
 both separately: an existing release must have been made for the built commit (its `target_commitish`), and an
 existing tag ref (`git/ref/tags/<tag>`, an annotated tag followed to its commit) must point at the built commit,
 whether or not a release exists. Only an HTTP 404 means "not there"; any other API error fails the job.
+The `publish` job repeats the same checks after the approval wait, and resolves the tag ref the same way before
+it replaces the APK of an existing release (`gh release upload --clobber`) or creates one: a release at the built
+commit whose tag points elsewhere is refused, not updated.
 
 ### What the workflow does
 
