@@ -93,14 +93,13 @@ Google's Maven is not reachable from the cloud dev container: Android modules on
   `src/androidTest` that runs its `scan()` on the emulator.
 - Observations are summaries (counts, names, hashes, booleans), never raw payloads.
 - Every change goes up as a pull request from its own branch. Never push to the integration branch or
-  `main` directly, and Only a push to the integration branch publishes a "Debug build #N"
-  prerelease, and only after the release gate, the emulator smoke job and the certificate check pass;
-  the `publish` environment then waits for the owner's approval. Manual `ci.yml` runs build and test
-  only and never publish. Builder and reviewer
-  agents never merge. The overseer may merge a PR only when review passed, CI is green and the PR has no
-  gate change (no new or changed permission, network host, runtime dependency, native library, build
-  type, signing config or release workflow); a PR with a gate change waits for the owner to merge. Never
-  publish from `main`.
+  `main` directly. Only a push to the integration branch publishes a "Debug build #N" prerelease, and
+  only after the release gate, the emulator smoke job and the certificate check pass; the `publish`
+  environment then waits for the owner's approval. Manual `ci.yml` runs build and test only and never
+  publish. Builder and reviewer agents never merge. The overseer may merge a PR only when review passed,
+  CI is green and the PR has no gate change (no new or changed permission, network host, runtime
+  dependency, native library, build type, signing config or release workflow); a PR with a gate change
+  waits for the owner to merge. Never publish from `main`.
 
 ## Workflow
 
