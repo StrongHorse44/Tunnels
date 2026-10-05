@@ -1,7 +1,10 @@
 # Builds, checks and publishes a signed release when a v* tag is pushed (docs/RELEASING.md).
 #
-# Signing needs four repository secrets: KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD. They
-# are decoded only after the tag's commit is shown to be on a release branch, and only in the build job.
+# Signing needs four secrets: KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD. They are
+# environment secrets of the `publish` environment (restricted to the release branches and v* tags), which the
+# build job, the one that reads them, runs in. They are decoded only after the tag's commit is shown to be on a
+# release branch, and only in the build job. The environment's required reviewers therefore approve the build
+# job as well as the publish job.
 # The release gate (gate/gate.py) compares the signed release APK with gate/baseline.release.json, and the
 # release-check job checks its certificate against the one pinned there, so a build signed with another key is
 # never offered as an update. gate/baseline.release.json does not exist yet: until the release baseline is added
@@ -27,6 +30,9 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    # The signing job: the four signing secrets are `publish` environment secrets, so only a run from a branch
+    # or tag the environment allows can read them, whatever this workflow file says.
+    environment: publish
     permissions:
       contents: read
     outputs:
@@ -106,15 +112,14 @@ jobs:
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "code=$code" >> "$GITHUB_OUTPUT"
 
-      # A tag push is the only trigger, and the commit was shown to be on a release branch above. zizmor's
-      # auditor persona asks for these secrets to live in a deployment environment; until the release key
-      # exists (docs/RELEASING.md) the guard is the branch check.
+      # A tag push is the only trigger, and the commit was shown to be on a release branch above. The secrets
+      # are environment secrets of `publish` (this job's environment), not repository secrets.
       - name: Decode keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
           if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "::error::Repository secret KEYSTORE_BASE64 is not set. See docs/RELEASING.md."; exit 1
+            echo "::error::Environment secret KEYSTORE_BASE64 is not set in the publish environment. See docs/RELEASING.md."; exit 1
           fi
           umask 077
           printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"

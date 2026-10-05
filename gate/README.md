@@ -18,14 +18,17 @@ new permission needs a line in the module's `permissions.allow` and in `permissi
 
 **The certificate pin proves little while the key is public.** Anyone can sign an APK with
 `app/debug.keystore`, so a match says nothing about who built the APK; the pin only catches an accidental
-key change. A release key (kept in repository secrets, not in the repository) is what will make the check
-meaningful; see `docs/RELEASING.md`. The publish job runs `gate.py cert --require-pin`: it refuses to
-publish an APK that is unsigned or signed with a certificate other than `signing.cert_sha256`.
+key change. A release key (kept in `publish` environment secrets, not in the repository) is what will make
+the check meaningful; see `docs/RELEASING.md`. The `release-check` job runs `gate.py cert --require-pin`
+before the `publish` job: it refuses to publish an APK that is unsigned or signed with a certificate other
+than `signing.cert_sha256`.
 
-Debug-only content is recorded because it ships: `DebugProbesKt.bin` (kotlinx-coroutines-debug) in
-`extra_code`, Compose's exported `PreviewActivity`, `debuggable: true` and the `.debug` provider
-authorities. `release.yml` checks a release build against `gate/baseline.release.json`, which does not
-exist yet; the workflow stops at its first step until it does.
+Debug-specific content is recorded because it ships: `debuggable: true`, Compose's exported
+`PreviewActivity` and the `.debug` provider authorities. `DebugProbesKt.bin` in `extra_code` is not
+debug-only: it is a resource of kotlinx-coroutines-core-jvm 1.10.2 (not kotlinx-coroutines-debug). The
+release build has minification off and no packaging exclude for it, so B02's release APK will carry it too
+unless the build excludes it. `release.yml` checks a release build against `gate/baseline.release.json`,
+which does not exist yet; the workflow stops at its first step until it does.
 
 The full contract (fields, normalisation, exit codes) is `specs/gate-baseline.md` in the program repo.
 `gate.py` uses only the Python standard library; in CI it cross-checks its manifest reading against
@@ -50,7 +53,10 @@ host that appears in the APK without being in a list has no note and fails the c
 "suffix": "doubleclick.net", "note": "..."}` (a literal domain of two labels or more; it matches that
 domain and its subdomains) or `{"field": "network_api", "prefix": "Lorg/bouncycastle/", "note": "..."}`
 (a type package of two segments or more). Patterns are refused. Every network type's note names the module
-and the toggle that gates it; hosts and network types must trace to `tunnels/traffic`, `tunnels/homenet` or
+and the toggle that gates it, except read-only state types (`ConnectivityManager`, `LinkProperties`,
+`NetworkCapabilities`, `TransportInfo`, `WifiInfo`, `WifiManager`, `ScanResult`, `WifiSsid`), whose notes say
+they are read-only state getters with no sockets and no egress, and library-only references (AndroidX,
+Apache commons, zxing), whose notes say so. Hosts and network types must trace to `tunnels/traffic`, `tunnels/homenet` or
 `tunnels/updater`, to a data set matched locally, or to a library string that is never contacted.
 
 With the Android SDK and Google's Maven repository at hand, the same can be done locally:

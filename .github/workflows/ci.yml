@@ -34,16 +34,15 @@ on:
 
 permissions: {}
 
-# Runs for a branch go one at a time, in order. A pull request's older run is cancelled when a newer commit
-# arrives; a push to the integration branch is never cancelled, so each build number's release comes from its commit.
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    # A pull request's older run is cancelled when a newer commit arrives. A push (or manual run) gets a group
+    # of its own, so it is never cancelled and never queues behind another run.
+    concurrency:
+      group: ${{ github.event_name == 'pull_request' && format('ci-build-pr-{0}', github.ref) || format('ci-build-{0}', github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     permissions:
       contents: read
     outputs:
@@ -145,7 +144,8 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           # Pull request and manual builds are only for checking; only a push to the integration branch publishes.
-          retention-days: ${{ github.event_name == 'push' && 14 || 3 }}
+          # 30 days, so a publish approved late still finds its APK.
+          retention-days: ${{ github.event_name == 'push' && 30 || 3 }}
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
@@ -185,6 +185,9 @@ jobs:
     name: App smoke test (emulator)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    concurrency:
+      group: ${{ github.event_name == 'pull_request' && format('ci-smoke-pr-{0}', github.ref) || format('ci-smoke-{0}', github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     permissions:
       contents: read
     steps:
@@ -333,6 +336,13 @@ jobs:
     timeout-minutes: 10
     # Required reviewers on this environment make each publish wait for RJ's approval (docs/RELEASING.md).
     environment: publish
+    # Publishes for one ref go one at a time and a running one is never cancelled. The group lives on this job
+    # alone, so build and smoke for later pushes are not held while a publish waits for approval. (GitHub keeps
+    # one pending run per group: if two later publishes are queued behind a waiting one, the older queued one
+    # is dropped. Its APK stays an artifact for 30 days.)
+    concurrency:
+      group: ci-publish-${{ github.ref }}
+      cancel-in-progress: false
     permissions:
       contents: write # creates the prerelease and uploads the APK
       id-token: write # signs the build provenance attestation

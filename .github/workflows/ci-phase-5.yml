@@ -20,9 +20,10 @@ on:
 
 permissions: {}
 
+# A newer commit cancels the superseded run on every ref except the integration branch and main.
 concurrency:
   group: phase-5-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/ccr-dff99af5-ij1rle' && github.ref != 'refs/heads/main' }}
 
 # Doesn't ship anything, so it has no release gate and no publishing.
 jobs:

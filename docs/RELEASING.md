@@ -12,12 +12,32 @@ that key is public, the certificate pin in `gate/baseline.json` only catches an 
 does not show who built the APK.
 
 The publish job runs in the `publish` environment and attaches a build provenance attestation to the APK.
-With required reviewers set on that environment (Settings, Environments, `publish`), each publish waits
-for approval first.
+With required reviewers set on that environment (Settings, Environments, `publish`), each publish of the
+unmodified workflow waits for approval first. What that does and does not give you:
+
+- The certificate pin in `gate/baseline.json` is the certificate of the public debug keystore. Anyone can
+  sign an APK with it, so it proves nothing about who built an APK.
+- The `publish` environment only stops the workflow as it is checked in. A branch in this repository can
+  edit `ci.yml` and publish a `debug-N` release with its own run's token, without going through that
+  environment. The in-app updater checks only the release tag, the asset name and that the APK is signed with
+  the same key, and that key is public.
+- Until the release key exists (B02), the only control is who can push to this repository.
+
+To check where an APK came from, from Termux (`pkg install gh`, then `gh auth login`):
+
+```sh
+gh attestation verify tunnels-debug-<N>.apk --repo StrongHorse44/Tunnels \
+  --signer-workflow StrongHorse44/Tunnels/.github/workflows/ci.yml \
+  --source-ref refs/heads/ccr-dff99af5-ij1rle
+```
+
+A passing check shows the APK was built by that workflow file on that branch. It does not make the public
+key private, and anyone who can push to that branch can change what the workflow does.
 
 Pushing a tag like `v0.1.0` builds a **signed release** APK and attaches it to a GitHub Release, once the
 release baseline `gate/baseline.release.json` exists (it is added with the build that moves the app to
-release builds; until then the Release workflow stops at its first step). The tag's commit must be on the
+release builds; until then the Release workflow stops at its first step, after the `publish` environment's approval, because
+its build job runs in that environment). The tag's commit must be on the
 integration branch or `main`.
 Obtainium can follow those releases directly.
 
@@ -30,10 +50,11 @@ as the installed copy and matching the checksum. Android then asks you to confir
 
 - GrapheneOS: turn on Tunnels' **Network** permission for the check (App info → Permissions → Network), and off
   again afterwards. Tunnels never connects in the background.
-- While the repository is private, GitHub needs a token: github.com → Settings → Developer settings →
+- The repository is public, so the update check needs no token. (For a private copy of it GitHub does:
+  github.com → Settings → Developer settings →
   Fine-grained tokens → Generate new token, repository access **only StrongHorse44/Tunnels**, permission
   **Contents: read-only**. Paste it on the update screen. It is stored in the encrypted database, sent to
-  `api.github.com` only, and forgotten after 30 days without a check.
+  `api.github.com` only, and forgotten after 30 days without a check.)
 
 ## One-time: create the signing key
 
@@ -46,7 +67,9 @@ keytool -genkeypair -v -keystore tunnels-release.jks -alias tunnels \
 base64 -w0 tunnels-release.jks > tunnels-release.jks.b64   # macOS: base64 -i tunnels-release.jks
 ```
 
-In GitHub: **Settings → Secrets and variables → Actions → New repository secret**, add:
+In GitHub: **Settings → Environments → `publish` → Environment secrets → Add environment secret** (not
+repository secrets: the `publish` environment is limited to the integration branch, `main` and `v*` tags,
+so a run from any other branch cannot read them), add:
 
 | Secret | Value |
 | --- | --- |

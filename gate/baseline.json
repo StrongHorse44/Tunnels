@@ -334,7 +334,7 @@
     },
     {
       "value": "Landroid/net/ConnectivityManager;",
-      "note": "state queries, no sockets: tunnels/traffic (session the user starts), tunnels/homenet (own-network gate), tunnels/devicecheck and tunnels/explore (read-only checks); also AndroidX core"
+      "note": "tunnels/traffic (session the user starts), tunnels/homenet (own-network gate), tunnels/devicecheck and tunnels/explore (read-only checks); also AndroidX core; read-only state getters, no sockets, no egress, so no toggle"
     },
     {
       "value": "Landroid/net/DhcpInfo;",
@@ -350,7 +350,7 @@
     },
     {
       "value": "Landroid/net/LinkProperties;",
-      "note": "state query, no sockets: tunnels/homenet (own-network gate), tunnels/traffic (underlying DNS servers for a session), tunnels/devicecheck"
+      "note": "tunnels/homenet (own-network gate), tunnels/traffic (underlying DNS servers for a session), tunnels/devicecheck; read-only state getters, no sockets, no egress, so no toggle"
     },
     {
       "value": "Landroid/net/Network;",
@@ -358,7 +358,7 @@
     },
     {
       "value": "Landroid/net/NetworkCapabilities;",
-      "note": "state query, no sockets: tunnels/traffic (another VPN present), tunnels/homenet (Wi-Fi gate), tunnels/devicecheck, tunnels/explore"
+      "note": "tunnels/traffic (another VPN present), tunnels/homenet (Wi-Fi gate), tunnels/devicecheck, tunnels/explore; read-only state getters, no sockets, no egress, so no toggle"
     },
     {
       "value": "Landroid/net/NetworkInfo;",
@@ -374,7 +374,7 @@
     },
     {
       "value": "Landroid/net/TransportInfo;",
-      "note": "tunnels/homenet and tunnels/explore: Wi-Fi info from the connected network; read-only"
+      "note": "tunnels/homenet and tunnels/explore: Wi-Fi info from the connected network; read-only state getters, no sockets, no egress, so no toggle"
     },
     {
       "value": "Landroid/net/VpnService$Builder;",
@@ -402,11 +402,11 @@
     },
     {
       "value": "Landroid/net/wifi/ScanResult;",
-      "note": "tunnels/surroundings: reads nearby Wi-Fi scan results (security, evil-twin check); no sockets, no INTERNET use"
+      "note": "tunnels/surroundings: nearby Wi-Fi scan results (security, evil-twin check); read-only state getters (plus WifiManager.startScan in surroundings), no sockets, no egress, so no toggle"
     },
     {
       "value": "Landroid/net/wifi/WifiInfo;",
-      "note": "read-only Wi-Fi state: tunnels/explore, tunnels/homenet (network fingerprint), tunnels/surroundings; no sockets"
+      "note": "tunnels/explore, tunnels/homenet (network fingerprint), tunnels/surroundings: read-only state getters, no sockets, no egress, so no toggle"
     },
     {
       "value": "Landroid/net/wifi/WifiManager$MulticastLock;",
@@ -414,11 +414,11 @@
     },
     {
       "value": "Landroid/net/wifi/WifiManager;",
-      "note": "tunnels/homenet (multicast lock, DHCP info during a scan), tunnels/surroundings (scan results), tunnels/explore (read-only); also an AndroidX core service-name table"
+      "note": "tunnels/homenet (multicast lock, DHCP info during a scan), tunnels/surroundings (scan results), tunnels/explore (read-only); also an AndroidX core service-name table; WifiManager itself: read-only state getters (plus WifiManager.startScan in surroundings), no sockets, no egress, so no toggle"
     },
     {
       "value": "Landroid/net/wifi/WifiSsid;",
-      "note": "tunnels/surroundings: reads the SSID of scan results; no sockets"
+      "note": "tunnels/surroundings: the SSID of scan results; read-only state getters (plus WifiManager.startScan in surroundings), no sockets, no egress, so no toggle"
     },
     {
       "value": "Landroid/net/wifi/p2p/WifiP2pManager;",
@@ -438,7 +438,7 @@
     },
     {
       "value": "Ljava/net/DatagramSocket;",
-      "note": "UDP: tunnels/traffic DnsForwarder (session the user starts), tunnels/homenet and core/lan (SSDP and DNS probe, user-started Home network scan behind NetworkGate); also AndroidX core TrafficStatsCompat"
+      "note": "UDP sockets: tunnels/homenet LanScanner (SSDP search and the router DNS-hijack probe, only in a user-started Home network scan behind NetworkGate), tunnels/traffic DnsForwarder (DNS forwarding in a session the user starts) and VpnStatus (opens and closes one socket to test whether the Network permission is on; sends nothing); also AndroidX core TrafficStatsCompat"
     },
     {
       "value": "Ljava/net/HttpURLConnection;",
@@ -466,7 +466,7 @@
     },
     {
       "value": "Ljava/net/Socket;",
-      "note": "tunnels/homenet LanScanner TCP connect scan inside the confirmed network, user-started and behind NetworkGate; also core/lan, tunnels/traffic (VpnService.protect overload) and AndroidX core TrafficStatsCompat"
+      "note": "tunnels/homenet LanScanner: TCP connect scan and the router page fetch inside the confirmed network, user-started and behind NetworkGate; tunnels/traffic DnsVpnService only names the type (VpnService.protect overload) and opens no TCP socket of its own; also AndroidX core TrafficStatsCompat"
     },
     {
       "value": "Ljava/net/SocketAddress;",
@@ -1567,7 +1567,7 @@
     },
     {
       "value": "https://github.com",
-      "note": "tunnels/updater: releases page link in core/updates Updates.kt, contacted only on a user-started update check or download; also the AdAway attribution link in core/dns Blocklists"
+      "note": "tunnels/updater: releases page link in core/updates Updates.kt, contacted only on a user-started update check or download; also the AdAway attribution link in core/dns Blocklists and a string in Apache commons-compress"
     },
     {
       "value": "https://goo.gle",
