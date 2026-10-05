@@ -243,6 +243,8 @@ jobs:
             echo "release=$release"
           } >> "$GITHUB_OUTPUT"
 
+  # Builds, tests and gates the unsigned release. Skipped when `plan` finds nothing to build (a push whose
+  # VERSION is already released); the later jobs need it and so are skipped with it.
   build:
     needs: plan
     if: needs.plan.outputs.build == 'true'
