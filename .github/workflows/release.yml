@@ -540,13 +540,21 @@ jobs:
               echo "::error::Release $tag already exists for '$existing', not this commit ($TARGET). A published version is never replaced by another commit; release a higher version."
               exit 1
             fi
-          elif lookup "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag"; then
+          fi
+          # The tag itself too, whether or not a release exists: a release's target_commitish says where it was meant
+          # to point, the tag ref says where the tag does, and the two can differ. An annotated tag is followed to
+          # its commit (a tag of a tag too); anything that does not end at a commit is not the built commit.
+          if lookup "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag"; then
             sha=$(jq -r .object.sha <<< "$out")
-            if [ "$(jq -r .object.type <<< "$out")" = tag ]; then
-              sha=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq .object.sha)
-            fi
-            if [ "$sha" != "$TARGET" ]; then
-              echo "::error::Tag $tag exists at $sha, not at the commit being published ($TARGET)."
+            kind=$(jq -r .object.type <<< "$out")
+            for _ in 1 2 3 4 5; do
+              [ "$kind" = tag ] || break
+              obj=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq '.object.type + " " + .object.sha')
+              kind=${obj%% *}
+              sha=${obj#* }
+            done
+            if [ "$kind" != commit ] || [ "$sha" != "$TARGET" ]; then
+              echo "::error::Tag $tag exists at $sha ($kind), not at the commit being published ($TARGET)."
               exit 1
             fi
           fi
@@ -687,25 +695,35 @@ jobs:
           # when the release already points at the commit being published (a re-run of that commit); anything
           # else is a different build trying to overwrite a published one. The generated notes carry no APK
           # hash, so there is nothing to refresh.
+          have_release=false
           if lookup "repos/$GITHUB_REPOSITORY/releases/tags/$TAG"; then
             existing=$(jq -r .target_commitish <<< "$out")
             if [ "$existing" != "$TARGET" ]; then
               echo "::error::Release $TAG already exists for '$existing', not this commit ($TARGET). Not replacing its APK."
               exit 1
             fi
-            gh release upload "$TAG" "$apk" "$apk.sha256" --clobber
-            exit 0
+            have_release=true
           fi
-          # A tag with no release (a stray tag) must already be the commit being published, or gh would attach
-          # this APK to another commit's tag.
+          # The tag ref too, with or without a release (a release's target_commitish and the tag can differ): it
+          # must be the commit being published, or gh would replace the APK of, or attach this one to, another
+          # commit's tag. An annotated tag is followed to its commit; anything that does not end at a commit is
+          # refused. Only a 404 means there is no tag.
           if lookup "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG"; then
             sha=$(jq -r .object.sha <<< "$out")
-            if [ "$(jq -r .object.type <<< "$out")" = tag ]; then
-              sha=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq .object.sha)
-            fi
-            if [ "$sha" != "$TARGET" ]; then
-              echo "::error::Tag $TAG exists at $sha, not at the commit being published ($TARGET)."
+            kind=$(jq -r .object.type <<< "$out")
+            for _ in 1 2 3 4 5; do
+              [ "$kind" = tag ] || break
+              obj=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq '.object.type + " " + .object.sha')
+              kind=${obj%% *}
+              sha=${obj#* }
+            done
+            if [ "$kind" != commit ] || [ "$sha" != "$TARGET" ]; then
+              echo "::error::Tag $TAG exists at $sha ($kind), not at the commit being published ($TARGET). Not replacing or creating the release."
               exit 1
             fi
+          fi
+          if [ "$have_release" = true ]; then
+            gh release upload "$TAG" "$apk" "$apk.sha256" --clobber
+            exit 0
           fi
           gh release create "$TAG" "$apk" "$apk.sha256" --target "$TARGET" --title "$TAG" --generate-notes
