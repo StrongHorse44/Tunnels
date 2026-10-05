@@ -84,4 +84,12 @@ class BundleSettingsTest {
         assertEquals(emptySet<String>(), BundleSettings.parseNetworks(""))
         assertEquals(setOf("0f".repeat(32)), BundleSettings.validNetworks(listOf("0f".repeat(32), "nonsense", "0F".repeat(32))))
     }
+
+    @Test
+    fun theResolverIsNamedWhenTheFileSetsOne() {
+        assertEquals("Quad9 (encrypted)", BundleSettings.resolverLabel(Samples.settings))
+        assertEquals("dns.example.net (encrypted)", BundleSettings.resolverLabel(mapOf("traffic.upstream" to Upstream.custom("https://dns.example.net/dns-query")!!.encode())))
+        assertEquals("your network's resolver (unencrypted)", BundleSettings.resolverLabel(mapOf("traffic.upstream" to Upstream().encode())))
+        assertNull(BundleSettings.resolverLabel(emptyMap()))
+    }
 }

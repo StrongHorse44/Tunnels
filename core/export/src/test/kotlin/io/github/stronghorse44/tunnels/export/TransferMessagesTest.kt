@@ -65,6 +65,9 @@ class TransferMessagesTest {
         )
         val text = TransferMessages.imported(ImportSummary(2, 9, 1, 3, 1, 4))
         assertTrue(text, text.startsWith("Imported 2 snapshots with 9 observations (1 already here, skipped), 3 settings, 1 new paired phones and 4 new confirmed networks."))
-        assertTrue(text.contains("pinned"))
+        assertTrue(text, text.contains("kept the pin it had"))
+        assertFalse(text, text.contains("Traffic sessions"))
+        val withResolver = TransferMessages.imported(ImportSummary(0, 0, 0, 1, 0, 0, resolver = "dns.example.net (encrypted)"))
+        assertTrue(withResolver, withResolver.endsWith("Traffic sessions will now send DNS lookups through dns.example.net (encrypted)."))
     }
 }

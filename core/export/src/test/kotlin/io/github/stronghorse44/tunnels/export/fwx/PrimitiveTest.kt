@@ -1,4 +1,4 @@
-// FWX codec tests 1.2.0-r1, copied from fieldwork codec/kotlin/src/test/kotlin/fwx/PrimitiveTest.kt at a4e418d (package line changed)
+// FWX codec tests 1.2.0-r1, copied from fieldwork codec/kotlin/src/test/kotlin/fwx/PrimitiveTest.kt at f78f08e (package line changed)
 package io.github.stronghorse44.tunnels.export.fwx
 
 import org.junit.Assert.assertArrayEquals

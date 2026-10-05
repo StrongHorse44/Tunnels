@@ -38,7 +38,7 @@ then the destination (suggested name `tunnels-yyyyMMdd-HHmmssZ.fwx`, UTC). Then,
 2. the bundle's entries are built and parsed back with the same function the import uses, and must equal what is
    about to be written: anything an import would refuse (a value over the line cap, more snapshots than the import
    takes, text that does not survive UTF-8) stops the export **before the picked file is opened**;
-3. the file is opened for writing and the bundle streamed into it (plaintext is held in memory only, and zeroed after);
+3. the file is opened for writing and the bundle streamed into it (plaintext is held in memory only; the buffers the export owns are zeroed afterwards, best effort: Strings and grown buffers cannot be);
 4. the finished file is read back in full through the import's reader with the same passphrase and compared with
    what was exported.
 
@@ -66,8 +66,8 @@ Import **adds to** the phone and removes nothing:
 
 | Data | What import does |
 |---|---|
-| Snapshots | Added unless the phone already has one taken at the same moment (so importing a file twice does not double the history). Every added snapshot is **pinned**, so retention keeps what you brought back. (The bundle records each snapshot's pin; the import deliberately does not restore "unpinned", because retention could then drop it at once.) |
-| Settings | Each setting in the file replaces this phone's value; settings the file does not have are left alone. If the file has the background-check setting, the scheduled job is armed or cancelled to match at once. |
+| Snapshots | Added unless the phone already has one taken at the same moment (so importing a file twice does not double the history). A snapshot keeps the pin it had in the file; one already on the phone keeps its own. An unpinned snapshot is subject to retention like any other (the newest 12 unpinned are kept), so older unpinned ones brought into a phone that already has newer ones can be removed by the next retention pass. |
+| Settings | Each setting in the file replaces this phone's value; settings the file does not have are left alone. The done message names Traffic's resolver when the file set one (a bundle can carry a custom DNS-over-HTTPS address). If the file has the background-check setting, the scheduled job is armed or cancelled to match at once. |
 | Paired phones | Merged by phone: new ones are added; for a phone both have, the more recently audited record stays. |
 | Confirmed networks | Merged: the union. |
 
@@ -87,10 +87,15 @@ Tunnels no longer writes that format.
 | One line of `snapshots.tsnap1` | 1 Mi characters |
 | Each of the other entries | 1 MiB |
 | Paired phones / networks | 1 000 / 10 000 |
+| Snapshot dates | not after now + 1 day, not before 2020-01-01 UTC (otherwise the file is refused as invalid) |
 | Entries | exactly the five above, `manifest.json` first, each once |
 
 Counts are checked while parsing, so a hostile or damaged file stops at the first record over a cap instead of
 after it has filled memory.
+
+## Which snapshot is "latest"
+
+A tunnel's current reading is its newest snapshot by the time it was taken, then by id (`TunnelsDao.latestSnapshotIdFor`), not by id alone: an import adds older snapshots with higher ids and must not make them the current reading.
 
 ## Schema history
 

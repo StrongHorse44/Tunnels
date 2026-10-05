@@ -76,8 +76,8 @@ class SnapshotsSmokeTest {
         assertEquals(0, imported.skippedSnapshots)
         val after = dao.snapshots()
         assertEquals(before + imported.snapshots, after.size)
-        assertTrue("imported snapshots are pinned", after.filter { it.id > result.snapshotId }.all { it.pinned })
-        assertTrue(after.any { it.takenAt == older.snapshots.snapshots.first().takenAt && it.pinned })
+        // Each imported snapshot has the pin it had in the file.
+        for (s in older.snapshots.snapshots) assertEquals(s.pinned, after.first { it.takenAt == s.takenAt }.pinned)
 
         val resolved = context.packageManager.resolveActivity(SnapshotsActivity.intent(context), PackageManager.ResolveInfoFlags.of(0))
         assertNotNull("the SNAPSHOTS action resolves inside this package", resolved)

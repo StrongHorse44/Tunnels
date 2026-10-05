@@ -272,4 +272,52 @@ class TunnelsBundleTest {
         val b = TunnelsBundle.encode(Samples.full, "x")
         for (i in a.indices) assertTrue(a[i].bytes.copyOf(a[i].length).contentEquals(b[i].bytes.copyOf(b[i].length)))
     }
+
+    // Dates (an import refuses what no real phone could have taken)
+
+    private fun withTimes(vararg times: Long): List<EncodedEntry> {
+        val bundle = SnapshotBundle(times.mapIndexed { i, t -> BundleSnapshot(i + 1L, t, false, emptyList()) }, emptyList())
+        return TunnelsBundle.encode(TunnelsData(snapshots = bundle), "x")
+    }
+
+    @Test
+    fun snapshotDatesOutsideTheSaneWindowAreRefused() {
+        val now = 1_791_028_800_000L
+        val day = 24L * 60 * 60 * 1000
+        // At the floor and a day ahead are fine.
+        TunnelsBundle.check(withTimes(TunnelsBundle.MIN_TAKEN_AT, now, now + day), now)
+        for (bad in listOf(TunnelsBundle.MIN_TAKEN_AT - 1, 0L, -1L, now + day + 1, Long.MAX_VALUE)) {
+            assertCode(FwxError.MALFORMED_PAYLOAD) { TunnelsBundle.check(withTimes(now, bad), now) }
+        }
+        // The window moves with the importing phone's clock.
+        assertCode(FwxError.MALFORMED_PAYLOAD) { TunnelsBundle.check(withTimes(now + 2 * day), now) }
+        TunnelsBundle.check(withTimes(now + 2 * day), now + 2 * day)
+    }
+
+    @Test
+    fun anExportOfADateAnImportWouldRefuseStopsBeforeTheFileIsOpened() {
+        val future = TunnelsData(snapshots = SnapshotBundle(listOf(BundleSnapshot(1, System.currentTimeMillis() + 3 * 24L * 3600_000, false, emptyList())), emptyList()))
+        var opened = false
+        try {
+            TunnelsExport.run(future, pass(), 1L, "x", { opened = true; java.io.ByteArrayOutputStream() }, { ByteArrayInputStream(ByteArray(0)) })
+            throw AssertionError("exported")
+        } catch (e: ExportFailure) {
+            assertEquals(false, e.opened)
+        }
+        assertEquals(false, opened)
+    }
+
+    @Test
+    fun anOldFileWithAnImpossibleDateIsRefusedToo() {
+        val old = SnapshotBundle(listOf(BundleSnapshot(1, 5, true, emptyList())), emptyList())
+        val file = LegacySeal.seal(BundleFormat.write(old).toByteArray(), pass())
+        assertCode(FwxError.MALFORMED_PAYLOAD) { LegacyImport.read(file, pass()) }
+    }
+
+    @Test
+    fun theUnpinnedFlagSurvivesTheRoundTrip() {
+        val data = TunnelsData(snapshots = Samples.snapshots)
+        val back = read(Samples.bundle(data))
+        assertEquals(listOf(false, true, false), back.snapshots.snapshots.map { it.pinned })
+    }
 }

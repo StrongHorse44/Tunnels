@@ -58,6 +58,12 @@ object TunnelsBundle {
     /** The reader's cap on the whole plaintext stream. */
     const val MAX_STREAM_BYTES = 64L shl 20
 
+    /** 2020-01-01T00:00:00Z: no snapshot of this app is older. */
+    const val MIN_TAKEN_AT = 1_577_836_800_000L
+
+    /** How far ahead of the importing phone's clock a snapshot may be (one day, for clock skew). */
+    const val MAX_FUTURE_MS = 24L * 60 * 60 * 1000
+
     /** Cap on each of the small entries. */
     const val MAX_SMALL_ENTRY_BYTES = 1 shl 20
 
@@ -103,11 +109,11 @@ object TunnelsBundle {
     }
 
     /** Parses [entries] exactly as an import would. */
-    fun check(entries: List<EncodedEntry>): TunnelsData {
+    fun check(entries: List<EncodedEntry>, now: Long = System.currentTimeMillis()): TunnelsData {
         val it = entries.iterator()
-        return parse {
+        return parse(now = now, source = {
             if (!it.hasNext()) null else it.next().let { e -> SourceEntry(e.name, e.length.toLong(), ByteArrayInputStream(e.bytes, 0, e.length)) }
-        }
+        })
     }
 
     // Reading
@@ -145,7 +151,7 @@ object TunnelsBundle {
      * The bundle's entries, parsed with every bound: manifest first, each entry once, no unknown names, counts that
      * match the manifest. File problems are MALFORMED_PAYLOAD; whatever [source] throws passes through.
      */
-    fun parse(source: EntrySource): TunnelsData {
+    fun parse(now: Long = System.currentTimeMillis(), source: EntrySource): TunnelsData {
         var manifest: Manifest? = null
         var snapshots: SnapshotBundle? = null
         var settings: Map<String, String>? = null
@@ -175,9 +181,18 @@ object TunnelsBundle {
         if (manifest == null || snapshots == null || settings == null || pins == null || networks == null) {
             payload("an entry is missing")
         }
+        checkDates(snapshots, now)
         val data = TunnelsData(snapshots, settings, pins, networks)
         if (data.counts != manifest.counts) payload("the manifest's counts do not match the entries")
         return data
+    }
+
+    /** Snapshot dates a real phone can have: after [MIN_TAKEN_AT] and at most a day ahead of the clock (skew). */
+    fun checkDates(bundle: SnapshotBundle, now: Long) {
+        val latest = now + MAX_FUTURE_MS
+        for (s in bundle.snapshots) {
+            if (s.takenAt < MIN_TAKEN_AT || s.takenAt > latest) payload("a snapshot's date is out of range")
+        }
     }
 
     private fun parseSnapshots(entry: SourceEntry): SnapshotBundle =

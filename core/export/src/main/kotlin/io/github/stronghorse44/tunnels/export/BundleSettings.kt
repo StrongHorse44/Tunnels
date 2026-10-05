@@ -35,6 +35,9 @@ object BundleSettings {
         else -> null
     }
 
+    /** Where Traffic sends lookups after [settings] are applied ("Quad9 (encrypted)", "dns.example.net (encrypted)", "your network's resolver (unencrypted)"), or null when they hold no choice of resolver. */
+    fun resolverLabel(settings: Map<String, String>): String? = settings[Upstream.KEY]?.let { Upstream.decode(it).label }
+
     /** The carried keys of [raw] (key to stored text; keys never set are null or absent), canonical. */
     fun canonicalSettings(raw: Map<String, String?>): Map<String, String> =
         KEYS.mapNotNull { k -> raw[k]?.let { v -> canonical(k, v)?.let { k to it } } }.toMap()

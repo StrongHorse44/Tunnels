@@ -27,6 +27,7 @@ object LegacyImport {
         try {
             val decoder = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
             val bundle = BundleFormat.parse(InputStreamReader(plain.inputStream(), decoder), ParseLimits.IMPORT)
+            TunnelsBundle.checkDates(bundle, System.currentTimeMillis())
             return TunnelsData(snapshots = bundle)
         } catch (e: BundleFormatException) {
             throw FwxException(FwxError.MALFORMED_PAYLOAD, e.message ?: "invalid bundle")

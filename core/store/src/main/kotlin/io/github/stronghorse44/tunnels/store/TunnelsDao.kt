@@ -32,9 +32,15 @@ abstract class TunnelsDao {
     @Query("SELECT * FROM observations WHERE snapshot_id = :snapshotId AND tunnel_id = :tunnelId")
     abstract suspend fun observations(snapshotId: Long, tunnelId: String): List<ObservationEntity>
 
-    /** The newest snapshot (before [before], if given) that holds observations for [tunnelId]. */
+    /**
+     * The newest snapshot (before snapshot [before], if given) that holds observations for [tunnelId]. "Newest" is by
+     * when the snapshot was taken, then by id, never by id alone: an import adds older snapshots with higher ids.
+     */
     @Query(
-        "SELECT MAX(snapshot_id) FROM observations WHERE tunnel_id = :tunnelId AND (:before IS NULL OR snapshot_id < :before)",
+        "SELECT o.snapshot_id FROM observations o JOIN snapshots s ON s.id = o.snapshot_id WHERE o.tunnel_id = :tunnelId " +
+            "AND (:before IS NULL OR s.taken_at < (SELECT taken_at FROM snapshots WHERE id = :before) " +
+            "OR (s.taken_at = (SELECT taken_at FROM snapshots WHERE id = :before) AND s.id < :before)) " +
+            "ORDER BY s.taken_at DESC, s.id DESC LIMIT 1",
     )
     abstract suspend fun latestSnapshotIdFor(tunnelId: String, before: Long? = null): Long?
 
@@ -58,7 +64,7 @@ abstract class TunnelsDao {
 
     /**
      * An import in one transaction (container spec, section 5.2: stage, verify, then swap): each of [snapshots] whose
-     * moment the store does not already hold is inserted pinned, with its observations, and for every key in
+     * moment the store does not already hold is inserted with the pin it had, with its observations, and for every key in
      * [settingKeys] the setting [resolveSetting] returns for it (given what is stored now) is written; null leaves a
      * key as it is. If anything throws, nothing is kept. [resolveSetting] runs inside the transaction, so a merge
      * sees the value it replaces.
@@ -78,7 +84,7 @@ abstract class TunnelsDao {
                 skipped++
                 continue
             }
-            val id = insertSnapshot(SnapshotEntity(takenAt = s.takenAt, pinned = true))
+            val id = insertSnapshot(SnapshotEntity(takenAt = s.takenAt, pinned = s.pinned))
             val rows = s.observations.map { ObservationEntity(id, it.tunnelId, it.subject, it.key, it.value) }
             if (rows.isNotEmpty()) insertObservations(rows)
             inserted++
@@ -167,8 +173,8 @@ abstract class TunnelsDao {
     abstract suspend fun deleteSetting(key: String)
 }
 
-/** A snapshot an import adds: when it was taken and what it saw. Row ids are the store's to assign. */
-class StagedSnapshot(val takenAt: Long, val observations: List<StagedObservation>)
+/** A snapshot an import adds: when it was taken, whether it was pinned, and what it saw. Row ids are the store's to assign. */
+class StagedSnapshot(val takenAt: Long, val pinned: Boolean, val observations: List<StagedObservation>)
 
 class StagedObservation(val tunnelId: String, val subject: String, val key: String, val value: String)
 

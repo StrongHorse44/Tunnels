@@ -11,6 +11,8 @@ data class ImportSummary(
     val settings: Int,
     val newPairedPhones: Int,
     val newNetworks: Int,
+    /** Traffic's resolver as the file set it, when the file carried that setting. */
+    val resolver: String? = null,
 )
 
 /** The file was read and verified, but writing it to the phone failed. The store is unchanged: the write is one transaction. */
@@ -107,7 +109,8 @@ object TransferMessages {
         append("Imported ${r.snapshots} snapshots with ${r.observations} observations")
         if (r.skippedSnapshots > 0) append(" (${r.skippedSnapshots} already here, skipped)")
         append(", ${r.settings} settings, ${r.newPairedPhones} new paired phones and ${r.newNetworks} new confirmed networks.")
-        if (r.snapshots > 0) append(" The snapshots are pinned, so retention keeps them.")
+        if (r.snapshots > 0) append(" Each snapshot kept the pin it had; unpinned ones are subject to retention, which keeps the newest 12.")
+        r.resolver?.let { append(" Traffic sessions will now send DNS lookups through $it.") }
     }
 
     /** A failure's own short reason ("No space left on device"), or its kind when it has none. */

@@ -37,8 +37,8 @@ object StoreBundles {
 
     /**
      * The one swap of an import (container spec, section 5.2), after the file has been verified and staged in memory:
-     * in a single transaction every snapshot at a moment the store does not hold yet is added, pinned so retention keeps
-     * what the user brought back, with its observations; each carried setting replaces the phone's; paired phones are
+     * in a single transaction every snapshot at a moment the store does not hold yet is added with the pin it had (an
+     * unpinned one is subject to retention like any other), with its observations; each carried setting replaces the phone's; paired phones are
      * merged with the phone's own (the more recently audited record wins); and the confirmed networks are added to
      * those the phone has. Snapshots already in the store (same moment) are left alone, so importing a file twice does
      * not double the history. Findings are re-derived by later scans, never imported.
@@ -50,7 +50,7 @@ object StoreBundles {
         val clean = data.snapshots.deduplicated()
         val byLocalId = clean.observations.groupBy { it.snapshotLocalId }
         val staged = clean.snapshots.sortedWith(compareBy({ it.takenAt }, { it.localId })).map { s ->
-            StagedSnapshot(s.takenAt, byLocalId[s.localId].orEmpty().map { StagedObservation(it.tunnelId, it.subject, it.key, it.value) })
+            StagedSnapshot(s.takenAt, s.pinned, byLocalId[s.localId].orEmpty().map { StagedObservation(it.tunnelId, it.subject, it.key, it.value) })
         }
         var newPhones = 0
         var newNetworks = 0
@@ -70,7 +70,10 @@ object StoreBundles {
                     data.settings[key]
                 }
             }
-            return ImportSummary(outcome.snapshots, outcome.observations, outcome.skipped, data.settings.size, newPhones, newNetworks)
+            return ImportSummary(
+                outcome.snapshots, outcome.observations, outcome.skipped, data.settings.size, newPhones, newNetworks,
+                BundleSettings.resolverLabel(data.settings),
+            )
         } catch (e: Exception) {
             // The preferences write may have half-happened even when it threw; put the list back whatever it says now.
             runCatching { if (networks.raw() != before) networks.restore(before) }

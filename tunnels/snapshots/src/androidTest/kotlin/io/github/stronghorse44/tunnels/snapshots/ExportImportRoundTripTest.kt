@@ -102,9 +102,9 @@ class ExportImportRoundTripTest {
         networks.restore(setOf(net1, net2))
     }
 
-    /** What two phones must share after a restore; ids and the pinned flag (an import pins everything) are the store's own. */
+    /** What two phones must share after a restore (the pin included); row ids are the store's own. */
     private fun comparable(d: TunnelsData) = listOf(
-        d.snapshots.snapshots.sortedBy { it.takenAt }.map { it.takenAt to it.tunnelIds },
+        d.snapshots.snapshots.sortedBy { it.takenAt }.map { Triple(it.takenAt, it.pinned, it.tunnelIds) },
         d.snapshots.observations.map { o ->
             listOf(d.snapshots.snapshots.first { it.localId == o.snapshotLocalId }.takenAt, o.tunnelId, o.subject, o.key, o.value).joinToString("|")
         }.sorted(),
@@ -157,11 +157,11 @@ class ExportImportRoundTripTest {
         assertEquals(1, summary.newPairedPhones)
         assertEquals(2, summary.newNetworks)
         assertEquals(state(a, netsA), state(b, netsB))
-        // This phone's own history and identity were not carried; every imported snapshot is pinned.
+        // This phone's own history and identity were not carried; each snapshot has the pin it had (one pinned, one not).
         runBlocking {
             assertEquals(null, b.setting("watch.status"))
             assertEquals(null, b.setting("pairing.verifierId"))
-            assertTrue(b.snapshots().all { it.pinned })
+            assertEquals(listOf(true, false), b.snapshots().sortedBy { it.takenAt }.map { it.pinned })
         }
 
         // Importing the same file again adds no snapshot and changes nothing else.
@@ -171,6 +171,26 @@ class ExportImportRoundTripTest {
         assertEquals(0, again.newPairedPhones)
         assertEquals(0, again.newNetworks)
         assertEquals(state(a, netsA), state(b, netsB))
+    }
+
+    @Test
+    fun anUnpinnedSnapshotImportsUnpinnedAndIsSubjectToRetention() {
+        val moments = (0 until 14).map { 1_700_000_000_000 + it * 60_000L }
+        val a = db().dao()
+        val netsA = nets("rt_ra")
+        seed(a, netsA, moments) // the first is pinned, the other thirteen are not
+        val out = file("r")
+        export(a, netsA, out)
+
+        val b = db().dao()
+        import(b, nets("rt_rb"), out)
+        runBlocking {
+            val rows = b.snapshots().sortedBy { it.takenAt }
+            assertEquals(listOf(true) + List(13) { false }, rows.map { it.pinned })
+            // Thirteen unpinned, twelve kept: the oldest unpinned one is what retention would remove; the pinned one never.
+            val doomed = io.github.stronghorse44.tunnels.engine.RetentionPolicy.snapshotsToDelete(rows.map { it.toModel() })
+            assertEquals(listOf(moments[1]), doomed.map { it.takenAt.toEpochMilli() })
+        }
     }
 
     @Test
@@ -185,7 +205,8 @@ class ExportImportRoundTripTest {
         val netsB = nets("rt_mb")
         runBlocking {
             b.insertSnapshot(SnapshotEntity(takenAt = 1_700_000_000_000, pinned = false)) // the same moment as one in the file
-            b.insertSnapshot(SnapshotEntity(takenAt = 1_800_000_000_000, pinned = false))
+            val newer = b.insertSnapshot(SnapshotEntity(takenAt = 1_800_000_000_000, pinned = false))
+            b.insertObservations(listOf(ObservationEntity(newer, "doors", "com.example.app", "exported", "9")))
             b.putSetting(SettingEntity("traffic.block", "on=false;kinds=ADS;exempt="))
             b.putSetting(SettingEntity("pairing.pins", pinLine(2, 1_700_000_500_000) + "\n" + pinLine(1, 1_700_000_900_000)))
         }
@@ -197,6 +218,13 @@ class ExportImportRoundTripTest {
         assertEquals(0, summary.newPairedPhones) // phone 1 is already here; the bundle brought none new
         runBlocking {
             assertEquals(3, b.snapshots().size)
+            // The snapshot the phone took last is still each tunnel's latest, though the import gave an older one a higher id.
+            val imported = b.snapshots().first { it.takenAt == 1_700_000_060_000 }
+            val newest = b.snapshots().first { it.takenAt == 1_800_000_000_000 }
+            assertTrue(imported.id > newest.id)
+            assertEquals(newest.id, b.latestSnapshotIdFor("doors"))
+            assertEquals(imported.id, b.latestSnapshotIdFor("doors", before = newest.id))
+            assertEquals(null, b.latestSnapshotIdFor("silicon"))
             assertEquals(block, b.setting("traffic.block")) // the file's choice replaces this phone's
             assertEquals(upstream, b.setting("traffic.upstream"))
             val pins = b.setting("pairing.pins")!!.lines()
@@ -214,8 +242,11 @@ class ExportImportRoundTripTest {
         val out = file("w")
         export(a, netsA, out)
 
+        // A populated phone: nothing below may change any of it.
         val b = db().dao()
         val netsB = nets("rt_wb")
+        seed(b, netsB, moments = listOf(1_650_000_000_000))
+        runBlocking { b.putSetting(SettingEntity("traffic.block", "on=false;kinds=ADS;exempt=")) }
         val empty = state(b, netsB)
         assertCode(FwxError.WRONG_PASSPHRASE) { import(b, netsB, out, "correct horse battery stapl") }
         assertEquals(empty, state(b, netsB))
@@ -225,19 +256,15 @@ class ExportImportRoundTripTest {
         assertCode(FwxError.DAMAGED) { import(b, netsB, truncated) }
         val flipped = file("f").also { it.writeBytes(bytes.copyOf().also { c -> c[c.size / 2] = (c[c.size / 2].toInt() xor 1).toByte() }) }
         assertCode(FwxError.DAMAGED) { import(b, netsB, flipped) }
+        assertCode(FwxError.WRONG_APP) { import(b, netsB, file("lumen2").also { it.writeBytes(otherAppBundle()) }) }
         assertEquals(empty, state(b, netsB))
-        assertTrue(netsB.all().isEmpty())
+        runBlocking { assertEquals(1, b.snapshots().size) }
     }
 
     @Test
     fun anotherAppsBundleIsRefusedByNameBeforeAnyPassphrase() {
         val lumen = file("lumen")
-        val buffer = ByteArrayOutputStream()
-        FwxWriter(buffer, "lumen", 1, now, passphrase.toCharArray()).run {
-            entry("manifest.json", "{}".toByteArray())
-            finish()
-        }
-        lumen.writeBytes(buffer.toByteArray())
+        lumen.writeBytes(otherAppBundle())
 
         val b = db().dao()
         val netsB = nets("rt_lb")
@@ -316,6 +343,15 @@ class ExportImportRoundTripTest {
         }
         assertEquals("keep!", out.readText())
         assertEquals(setOf(net1, net2), netsA.all())
+    }
+
+    private fun otherAppBundle(): ByteArray {
+        val buffer = ByteArrayOutputStream()
+        FwxWriter(buffer, "lumen", 1, now, passphrase.toCharArray()).run {
+            entry("manifest.json", "{}".toByteArray())
+            finish()
+        }
+        return buffer.toByteArray()
     }
 
     /** The old sealer, for the legacy fixture: the documented TSNAPE1 layout. */

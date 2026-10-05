@@ -145,7 +145,7 @@ GitHub Actions builds a signed release APK on tag.
 - [ ] Every security finding has at least one working action
 - [ ] On-demand snapshot; two snapshots produce a readable diff
 - [ ] SQLCipher DB with Keystore-wrapped key; uninstall wipes everything
-- [x] Snapshots (and settings, paired phones, confirmed networks) export/import as one encrypted file (docs/EXPORT.md)
+- [ ] Snapshots (and settings, paired phones, confirmed networks) export/import as one encrypted file (built, docs/EXPORT.md; tick after the on-phone check)
 - [ ] Full scan of all apps runs off the main thread with progress, no ANR
 - [ ] GitHub Actions builds a signed release APK on tag
 
