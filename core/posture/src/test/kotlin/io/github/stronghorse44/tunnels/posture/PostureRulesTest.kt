@@ -147,8 +147,12 @@ class PostureRulesTest {
         assertEquals(Severity.INFO, bySeverity["POSTURE_NFC_AUTO_OFF"])
         assertEquals(Severity.INFO, bySeverity["POSTURE_SENSORS_DEFAULT"])
         assertEquals(Severity.INFO, bySeverity["POSTURE_LOCK_DELAY"])
+        val clip = drafts(obs).single { it.kind == "POSTURE_CLIPBOARD_DEFAULT" }
+        assertEquals("Apps may read the clipboard by default. GrapheneOS can make it opt-in. Security & privacy > Privacy controls > Clipboard access.", clip.evidence)
+        assertEquals(FindingAction.OpenSettings("android.settings.PRIVACY_SETTINGS", "Privacy settings"), PostureRules.actionsFor(clip).single())
         assertEquals(
-            "The phone locks 5 min after the screen turns off; whoever picks it up in that time gets in without the PIN. Device unlock > Screen lock (gear).",
+            "The phone locks 5 min after the screen turns off; whoever picks it up in that time gets in without the PIN. " +
+                "Security & privacy > Device unlock > Screen lock > Screen lock settings.",
             drafts(obs).single { it.kind == "POSTURE_LOCK_DELAY" }.evidence,
         )
     }
@@ -170,7 +174,7 @@ class PostureRulesTest {
 
     @Test
     fun unconfirmedKeyNeverProducesAFinding() {
-        // As shipped: only the four confirmed items can speak, and the rest read but stay unknown.
+        // As shipped: only confirmed items can speak; the USB-C port and the three timers read but stay unknown.
         val shipped = PostureKeys.ITEMS
         val weakEverywhere = scan(
             global = "settings_reboot_after_timeout=0\nprivate_dns_mode=off\nallow_clipboard_read=1\nwifi_off_timeout=0\n" +
@@ -181,7 +185,14 @@ class PostureRulesTest {
             items = shipped,
         )
         val kinds = drafts(weakEverywhere, shipped).map { it.kind }
-        assertEquals(listOf("POSTURE_AUTO_REBOOT"), kinds)
+        assertEquals(
+            setOf(
+                "POSTURE_AUTO_REBOOT", "POSTURE_PRIVATE_DNS", "POSTURE_CLIPBOARD_DEFAULT", "POSTURE_CLIPBOARD_NOTICES",
+                "POSTURE_PIN_SCRAMBLE", "POSTURE_SENSORS_DEFAULT", "POSTURE_LOCK_DELAY",
+            ),
+            kinds.toSet(),
+        )
+        assertTrue(kinds.none { it == "POSTURE_USB_PORT" || it == "POSTURE_WIFI_AUTO_OFF" || it == "POSTURE_BT_AUTO_OFF" || it == "POSTURE_NFC_AUTO_OFF" })
         val readings = PostureObservations.from(weakEverywhere, shipped)
         assertEquals(PostureWhy.UNCONFIRMED, readings.reading(PostureKeys.USB_PORT)!!.why)
         assertEquals("on", readings.reading(PostureKeys.USB_PORT)!!.value)
@@ -195,10 +206,20 @@ class PostureRulesTest {
     @Test
     fun shippedConfirmationFlags() {
         val flags = PostureKeys.ITEMS.associate { it.id to it.confirmed }
+        // RJ's step 0 (2026-10-05): everything but the USB-C port (no readable property) and the three timers (no key appeared).
         assertEquals(
-            setOf(PostureKeys.AUTO_REBOOT, PostureKeys.VPN_ALWAYS_ON, PostureKeys.VPN_LOCKDOWN, PostureKeys.PIN_SCRAMBLE_2),
+            setOf(
+                PostureKeys.AUTO_REBOOT, PostureKeys.VPN_ALWAYS_ON, PostureKeys.VPN_LOCKDOWN, PostureKeys.PIN_SCRAMBLE_2,
+                PostureKeys.PRIVATE_DNS, PostureKeys.PIN_SCRAMBLE, PostureKeys.CLIPBOARD_DEFAULT, PostureKeys.CLIPBOARD_NOTICES,
+                PostureKeys.SENSORS_DEFAULT, PostureKeys.LOCK_DELAY,
+            ),
             flags.filterValues { it }.keys,
         )
+        // The USB-C port is a reminder row, with its read kept behind the flag.
+        val usb = PostureKeys.item(PostureKeys.USB_PORT)!!
+        assertFalse(usb.confirmed)
+        assertTrue(usb.reminder!!.contains("Check it yourself: Security & privacy > Exploit protection > USB-C port"))
+        assertTrue(PostureKeys.ITEMS.filter { it.id != PostureKeys.USB_PORT }.all { it.reminder == null })
         assertEquals(14, flags.size)
         // A confirmed item that can raise a finding must end its evidence with a Settings path.
         for (item in PostureKeys.ITEMS.filter { it.confirmed && it.kind != null }) assertTrue(item.id, item.path.isNotBlank())
@@ -289,6 +310,7 @@ class PostureRulesTest {
         strings += PostureKeys.PROPS_COMMAND
         strings += PostureKeys.PROPS
         strings += PostureReader.USB_VALUES
+        strings += PostureKeys.ITEMS.mapNotNull { it.reminder }
         strings += PostureState.entries.map { it.word } + PostureWhy.entries.map { it.word }
         // Every evidence the rules can write, from a scan where everything is weak, plus the unread text.
         val worst = scan(

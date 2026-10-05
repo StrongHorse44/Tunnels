@@ -13,7 +13,9 @@ enum class PostureTable(val id: String, val label: String) {
  * To confirm an item flip its flag, add its line to `rjsOutputOf20261005ReadsTheConfirmedKeys`, and copy its Settings
  * path into [path] (the evidence ends with it).
  *
- * [kind] is null for items with no finding (display only, or panel only). [extraKey] is a second key of the same table
+ * [kind] is null for items with no finding (display only, or panel only). Confirmed on RJ's phone 2026-10-05 (step 0): every
+ * item except [USB_PORT] (no readable property on this build; its read stays here behind `confirmed = false` for a later
+ * build) and the three auto-off timers (no key changed, the timers were not found in Settings). [extraKey] is a second key of the same table
  * that the item also reads (the VPN lockdown's exempt list).
  */
 data class PostureItem(
@@ -28,6 +30,11 @@ data class PostureItem(
     val actionLabel: String?,
     val path: String,
     val extraKey: String? = null,
+    /**
+     * Set when Tunnels cannot read this setting on the phone: while the item is unconfirmed the card shows this text and a
+     * Settings button instead of a reading (Explore-style, never a finding).
+     */
+    val reminder: String? = null,
 )
 
 /**
@@ -87,6 +94,8 @@ object PostureKeys {
             confirmed = false, kind = "POSTURE_USB_PORT", sourceDefault = "charging only when locked",
             action = ACTION_SECURITY, actionLabel = "Security settings",
             path = "Security & privacy > Exploit protection > USB-C port",
+            reminder = "No app can read the USB-C port mode on this build. Check it yourself: Security & privacy > Exploit protection > " +
+                "USB-C port; Charging-only when locked or stricter is the safe choice.",
         ),
         PostureItem(
             // No finding (DECISIONS 2026-10-05, Q1): "no always-on VPN" is shown on the card only.
@@ -103,15 +112,15 @@ object PostureKeys {
         ),
         PostureItem(
             PRIVATE_DNS, "Private DNS", PostureTable.GLOBAL, "private_dns_mode",
-            confirmed = false, kind = "POSTURE_PRIVATE_DNS", sourceDefault = "automatic",
+            confirmed = true, kind = "POSTURE_PRIVATE_DNS", sourceDefault = "automatic",
             action = ACTION_NETWORK, actionLabel = "Network settings",
             path = "Network & internet > Private DNS",
         ),
         PostureItem(
             PIN_SCRAMBLE, "Scramble PIN layout", PostureTable.SECURE, "lockscreen_scramble_pin_layout",
-            confirmed = false, kind = "POSTURE_PIN_SCRAMBLE", sourceDefault = "off",
+            confirmed = true, kind = "POSTURE_PIN_SCRAMBLE", sourceDefault = "off",
             action = ACTION_SECURITY, actionLabel = "Security settings",
-            path = "Security & privacy > Device unlock > Screen lock (gear)",
+            path = "Security & privacy > Device unlock > Screen lock > Screen lock settings",
         ),
         PostureItem(
             // Display only: Tunnels cannot tell whether a secondary PIN is in use.
@@ -121,15 +130,15 @@ object PostureKeys {
         ),
         PostureItem(
             CLIPBOARD_DEFAULT, "Clipboard access by default", PostureTable.GLOBAL, "allow_clipboard_read",
-            confirmed = false, kind = "POSTURE_CLIPBOARD_DEFAULT", sourceDefault = "device default",
-            action = ACTION_SECURITY, actionLabel = "Security settings",
-            path = "", // from step 0
+            confirmed = true, kind = "POSTURE_CLIPBOARD_DEFAULT", sourceDefault = "Allow",
+            action = ACTION_PRIVACY, actionLabel = "Privacy settings",
+            path = "Security & privacy > Privacy controls > Clipboard access",
         ),
         PostureItem(
             CLIPBOARD_NOTICES, "Clipboard access notices", PostureTable.SECURE, "clipboard_show_access_notifications",
-            confirmed = false, kind = "POSTURE_CLIPBOARD_NOTICES", sourceDefault = "on",
+            confirmed = true, kind = "POSTURE_CLIPBOARD_NOTICES", sourceDefault = "on",
             action = ACTION_PRIVACY, actionLabel = "Privacy settings",
-            path = "Security & privacy > Privacy",
+            path = "Security & privacy > Privacy controls > Clipboard access",
         ),
         PostureItem(
             WIFI_AUTO_OFF, "Wi-Fi auto-off", PostureTable.GLOBAL, "wifi_off_timeout",
@@ -151,15 +160,15 @@ object PostureKeys {
         ),
         PostureItem(
             SENSORS_DEFAULT, "Sensors permission by default", PostureTable.SECURE, "auto_grant_OTHER_SENSORS_perm",
-            confirmed = false, kind = "POSTURE_SENSORS_DEFAULT", sourceDefault = "on",
+            confirmed = true, kind = "POSTURE_SENSORS_DEFAULT", sourceDefault = "on",
             action = ACTION_SECURITY, actionLabel = "Security settings",
-            path = "", // from step 0
+            path = "Security & privacy > More security & privacy > Allow Sensors permission to apps by default",
         ),
         PostureItem(
             LOCK_DELAY, "Lock after screen timeout", PostureTable.SECURE, "lock_screen_lock_after_timeout",
-            confirmed = false, kind = "POSTURE_LOCK_DELAY", sourceDefault = "5 s",
+            confirmed = true, kind = "POSTURE_LOCK_DELAY", sourceDefault = "5 s",
             action = ACTION_SECURITY, actionLabel = "Security settings",
-            path = "Device unlock > Screen lock (gear)",
+            path = "Security & privacy > Device unlock > Screen lock > Screen lock settings",
         ),
     )
 

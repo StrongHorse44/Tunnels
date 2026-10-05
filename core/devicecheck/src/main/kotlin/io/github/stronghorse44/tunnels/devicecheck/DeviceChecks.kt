@@ -193,11 +193,14 @@ object DeviceChecks {
     }
 
     /**
-     * From the latest Deep mode scan's posture readings (empty when it never read any) and when it was taken. Counts how
+     * From the latest Deep mode scan's posture readings (empty when it never read any) and when it was taken. Items that are
+     * only a reminder on this build (the USB-C port) are left out of the counts. Counts how
      * many keys read, how many are not set on this phone (their built-in default applies, so Tunnels cannot tell) and how
      * many failed to read or parse. Posture findings never depend on this check.
      */
-    fun postureReadings(readings: List<Reading>, takenAt: Instant?, now: Instant): CheckResult {
+    fun postureReadings(all: List<Reading>, takenAt: Instant?, now: Instant): CheckResult {
+        // A setting that cannot be read on this build (a reminder row) is not a reading that failed or is missing.
+        val readings = all.filter { it.item.reminder == null || it.item.confirmed }
         val id = "posture_readings"
         val title = "Posture readings"
         val open = CheckAction.OpenTunnel(PostureKeys.TUNNEL_ID, "Open Deep mode")

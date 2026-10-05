@@ -17,7 +17,7 @@ object PostureReader {
 
     // USB-C port modes 0..4, as normalised values.
     val USB_VALUES: List<String> = listOf(
-        "all off", "charging only", "charging only when locked", "locked, except before first unlock", "on",
+        "all off", "charging only", "charging only when locked", "charging only when locked, except before first unlock", "on",
     )
     const val USB_BEFORE_FIRST_UNLOCK_MODE = 3
     const val USB_ON_MODE = 4
@@ -118,7 +118,8 @@ object PostureReader {
             else -> null
         }
         PostureKeys.PIN_SCRAMBLE, PostureKeys.PIN_SCRAMBLE_2 -> flag(text)?.let { Judged(if (it) PostureState.GOOD else PostureState.WEAK, onOff(it)) }
-        PostureKeys.CLIPBOARD_DEFAULT -> flag(text)?.let { Judged(if (it) PostureState.WEAK else PostureState.GOOD, onOff(it)) }
+        // 1 = Allow for third-party apps (weak); 0 = the restricted option.
+        PostureKeys.CLIPBOARD_DEFAULT -> flag(text)?.let { Judged(if (it) PostureState.WEAK else PostureState.GOOD, if (it) "allow" else "restricted") }
         PostureKeys.CLIPBOARD_NOTICES -> flag(text)?.let { Judged(if (it) PostureState.GOOD else PostureState.WEAK, onOff(it)) }
         PostureKeys.SENSORS_DEFAULT -> flag(text)?.let { Judged(if (it) PostureState.WEAK else PostureState.GOOD, onOff(it)) }
         PostureKeys.WIFI_AUTO_OFF, PostureKeys.BT_AUTO_OFF, PostureKeys.NFC_AUTO_OFF -> millis(text)?.let { ms ->

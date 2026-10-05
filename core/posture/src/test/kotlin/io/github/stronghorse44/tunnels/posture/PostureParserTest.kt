@@ -85,6 +85,36 @@ class PostureParserTest {
     }
 
     @Test
+    fun rjsStep0OutputAfterFlippingEachToggleReadsTheNewlyConfirmedKeys() {
+        // The lines that appeared after RJ changed each setting once (2026-10-05), among keys that must match nothing.
+        val global = globalFixture + "\nallow_clipboard_read=0\nprivate_dns_mode=off\ntime_to_full_millis=0"
+        val secure = secureFixture + "\nauto_grant_OTHER_SENSORS_perm=0\nclipboard_show_access_notifications=0\n" +
+            "lock_screen_lock_after_timeout=15000\nlockscreen_scramble_pin_layout=1"
+        val readings = read(global = global, secure = secure)
+        fun check(id: String, state: PostureState, value: String) {
+            val r = readings.of(id)
+            assertEquals(id, state, r.state)
+            assertEquals(id, value, r.value)
+            assertNull(id, r.why)
+        }
+        check(PostureKeys.AUTO_REBOOT, PostureState.GOOD, "12 h")
+        check(PostureKeys.CLIPBOARD_DEFAULT, PostureState.GOOD, "restricted")
+        check(PostureKeys.PRIVATE_DNS, PostureState.WEAK, "off")
+        check(PostureKeys.SENSORS_DEFAULT, PostureState.GOOD, "off")
+        check(PostureKeys.CLIPBOARD_NOTICES, PostureState.WEAK, "off")
+        check(PostureKeys.LOCK_DELAY, PostureState.GOOD, "15 s")
+        check(PostureKeys.PIN_SCRAMBLE, PostureState.GOOD, "on")
+        // 1 is Allow: weak.
+        assertEquals(PostureState.WEAK, read(global = "allow_clipboard_read=1").of(PostureKeys.CLIPBOARD_DEFAULT).state)
+        // The USB-C port and the three timers stay unconfirmed and absent; the unrelated battery key matches nothing.
+        for (id in listOf(PostureKeys.USB_PORT, PostureKeys.WIFI_AUTO_OFF, PostureKeys.BT_AUTO_OFF, PostureKeys.NFC_AUTO_OFF)) {
+            assertEquals(id, PostureWhy.ABSENT, readings.of(id).why)
+        }
+        val table = PostureParser.table(global, PostureKeys.keys(PostureTable.GLOBAL)) as TableRead.Ok
+        assertFalse("time_to_full_millis" in table.values)
+    }
+
+    @Test
     fun missingKeyIsUnknownNeverOff() {
         val readings = read(global = "airplane_mode_on=0", secure = "location_mode=3")
         for (r in readings) {
