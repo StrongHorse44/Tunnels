@@ -47,6 +47,10 @@
 > approved for user-started checks and downloads only); Surroundings judges following by whether a tag was seen
 > on both sides of a move (a move counter and a keyed hash of a ~250 m grid cell, never a position); the
 > Timeline and Notifications gates explain Android's restricted settings.
+> **Cell logbook (2026-10, B10):** Surroundings can keep, per place, keyed hashes of the cells, tracking areas and operators the
+> phone used there (the Q6 exception to rules 3 and 4: no coordinate, raw cell identity, timestamp or order; 64 places, capped
+> sets, until cleared). A never-seen cell at a place scanned four times or more, with a second signal, is a NOTICE worded as a
+> possible network change. Off until RJ taps "Start the cell logbook"; manual scans only; not exported; no new permission.
 
 ## Instructions for Claude Code
 This is the full spec for Tunnels, a native Android app for my GrapheneOS Pixel 10.

@@ -138,6 +138,10 @@ Device checks to make on the Pixel 10 (the Device checks screen walks through mo
   no kind filter; add `eventsOfKinds(tunnelId, kinds, limit)` and fold them back. The open twin of an
   open hotspot SSID (xfinitywifi, attwifi) cannot be detected by security type. CELL_DOWNGRADED only
   fires on a snapshot-to-snapshot change; add a change rule on cell:downgradesRecorded for the monitor.
+- Surroundings cell logbook (B10): the background monitor does not check towers against it (it records cell
+  events only); decide after a few weeks of manual scans show how often the notice appears. Verify on device which
+  screen `ACTION_NETWORK_OPERATOR_SETTINGS` opens on GrapheneOS (expected: "Preferred network type", "Allow 2G"), and
+  that `allCellInfo` with fine location returns the registered cell's tracking area, cell id, PCI and channel.
 - Notifications: a model-level OpenSettings variant carrying a package extra would let the engine own
   the per-app notification-settings intent (currently a Perform action).
 - Deep mode: ShellRunner timeout kills only the shell, not grandchildren; a single dumpsys appops parse

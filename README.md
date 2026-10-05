@@ -26,7 +26,7 @@ network and the updater), used only during sessions you start. The built APK is 
 | Activity | Timeline | Usage and data per app over 30 days (Usage access), unused apps, background data |
 | Activity | Notifications | Counts and flags per app from a notification listener (never contents), noise and lock-screen exposure |
 | Network | Traffic | DNS-only VPN sessions you start: registrable domains per app, tracker domains, optional blocking of tracker lookups (answered "no such domain" on the phone); refuses while another VPN is up |
-| Network | Surroundings | BLE trackers (AirTag, SmartTag, Tile, FMDN) judged per identity, including whether one travelled with you between places (a move counter, never a position); Wi-Fi security and evil twins, cell downgrade; optional background monitor |
+| Network | Surroundings | BLE trackers (AirTag, SmartTag, Tile, FMDN) judged per identity, including whether one travelled with you between places (a move counter, never a position); Wi-Fi security and evil twins, cell downgrade; cell logbook: an unfamiliar tower at a familiar place, keyed hashes only (off until you start it); optional background monitor |
 | Network | Home network | Own-network gate, mDNS/SSDP discovery, TCP port scan, UPnP IGD and DNS-hijack checks |
 | Explore | Sensors, Cameras, Satellites, Radio | Curiosity only: hardware facts, no findings |
 | Central | Crossroads | Findings that take two tunnels to see: an accessibility service in an app from a file, ad or location SDKs in an app holding your location or contacts, a microphone used while the app sat unopened, a new signing key plus new permissions |
