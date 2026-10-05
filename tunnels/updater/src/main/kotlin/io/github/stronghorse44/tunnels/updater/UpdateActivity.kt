@@ -197,7 +197,7 @@ fun UpdateScreen(vm: UpdateViewModel, onBack: () -> Unit) {
     }
 }
 
-/** The read-only token a private repository needs, with how to make one. */
+/** The optional read-only token (a higher rate limit, or a private fork), with how to make one. */
 @Composable
 private fun TokenCard(hint: String?, save: (String) -> Boolean, forget: () -> Unit, highlight: Boolean) {
     var open by remember { mutableStateOf(false) }
@@ -211,7 +211,7 @@ private fun TokenCard(hint: String?, save: (String) -> Boolean, forget: () -> Un
                     Text("GitHub token", style = MaterialTheme.typography.titleSmall)
                     Text(
                         hint?.let { "Saved: $it · forgotten after 30 days without a check" }
-                            ?: "Needed while the repository is private",
+                            ?: "Optional: only raises GitHub's request limit, or reads a private fork",
                         style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
                     )
                 }

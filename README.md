@@ -52,8 +52,8 @@ whole file before it changes anything. What is in it, what an import does and ho
 And **in-app updates** (home screen → update ›): when you tap Check, Tunnels asks this repository's GitHub
 releases for a newer build of its channel (debug builds follow "Debug build #N", release builds the vX.Y.Z
 tags), downloads it, checks that it is the same app, newer, signed with the same key and matching the published
-SHA-256, and hands it to Android's installer. While the repository is private it needs a read-only token,
-kept in the encrypted store.
+SHA-256, and hands it to Android's installer. The repository is public, so no token is needed; an optional
+read-only token (a higher rate limit, or a private fork) is kept in the encrypted store.
 
 ## Principles
 

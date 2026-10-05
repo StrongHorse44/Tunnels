@@ -110,6 +110,61 @@ class UpdatesTest {
     }
 
     @Test
+    fun channelsNeverFollowEachOther() {
+        // A release install (package without .debug) and a debug install (with it) each see only their own tags,
+        // whatever the other channel's version codes are: debug build codes are CI run numbers (tens to
+        // hundreds) and release codes start at 1 000, so a code comparison alone would mix them up.
+        fun release(tag: String, name: String, assets: List<String>, prerelease: Boolean = false) =
+            Release(tag, name, prerelease, false, "", null, assets.mapIndexed { i, a -> ReleaseAsset(i + 1L, a, 1) })
+        val releases = listOf(
+            release("debug-93", "Debug build #93 (abc1234)", listOf("tunnels-debug-93.apk", "tunnels-debug-93.apk.sha256"), prerelease = true),
+            release("v0.1.0", "v0.1.0", listOf("tunnels-0.1.0.apk", "tunnels-0.1.0.apk.sha256")),
+        )
+        // The installed release 0.0.1 (code 1) is offered v0.1.0 (code 1 000), never debug-93.
+        val forRelease = Updates.newest(releases, Updates.channelOf("io.github.stronghorse44.tunnels"), installedVersionCode = 1)!!
+        assertEquals("v0.1.0", forRelease.release.tag)
+        assertEquals(1_000L, forRelease.versionCode)
+        // A debug install on build 50 is offered debug-93, never v0.1.0 (whose code, 1 000, is higher).
+        val forDebug = Updates.newest(releases, Updates.channelOf("io.github.stronghorse44.tunnels.debug"), installedVersionCode = 50)!!
+        assertEquals("debug-93", forDebug.release.tag)
+        assertNull(Updates.newest(releases, Channel.DEBUG, installedVersionCode = 93))
+        assertNull(Updates.newest(releases, Channel.RELEASE, installedVersionCode = 1_000))
+        // The tag decides, not the title: a debug-looking title on a version tag is a release, and a version-looking
+        // title on a debug tag is a debug build.
+        val odd = listOf(
+            release("v0.2.0", "Debug build #99", listOf("tunnels-0.2.0.apk")),
+            release("debug-120", "v9.9.9", listOf("tunnels-debug-120.apk"), prerelease = true),
+        )
+        assertEquals("v0.2.0", Updates.newest(odd, Channel.RELEASE, 1)?.release?.tag)
+        assertNull(Updates.newest(odd, Channel.RELEASE, 2_000))
+        assertEquals("debug-120", Updates.newest(odd, Channel.DEBUG, 1)?.release?.tag)
+        // A prerelease or a differently named APK on a version tag is not offered to release installs.
+        assertNull(Updates.candidate(release("v0.3.0", "v0.3.0", listOf("tunnels-0.3.0.apk"), prerelease = true), Channel.RELEASE))
+        assertNull(Updates.candidate(release("v0.3.0", "v0.3.0", listOf("tunnels-debug-0.3.0.apk")), Channel.RELEASE))
+        // Tags release.yml refuses are not versions here either (leading zeros, four digits, extra parts, no v).
+        for (tag in listOf("v01.2.3", "v1.02.3", "v1.2.03", "v1000.0.0", "v1.2", "v1.2.3.4", "1.2.3", "v1.2.3-rc1")) {
+            val apk = "tunnels-${tag.removePrefix("v")}.apk"
+            assertNull("$tag is not a release version", Updates.candidate(release(tag, tag, listOf(apk)), Channel.RELEASE))
+        }
+    }
+
+    @Test
+    fun versionCodesOrderLikeVersionsAndFitAnInt() {
+        // release.yml: code = MAJOR * 1 000 000 + MINOR * 1 000 + PATCH, each part 0-999.
+        fun code(tag: String) = Updates.candidate(
+            Release(tag, tag, false, false, "", null, listOf(ReleaseAsset(1, "tunnels-${tag.removePrefix("v")}.apk", 1))),
+            Channel.RELEASE,
+        )?.versionCode
+        assertEquals(1_000L, code("v0.1.0"))
+        assertEquals(1L, code("v0.0.1"))
+        assertEquals(999_999_999L, code("v999.999.999"))
+        assertTrue(999_999_999L < Int.MAX_VALUE)
+        val ordered = listOf("v0.0.1", "v0.0.2", "v0.0.999", "v0.1.0", "v0.1.1", "v0.999.999", "v1.0.0", "v1.2.3", "v1.10.0", "v2.0.0")
+        assertEquals(ordered.map { code(it) }, ordered.map { code(it) }.sortedBy { it })
+        assertEquals(ordered.size, ordered.map { code(it) }.toSet().size)
+    }
+
+    @Test
     fun checksumFilesInEveryShapeSha256sumWrites() {
         val hex = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
         assertEquals(hex, Updates.checksumFor("$hex  tunnels-0.2.0.apk\n", "tunnels-0.2.0.apk"))
@@ -166,7 +221,7 @@ class UpdatesTest {
 
     @Test
     fun errorsSayWhatToDo() {
-        assertTrue(UpdateErrors.forHttp(404, hasToken = false).contains("repository is private"))
+        assertTrue(UpdateErrors.forHttp(404, hasToken = false).contains("private fork"))
         assertTrue(UpdateErrors.forHttp(404, hasToken = true).contains("cannot see StrongHorse44/Tunnels"))
         assertTrue(UpdateErrors.forHttp(401, hasToken = true).contains("paste a new one"))
         assertTrue(UpdateErrors.forHttp(403, hasToken = false).contains("Add a token"))

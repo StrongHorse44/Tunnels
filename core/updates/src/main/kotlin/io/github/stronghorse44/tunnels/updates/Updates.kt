@@ -54,7 +54,8 @@ data class Update(
 
 object Updates {
     private val DEBUG_TAG = Regex("""debug-(\d{1,9})""")
-    private val RELEASE_TAG = Regex("""v(\d{1,3})\.(\d{1,3})\.(\d{1,3})""")
+    /** Exactly what release.yml accepts: each part 0-999 with no leading zero, so a tag has one version code. */
+    private val RELEASE_TAG = Regex("""v(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})""")
 
     /** Debug builds carry the `.debug` application id suffix. */
     fun channelOf(packageName: String): Channel = if (packageName.endsWith(".debug")) Channel.DEBUG else Channel.RELEASE
@@ -85,7 +86,8 @@ object Updates {
     /**
      * The release [r] as a build of [channel], or null when it is not one: debug builds are prereleases tagged
      * `debug-N` (N, the CI run number, is their version code) with `tunnels-debug-N.apk`; release builds are
-     * releases tagged `vX.Y.Z` (version code X·1 000 000 + Y·1 000 + Z, as release.yml derives it) with
+     * releases tagged `vX.Y.Z` (version code X·1 000 000 + Y·1 000 + Z, as release.yml derives it; the channel comes
+     * from the tag alone, never from the release's title) with
      * `tunnels-X.Y.Z.apk`. A `<apk>.sha256` file next to the APK is its checksum.
      */
     fun candidate(r: Release, channel: Channel): Update? {
@@ -176,7 +178,7 @@ object UpdateErrors {
             "GitHub turned the request away (403), usually its limit for requests without a token. Add a token, or try again in an hour."
         code == 403 -> "GitHub refused access (403). The token needs read-only access to the contents of ${UpdateSource.OWNER}/${UpdateSource.REPO}."
         code == 404 && !hasToken ->
-            "GitHub answered Not Found (404): the repository is private, so Tunnels needs a read-only token to see its releases."
+            "GitHub answered Not Found (404). The repository may have moved; if this is a private fork, Tunnels needs a read-only token to see its releases."
         code == 404 -> "GitHub answered Not Found (404): the token cannot see ${UpdateSource.OWNER}/${UpdateSource.REPO}. Give it access to that repository."
         code in 500..599 -> "GitHub had a problem ($code). Try again in a minute."
         else -> "GitHub answered $code."
