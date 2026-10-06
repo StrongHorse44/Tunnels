@@ -157,6 +157,22 @@
     },
     {
       "type": "provider",
+      "name": "io.github.stronghorse44.tunnels.breaches.BreachShareProvider",
+      "exported": false,
+      "permission": null,
+      "read_permission": null,
+      "write_permission": null,
+      "grant_uri_permissions": true,
+      "authorities": [
+        "io.github.stronghorse44.tunnels.debug.breaches"
+      ],
+      "foreground_service_type": null,
+      "actions": [],
+      "categories": [],
+      "data": []
+    },
+    {
+      "type": "provider",
       "name": "rikka.shizuku.ShizukuProvider",
       "exported": true,
       "permission": "android.permission.INTERACT_ACROSS_USERS_FULL",
@@ -434,7 +450,7 @@
     },
     {
       "value": "Ljava/net/HttpURLConnection;",
-      "note": "tunnels/updater GitHubClient: asks api.github.com for releases and downloads one APK, only when the user taps Check or Download; also an unused Apache commons-io reference"
+      "note": "tunnels/updater GitHubClient and tunnels/breaches BreachClient: asks api.github.com for releases and downloads one APK, only when the user taps Check or Download; also an unused Apache commons-io reference; tunnels/breaches fetches one public breach list from haveibeenpwned.com, only when the user taps Fetch"
     },
     {
       "value": "Ljava/net/Inet4Address;",
@@ -486,7 +502,7 @@
     },
     {
       "value": "Ljava/net/URL;",
-      "note": "tunnels/updater (release API and APK download, user-started) and tunnels/traffic (DNS-over-HTTPS endpoint, only if the user picked an encrypted upstream); library references in Apache commons-io, commons-lang3, kotlinx.coroutines and kotlin.io"
+      "note": "tunnels/updater and tunnels/breaches (release API and APK download, breach list fetch, user-started) and tunnels/traffic (DNS-over-HTTPS endpoint, only if the user picked an encrypted upstream); library references in Apache commons-io, commons-lang3, kotlinx.coroutines and kotlin.io"
     },
     {
       "value": "Ljava/net/URLClassLoader;",
@@ -494,7 +510,7 @@
     },
     {
       "value": "Ljava/net/URLConnection;",
-      "note": "tunnels/updater and tunnels/traffic connection base type (same gating as HttpURLConnection and HttpsURLConnection); Apache commons-io references"
+      "note": "tunnels/updater, tunnels/breaches and tunnels/traffic connection base type (same gating as HttpURLConnection and HttpsURLConnection); Apache commons-io references"
     },
     {
       "value": "Ljava/net/URLDecoder;",
@@ -1506,6 +1522,10 @@
       "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
     },
     {
+      "value": "haveibeenpwned.com",
+      "note": "breach list fetch, tunnels/breaches, user-started (Q7)"
+    },
+    {
       "value": "heapanalytics.com",
       "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
     },
@@ -1592,6 +1612,10 @@
     {
       "value": "https://goo.gle",
       "note": "documentation URL in an androidx.compose.runtime error message (ComposerKt), never contacted"
+    },
+    {
+      "value": "https://haveibeenpwned.com",
+      "note": "breach list fetch, tunnels/breaches, user-started (Q7)"
     },
     {
       "value": "https://issuetracker.google.com",
