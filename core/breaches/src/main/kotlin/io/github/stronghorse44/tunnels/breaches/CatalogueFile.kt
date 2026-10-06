@@ -120,7 +120,7 @@ object CatalogueFile {
 
     private fun number(text: String, max: Long, what: String): Long {
         if (!Regex("0|[1-9][0-9]{0,18}").matches(text)) throw CatalogueException("`$what` must be a whole number.")
-        val n = text.toLong()
+        val n = text.toLongOrNull() ?: throw CatalogueException("`$what` is too large.")
         if (n > max) throw CatalogueException("`$what` is larger than $max.")
         return n
     }
@@ -138,7 +138,7 @@ object CatalogueFile {
         if (domain.isNotEmpty() && Catalogue.cleanDomain(domain) == null) bad("the domain is not a lower-case ASCII host name")
         val breach = Catalogue.date(f[4])?.takeIf { Catalogue.dateInRange(it, fetchedDate) } ?: bad("`breach_date` is not a date from 1990-01-01 to the day after `fetched`")
         val added = Catalogue.date(f[5])?.takeIf { Catalogue.dateInRange(it, fetchedDate) } ?: bad("`added_date` is not a date from 1990-01-01 to the day after `fetched`")
-        if (!Regex("0|[1-9][0-9]{0,10}").matches(f[6]) || f[6].toLong() > Catalogue.MAX_PWN_COUNT) bad("`pwn_count` must be 0 to ${Catalogue.MAX_PWN_COUNT}")
+        if (!Regex("0|[1-9][0-9]{0,11}").matches(f[6]) || f[6].toLong() > Catalogue.MAX_PWN_COUNT) bad("`pwn_count` must be 0 to ${Catalogue.MAX_PWN_COUNT}")
         val flags = f[7]
         var from = 0
         for (c in flags) {

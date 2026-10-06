@@ -67,6 +67,9 @@ everything, so uninstall wipes all data and nothing goes to cloud backup.
   (`io.github.stronghorse44.tunnels.debug`) is still built and gated by CI but no longer published (an old debug
   install follows the old "Debug build #N" tags and sees nothing new); the repo is public, so the update token
   is optional
+- `core:breaches` + `tunnels:breaches` the breach list for Linx (user-started fetch of the public Have I Been Pwned
+  list, INTERNET allowed; held in memory only and handed to Linx through a not-exported content provider; rule 1,
+  `docs/BREACHES.md`)
 - `core:crossrules` + `tunnels:crossroads` Crossroads, a derived tunnel (joins other tunnels' data; a bead in the well)
 - `core:watchrules` + `tunnels:watch` findings inbox and opt-in background checks (JobScheduler, offline tunnels only)
 - `core:devicecheck` + `tunnels:devicecheck` device checks: confirms on the phone the readings Tunnels relies on

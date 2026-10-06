@@ -63,8 +63,8 @@ domain and its subdomains) or `{"field": "network_api", "prefix": "Lorg/bouncyca
 and the toggle that gates it, except read-only state types (`ConnectivityManager`, `LinkProperties`,
 `NetworkCapabilities`, `TransportInfo`, `WifiInfo`, `WifiManager`, `ScanResult`, `WifiSsid`), whose notes say
 they are read-only state getters with no sockets and no egress, and library-only references (AndroidX,
-Apache commons, zxing), whose notes say so. Hosts and network types must trace to `tunnels/traffic`, `tunnels/homenet` or
-`tunnels/updater`, to a data set matched locally, or to a library string that is never contacted.
+Apache commons, zxing), whose notes say so. Hosts and network types must trace to `tunnels/traffic`, `tunnels/homenet`,
+`tunnels/updater` or `tunnels/breaches`, to a data set matched locally, or to a library string that is never contacted.
 
 With the Android SDK and Google's Maven repository at hand, the same can be done locally:
 

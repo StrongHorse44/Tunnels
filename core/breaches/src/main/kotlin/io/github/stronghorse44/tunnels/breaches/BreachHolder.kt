@@ -20,20 +20,23 @@ class BreachHolder(
     /** Runs [action] once after the given delay (best effort); the default is a daemon timer thread. */
     private val schedule: (delayMs: Long, action: () -> Unit) -> Unit = { _, _ -> },
 ) {
-    /** What the screen may know about the held file, never its bytes. */
-    data class Info(val token: String, val displayName: String, val size: Int, val expiresAtMs: Long, val servesLeft: Int)
+    /** What the screen shows about the held list, so a new screen can show it again within the ten minutes. */
+    data class Facts(val count: Int, val skipped: Int, val fetched: String, val attribution: String)
 
-    private class Entry(val token: String, val displayName: String, val bytes: ByteArray, val expiresAtMs: Long, var servesLeft: Int)
+    /** What the screen may know about the held file, never its bytes. */
+    data class Info(val token: String, val displayName: String, val size: Int, val expiresAtMs: Long, val servesLeft: Int, val facts: Facts?)
+
+    private class Entry(val token: String, val displayName: String, val bytes: ByteArray, val expiresAtMs: Long, var servesLeft: Int, val facts: Facts?)
 
     private var held: Entry? = null
 
     /** Holds [bytes] (the caller must not keep or change them) and returns the token that reads them. */
     @Synchronized
-    fun put(bytes: ByteArray, displayName: String): String {
+    fun put(bytes: ByteArray, displayName: String, facts: Facts? = null): String {
         drop()
         val token = mintToken()
         val expires = clock() + LIFETIME_MS
-        held = Entry(token, displayName, bytes, expires, MAX_SERVES)
+        held = Entry(token, displayName, bytes, expires, MAX_SERVES, facts)
         schedule(LIFETIME_MS + 1_000) { expireIfDue() }
         return token
     }
@@ -42,7 +45,7 @@ class BreachHolder(
     @Synchronized
     fun info(): Info? {
         expireIfDue()
-        return held?.let { Info(it.token, it.displayName, it.bytes.size, it.expiresAtMs, it.servesLeft) }
+        return held?.let { Info(it.token, it.displayName, it.bytes.size, it.expiresAtMs, it.servesLeft, it.facts) }
     }
 
     /** Facts for the provider's `query`: the display name and size for [token], without counting a serve. */

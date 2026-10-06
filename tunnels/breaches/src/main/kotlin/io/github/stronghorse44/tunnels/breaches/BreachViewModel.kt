@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.stronghorse44.tunnels.store.TunnelsStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,7 +39,8 @@ sealed interface BreachState {
  * the only thing stored is a one-line summary of the last fetch in the encrypted settings.
  */
 class BreachViewModel(private val app: Application) : AndroidViewModel(app) {
-    private val _state = MutableStateFlow<BreachState>(BreachState.Idle)
+    /** A list still held from an earlier visit (within its ten minutes) is shown again: no second request. */
+    private val _state = MutableStateFlow<BreachState>(heldNow() ?: BreachState.Idle)
     val state: StateFlow<BreachState> = _state.asStateFlow()
 
     private val _networkAllowed = MutableStateFlow(networkAllowed())
@@ -83,12 +85,16 @@ class BreachViewModel(private val app: Application) : AndroidViewModel(app) {
                 val file = withContext(Dispatchers.Default) {
                     CatalogueFile.write(parsed.rows, CatalogueMeta(Catalogue.ATTRIBUTION, fetched, download.sha256, parsed.skipped))
                 }
-                val token = BreachHolder.shared.put(file, ShareUri.displayName(fetched))
-                val info = checkNotNull(BreachHolder.shared.describe(token))
-                runCatching {
+                val facts = BreachHolder.Facts(parsed.rows.size, parsed.skipped, fetched, Catalogue.ATTRIBUTION)
+                BreachHolder.shared.put(file, ShareUri.displayName(fetched), facts)
+                try {
                     TunnelsStore.get(app).putSetting(LAST_FETCH_KEY, "$fetched;count=${parsed.rows.size}")
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // The summary row is a convenience; the list is already held.
                 }
-                BreachState.Held(parsed.rows.size, parsed.skipped, fetched, Catalogue.ATTRIBUTION, info.size, info.expiresAtMs, info.servesLeft)
+                heldNow() ?: BreachState.Gone
             } catch (e: BreachClient.Refused) {
                 when (e.reason) {
                     BreachClient.Reason.REDIRECT -> BreachState.Failed("Redirect refused", BreachMessages.REDIRECT)
@@ -128,6 +134,12 @@ class BreachViewModel(private val app: Application) : AndroidViewModel(app) {
     fun forgetHeld() {
         BreachHolder.shared.clear()
         _state.value = BreachState.Idle
+    }
+
+    private fun heldNow(): BreachState.Held? {
+        val info = BreachHolder.shared.info() ?: return null
+        val f = info.facts ?: return null
+        return BreachState.Held(f.count, f.skipped, f.fetched, f.attribution, info.size, info.expiresAtMs, info.servesLeft)
     }
 
     override fun onCleared() {

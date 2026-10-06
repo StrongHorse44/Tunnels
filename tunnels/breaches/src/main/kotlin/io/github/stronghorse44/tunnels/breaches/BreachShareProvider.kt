@@ -54,15 +54,8 @@ class BreachShareProvider : ContentProvider() {
             throw FileNotFoundException("Could not open a pipe.")
         }
         val write = pipe[1]
-        Thread({
-            try {
-                ParcelFileDescriptor.AutoCloseOutputStream(write).use { it.write(bytes) }
-            } catch (_: IOException) {
-                runCatching { write.closeWithError("The reader stopped early.") }
-            } finally {
-                bytes.fill(0)
-            }
-        }, "breach-share").start()
+        // The write is bounded: a reader that never reads cannot keep the bytes alive past PipeWriter.TIMEOUT_MS.
+        PipeWriter.start(bytes, ParcelFileDescriptor.AutoCloseOutputStream(write), abort = { write.closeWithError("The reader did not read in time.") })
         return pipe[0]
     }
 

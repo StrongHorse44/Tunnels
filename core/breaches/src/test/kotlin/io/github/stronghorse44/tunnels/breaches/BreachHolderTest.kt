@@ -44,6 +44,15 @@ class BreachHolderTest {
     }
 
     @Test
+    fun factsComeBackForANewScreen() {
+        val facts = BreachHolder.Facts(3, 1, "2026-10-05T23:00:00Z", "attribution")
+        holder.put(data.copyOf(), "x.txt", facts)
+        assertEquals(facts, holder.info()!!.facts)
+        holder.put(data.copyOf(), "y.txt")
+        assertNull(holder.info()!!.facts)
+    }
+
+    @Test
     fun aNewFetchReplacesTheOldAndItsTokenStopsWorking() {
         val a = holder.put("one".toByteArray(), "a.txt")
         val b = holder.put("two".toByteArray(), "b.txt")

@@ -14,5 +14,11 @@ object BreachSource {
 
     /** Every hop, before any socket: HTTPS to exactly [HOST], or nothing. Subdomains and look-alikes are refused. */
     fun isAllowed(scheme: String, host: String): Boolean =
-        scheme.equals("https", ignoreCase = true) && host.equals(HOST, ignoreCase = true)
+        asciiLower(scheme) == "https" && asciiLower(host) == HOST
+
+    /** Lower-case ASCII letters only; null when [s] has any other kind of character (no Unicode case folding: U+0131 is not an `i`). */
+    private fun asciiLower(s: String): String? {
+        if (s.any { it.code > 0x7f }) return null
+        return buildString(s.length) { for (c in s) append(if (c in 'A'..'Z') c + 32 else c) }
+    }
 }

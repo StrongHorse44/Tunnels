@@ -193,6 +193,34 @@ class CatalogueFileTest {
     }
 
     @Test
+    fun pwnCountBoundaryIsInclusive() {
+        val max = 100_000_000_000L
+        fun withCount(n: String) = example.replace("\t120000\t", "\t$n\t")
+        assertEquals(max, CatalogueFile.read(withCount(max.toString()).toByteArray()).rows[0].pwnCount)
+        refused(withCount((max + 1).toString()), "pwn_count")
+        refused(withCount("1000000000000"), "pwn_count")
+        // The writer agrees: a row at the limit is written and read back, one above is refused.
+        val meta = CatalogueMeta("a", "2026-10-05T23:00:00Z", "0".repeat(64), 0)
+        val ok = BreachRow("A", "A", "", "2020-01-01", "2020-01-02", max, "", emptyList())
+        assertEquals(max, CatalogueFile.read(CatalogueFile.write(listOf(ok), meta)).rows.single().pwnCount)
+        try {
+            CatalogueFile.write(listOf(ok.copy(pwnCount = max + 1)), meta)
+            fail("wrote above the limit")
+        } catch (_: CatalogueException) {
+        }
+    }
+
+    @Test
+    fun hugeNumbersAreRefusedWithTheContractException() {
+        val big = "9999999999999999999" // 19 digits, above Long.MAX_VALUE
+        refused(example.replace("skipped\t0", "skipped\t$big"), "skipped")
+        refused(example.replace("end\t3", "end\t$big"), "end")
+        refused(example.replace("count\t3", "count\t$big"), "count")
+        refused(example.replace("skipped\t0", "skipped\t${"9".repeat(40)}"), "skipped")
+        refused(example.replace("skipped\t0", "skipped\t2147483648"), "skipped")
+    }
+
+    @Test
     fun theAttributionTunnelsWritesFitsAndIsFrozen() {
         assertTrue(Catalogue.ATTRIBUTION.length in 1..Catalogue.MAX_ATTRIBUTION)
         assertEquals(

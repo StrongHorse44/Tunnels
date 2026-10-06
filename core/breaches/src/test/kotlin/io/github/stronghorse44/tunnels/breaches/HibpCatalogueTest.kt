@@ -113,6 +113,27 @@ class HibpCatalogueTest {
     }
 
     @Test
+    fun nonAsciiNeverFoldsIntoAsciiDomain() {
+        // U+212A (Kelvin sign) lower-cases to an ASCII k, U+0130 to i + a combining dot: both must end as empty.
+        assertEquals("", one(",\"Domain\":\"\u212Aayak.example\"").domain)
+        assertEquals("", one(",\"Domain\":\"\u0130nfo.example\"").domain)
+        assertEquals("", one(",\"Domain\":\"\uFF48ost.example\"").domain)
+        assertEquals("kayak.example", one(",\"Domain\":\"KAYAK.example\"").domain)
+    }
+
+    @Test
+    fun aCountOfExactlyTenToTheEleventhIsKeptAndWritten() {
+        val j = """[{"Name":"Big","BreachDate":"2020-01-01","AddedDate":"2020-01-02T00:00:00Z","PwnCount":100000000000},
+                    {"Name":"Ok","BreachDate":"2020-01-01","AddedDate":"2020-01-02T00:00:00Z","PwnCount":5},
+                    {"Name":"TooBig","BreachDate":"2020-01-01","AddedDate":"2020-01-02T00:00:00Z","PwnCount":100000000001}]"""
+        val p = HibpCatalogue.parse(j.toByteArray(), fetched)
+        assertEquals(listOf("Big", "Ok"), p.rows.map { it.name })
+        assertEquals(1, p.skipped)
+        val bytes = CatalogueFile.write(p.rows, CatalogueMeta(Catalogue.ATTRIBUTION, "2026-10-05T23:00:00Z", "0".repeat(64), p.skipped))
+        assertEquals(100_000_000_000L, CatalogueFile.read(bytes).rows.first().pwnCount)
+    }
+
+    @Test
     fun titleTruncated() {
         val long = HibpCatalogue.parse(fixture).rows.first { it.name == "EpsilonLongTitle" }.title
         assertEquals(Catalogue.MAX_TITLE, long.length)

@@ -450,7 +450,7 @@
     },
     {
       "value": "Ljava/net/HttpURLConnection;",
-      "note": "tunnels/updater GitHubClient and tunnels/breaches BreachClient: asks api.github.com for releases and downloads one APK, only when the user taps Check or Download; also an unused Apache commons-io reference; tunnels/breaches fetches one public breach list from haveibeenpwned.com, only when the user taps Fetch"
+      "note": "tunnels/updater GitHubClient: asks api.github.com for releases and downloads one APK, only when the user taps Check or Download; tunnels/breaches BreachClient: one GET of the public breach list from haveibeenpwned.com, only when the user taps Fetch; also an unused Apache commons-io reference"
     },
     {
       "value": "Ljava/net/Inet4Address;",
@@ -502,7 +502,7 @@
     },
     {
       "value": "Ljava/net/URL;",
-      "note": "tunnels/updater and tunnels/breaches (release API and APK download, breach list fetch, user-started) and tunnels/traffic (DNS-over-HTTPS endpoint, only if the user picked an encrypted upstream); library references in Apache commons-io, commons-lang3, kotlinx.coroutines and kotlin.io"
+      "note": "tunnels/updater (release API and APK download, user-started), tunnels/breaches (the one breach list URL, user-started) and tunnels/traffic (DNS-over-HTTPS endpoint, only if the user picked an encrypted upstream); library references in Apache commons-io, commons-lang3, kotlinx.coroutines and kotlin.io"
     },
     {
       "value": "Ljava/net/URLClassLoader;",

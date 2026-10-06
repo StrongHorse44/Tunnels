@@ -27,6 +27,17 @@ class BreachSourceTest {
     }
 
     @Test
+    fun unicodeLookalikesRefused() {
+        // Dotless i (U+0131), long s (U+017F) and the Kelvin sign (U+212A) fold onto ASCII letters in some case mappings.
+        assertFalse(BreachSource.isAllowed("https", "have\u0131beenpwned.com"))
+        assertFalse(BreachSource.isAllowed("https", "HAVE\u0130BEENPWNED.COM"))
+        assertFalse(BreachSource.isAllowed("http\u017F", "haveibeenpwned.com"))
+        assertFalse(BreachSource.isAllowed("https", "haveibeenpwned.com\u212A"))
+        assertFalse(BreachSource.isAllowed("https", "\uFF48aveibeenpwned.com")) // full-width h
+        assertTrue(BreachSource.isAllowed("HtTpS", "HAVEIBEENPWNED.COM"))
+    }
+
+    @Test
     fun suffixHostRefused() {
         for (host in listOf("api.haveibeenpwned.com", "www.haveibeenpwned.com", "evilhaveibeenpwned.com", ".haveibeenpwned.com", "com")) {
             assertFalse(host, BreachSource.isAllowed("https", host))
