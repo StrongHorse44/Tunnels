@@ -113,6 +113,25 @@ class HibpCatalogueTest {
     }
 
     @Test
+    fun domainsLinxWouldRefuseBecomeEmptyAndTheRowStays() {
+        // The B11c fuzz finding: a numeric last label and a residual `www.` must never reach the file.
+        for (bad in listOf("example.123", "1.2.3.4", "www.example", "www.", "x.example..", "www.1.2", "www.www.example")) {
+            assertEquals(bad, "", one(",\"Domain\":\"$bad\"").domain)
+        }
+        for ((input, want) in listOf(
+            "x.example" to "x.example", "WWW.X.Example." to "x.example", "www.www.forum.beta.example" to "forum.beta.example",
+            "123.example" to "123.example", "1-2.3x" to "1-2.3x", " a.example " to "a.example", "a.example." to "a.example", "www.wwwx.example" to "wwwx.example",
+        )) {
+            assertEquals(input, want, one(",\"Domain\":\"$input\"").domain)
+        }
+        assertEquals("www.www.x.example loses every www.", "x.example", one(",\"Domain\":\"www.www.x.example\"").domain)
+        // Nothing above skipped a row.
+        val p = HibpCatalogue.parse("""[{"Name":"A","Domain":"example.123","BreachDate":"2020-01-01","AddedDate":"2020-01-02T00:00:00Z","PwnCount":1}]""".toByteArray())
+        assertEquals(0, p.skipped)
+        assertEquals("", p.rows.single().domain)
+    }
+
+    @Test
     fun nonAsciiNeverFoldsIntoAsciiDomain() {
         // U+212A (Kelvin sign) lower-cases to an ASCII k, U+0130 to i + a combining dot: both must end as empty.
         assertEquals("", one(",\"Domain\":\"\u212Aayak.example\"").domain)

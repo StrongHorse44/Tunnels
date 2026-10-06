@@ -69,11 +69,15 @@ object Catalogue {
     fun dateInRange(d: LocalDate, fetchedDate: LocalDate): Boolean = !d.isBefore(MIN_DATE) && !d.isAfter(fetchedDate.plusDays(1))
 
     /**
-     * [text] if it is a valid domain for a row (ASCII, lower-case, labels of 1 to 63 of `[a-z0-9-]` neither starting nor
-     * ending with `-`, at least two labels, at most 253 characters, section 7.5), else null.
+     * [text] if it is a domain in the normalised form of section 7.5, exactly as Linx's `DomainNames.isNormalised`
+     * accepts it, else null: ASCII, lower-case, labels of 1 to 63 of `[a-z0-9-]` neither starting nor ending with `-`,
+     * at least two labels, the last label not all digits (that is an address, not a domain), no leading `www.` and no
+     * trailing dot (7.5 strips those, so a normalised name never has them), at most 253 characters. A row's domain is
+     * this or empty (section 9.2); anything else refuses the whole file in Linx, so the writer never emits it.
      */
     fun cleanDomain(text: String): String? {
         if (text.isEmpty() || text.length > 253) return null
+        if (text.startsWith("www.") || text.endsWith(".")) return null
         val labels = text.split('.')
         if (labels.size < 2) return null
         for (l in labels) {
@@ -81,6 +85,20 @@ object Catalogue {
             if (l.first() == '-' || l.last() == '-') return null
             if (l.any { it !in 'a'..'z' && it !in '0'..'9' && it != '-' }) return null
         }
+        if (labels.last().all { it in '0'..'9' }) return null
         return text
+    }
+
+    /**
+     * HIBP's `Domain` reduced to the 7.5 form, or null when no valid domain is in it: trimmed, ASCII only (checked before
+     * lower-casing, so U+212A cannot fold into a `k`), lower-case, one trailing dot and every leading `www.` stripped, then
+     * [cleanDomain]. Null means the row keeps an empty domain; it is never a reason to skip the row.
+     */
+    fun normaliseDomain(text: String): String? {
+        val t = text.trim()
+        if (t.any { it.code > 0x7f }) return null
+        var d = t.lowercase(java.util.Locale.ROOT).removeSuffix(".")
+        while (d.startsWith("www.")) d = d.removePrefix("www.")
+        return cleanDomain(d)
     }
 }

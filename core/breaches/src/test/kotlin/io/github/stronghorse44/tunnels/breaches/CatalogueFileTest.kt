@@ -119,6 +119,17 @@ class CatalogueFileTest {
     }
 
     @Test
+    fun domainsOutsideTheNormalisedFormRefused() {
+        // The reader matches Linx's: a stored domain is a fixed point of 7.5 normalisation, or empty.
+        for (bad in listOf("example.123", "1.2.3.4", "www.alpha.example", "www.www.alpha.example", "alpha.example.", "Alpha.example", "alpha", "-a.example", "a-.example", "a..example", "a_b.example")) {
+            refused(example.replace("\talpha.example\t", "\t$bad\t"), "domain")
+        }
+        for (ok in listOf("123.example", "xn--bcher-kva.example", "a.b.c.d.example", "wwwx.example", "www-x.example", "1-2.3x")) {
+            CatalogueFile.read(example.replace("\talpha.example\t", "\t$ok\t").toByteArray())
+        }
+    }
+
+    @Test
     fun badDateRefused() {
         refused(example.replace("2021-03-01", "2021-02-30"))
         refused(example.replace("2021-03-01", "2021-3-1"))
