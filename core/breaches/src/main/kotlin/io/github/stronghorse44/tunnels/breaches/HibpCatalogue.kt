@@ -80,7 +80,7 @@ object HibpCatalogue {
         }
         val domain = when (val d = o["Domain"]) {
             null -> ""
-            is String -> normaliseDomain(d)?.let(Catalogue::cleanDomain) ?: ""
+            is String -> Catalogue.normaliseDomain(d) ?: ""
             else -> return null
         }
         val classes = when (val c = o["DataClasses"]) {
@@ -111,18 +111,6 @@ object HibpCatalogue {
         } catch (_: DateTimeException) {
         }
         return Catalogue.date(text)
-    }
-
-    /**
-     * Lower-case, one leading `www.` and a trailing dot stripped (section 7.5); null for anything with a non-ASCII
-     * character, checked before lower-casing so U+212A (Kelvin sign) cannot fold into a `k`.
-     */
-    private fun normaliseDomain(text: String): String? {
-        val t = text.trim()
-        if (t.any { it.code > 0x7f }) return null
-        var d = t.lowercase(java.util.Locale.ROOT)
-        if (d.startsWith("www.")) d = d.removePrefix("www.")
-        return d.removeSuffix(".")
     }
 
     /** Control characters (C0, DEL, C1) become spaces, runs of spaces one, unpaired surrogates U+FFFD; trimmed. */
