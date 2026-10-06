@@ -29,6 +29,16 @@ class FolderScannerTest {
     }
 
     @Test
+    fun linxBundlesAreRecognisedAsLinx() {
+        assertEquals("Linx", BackupApps.nameOf("linx"))
+        assertEquals(listOf("io.github.stronghorse44.linx"), BackupApps.byId("linx")?.packages)
+        val m = Fixtures.Memory().file("linx-20261006-120000Z.fwx", bundle("linx", 4))
+        val s = FolderScanner.scan(m, now)
+        assertEquals(setOf("linx"), s.apps.keys)
+        assertEquals(now - 4 * day, s.apps.getValue("linx").newestMs)
+    }
+
+    @Test
     fun unknownAppsAreOtherAndFilesWithoutTheExtensionAreNeverOpened() {
         val m = Fixtures.Memory()
             .file("x.fwx", bundle("someapp", 2))

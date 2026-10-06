@@ -58,7 +58,8 @@ class ObservationsTest {
         assertEquals(AppStatus.STALE, lumen.status)
         assertTrue(lumen.tracked)
         assertEquals(40L, lumen.ageDays)
-        assertEquals(7, v.apps.size)
+        assertEquals(BackupApps.all.size, v.apps.size)
+        assertTrue(v.apps.any { it.app.id == "linx" })
         assertEquals(null, v.apps.first { it.app.id == "southbound" }.status)
     }
 }
