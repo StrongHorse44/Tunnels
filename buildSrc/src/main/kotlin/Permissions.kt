@@ -19,9 +19,11 @@ object Permissions {
 
     /**
      * Module directories (relative to the repo root) whose allowlist may contain INTERNET: the Traffic and Home
-     * network sessions and the updater's user-started checks and downloads (approved 2026-10-01).
+     * network sessions and the updater's user-started checks and downloads (approved 2026-10-01), and the breach
+     * list fetch (approved 2026-10-03, RJ's Q7): one user-started download of the public list from
+     * haveibeenpwned.com, held in memory and handed to Linx.
      */
-    val internetAllowedIn = setOf("tunnels/traffic", "tunnels/homenet", "tunnels/updater")
+    val internetAllowedIn = setOf("tunnels/traffic", "tunnels/homenet", "tunnels/updater", "tunnels/breaches")
 
     private val usesPermission = Regex("""<uses-permission(?:-sdk-23)?\b[^>]*?android:name\s*=\s*"([^"]+)"""")
 

@@ -119,6 +119,7 @@ dependencies {
     implementation(project(":tunnels:homenet"))
     implementation(project(":tunnels:deepmode"))
     implementation(project(":tunnels:updater"))
+    implementation(project(":tunnels:breaches"))
     implementation(project(":tunnels:crossroads"))
     implementation(project(":tunnels:watch"))
     implementation(project(":tunnels:devicecheck"))

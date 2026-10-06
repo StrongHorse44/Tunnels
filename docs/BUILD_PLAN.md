@@ -35,6 +35,7 @@ compile and test locally.
 | 5 | `tunnels:homenet` (INTERNET allowed) | `core:lan` | home_network |
 | 6 | `tunnels:deepmode` | `core:posture` (B07: the posture allowlist, parser, readings, rules; also read by `core:devicecheck`) | deep_mode |
 | — | `tunnels:updater` (INTERNET allowed: user-started update checks) | `core:updates` | — |
+| — | `tunnels:breaches` (INTERNET allowed: user-started breach list for Linx) | `core:breaches` | — |
 | — | `tunnels:crossroads` (derived: joins other tunnels, no system reads) | `core:crossrules` | crossroads |
 | — | `tunnels:watch` (findings inbox, background checks, notification) | `core:watchrules` | — |
 | — | `tunnels:devicecheck` (device checks screen) | `core:devicecheck` | — |
@@ -69,7 +70,7 @@ Shared, lead-owned: `core:model`, `core:engine`, `core:store`, `core:common`, `c
 
 Each Android module has a `permissions.allow` file: the permissions its manifest may declare, one
 per line. `./gradlew verifyPermissions` fails if a module declares anything else, if INTERNET
-appears outside `tunnels/traffic`, `tunnels/homenet` and `tunnels/updater`, or if the app's merged
+appears outside `tunnels/traffic`, `tunnels/homenet`, `tunnels/updater` and `tunnels/breaches`, or if the app's merged
 manifest contains a permission no module allows. `scripts/check-apk-permissions.sh` repeats the check
 on the APK.
 

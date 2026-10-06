@@ -44,6 +44,7 @@ include(
     ":core:pairing",
     ":core:backups",
     ":core:posture",
+    ":core:breaches",
     ":tunnels:installer",
     ":tunnels:unzip",
     ":tunnels:permissions",
@@ -67,4 +68,5 @@ include(
     ":tunnels:devicecheck",
     ":tunnels:pairing",
     ":tunnels:backups",
+    ":tunnels:breaches",
 )

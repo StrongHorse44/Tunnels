@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Declare only what permissions.allow lists. -->
+    <!-- The public breach list: one request, when the user taps Fetch (RJ, Q7). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application>
+        <!-- Fetch the public breach list and hand it to Linx. Reached from the home screen; not exported. -->
+        <activity
+            android:name=".BreachActivity"
+            android:exported="false"
+            android:label="Breach list for Linx"
+            android:theme="@style/Theme.Tunnels" />
+
+        <!-- Serves the fetched list, from memory, to Linx alone: one content:// address per fetch, granted to Linx
+             by the send intent. Not exported; nothing else can open it. -->
+        <provider
+            android:name=".BreachShareProvider"
+            android:authorities="${applicationId}.breaches"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+    </application>
+</manifest>

@@ -60,6 +60,12 @@
 > phone used there (the Q6 exception to rules 3 and 4: no coordinate, raw cell identity, timestamp or order; 64 places, capped
 > sets, until cleared). A never-seen cell at a place scanned four times or more, with a second signal, is a NOTICE worded as a
 > possible network change. Off until RJ taps "Start the cell logbook"; manual scans only; not exported; no new permission.
+> **Breach list for Linx (2026-10, B11-T):** a fourth network module, `tunnels/breaches` (rule 1, RJ's Q7): on a tap, "breaches ›"
+> on the home console downloads the public Have I Been Pwned breach list (one HTTPS request to the one host, a User-Agent and no
+> account, address, domain or key; CC BY 4.0), reduces it to names, titles, domains, dates, counts, flags and data classes, holds
+> it in memory only (ten minutes, or three hand-overs) and hands it to Linx on the same phone through a `content://` address
+> served from memory, with an explicit-package send. No file is written anywhere (rules 2, 3 and 5 are untouched). One new
+> component (the share provider, not exported), no new permission at APK level, no new dependency. See [BREACHES.md](BREACHES.md).
 
 ## Instructions for Claude Code
 This is the full spec for Tunnels, a native Android app for my GrapheneOS Pixel 10.

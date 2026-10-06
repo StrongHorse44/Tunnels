@@ -5,12 +5,15 @@ Full spec: `docs/HANDOFF.md`. Read it before starting work.
 
 ## Hard rules (never violate)
 
-1. **No network egress, except three modules.** Only `tunnels/traffic` and `tunnels/homenet`
-   (approved 2026-10-01 for user-started sessions) and `tunnels/updater` (approved 2026-10-01
+1. **No network egress, except four modules.** Only `tunnels/traffic` and `tunnels/homenet`
+   (approved 2026-10-01 for user-started sessions), `tunnels/updater` (approved 2026-10-01
    for user-started update checks and downloads from the project's own GitHub releases, nothing
-   else) may declare `android.permission.INTERNET`. Every other module's manifest is checked
+   else) and `tunnels/breaches` (approved 2026-10-03, RJ's Q7: a user-started download of the public breach
+   list from haveibeenpwned.com over HTTPS, one request carrying no account, address, domain or key, nothing
+   else; the list is held in memory, handed to Linx on the same phone and never written to storage) may
+   declare `android.permission.INTERNET`. Every other module's manifest is checked
    against its `permissions.allow` file and CI fails the build on any permission not listed
-   there. Do not add dependencies that open sockets outside those three modules, and never work
+   there. Do not add dependencies that open sockets outside those four modules, and never work
    around a missing permission. The GrapheneOS Network toggle stays off outside a session.
 2. **Nothing leaves the device.** No analytics, crash reporting, telemetry,
    cloud sync, ads, remote config, or any SDK that phones home (no Firebase,
