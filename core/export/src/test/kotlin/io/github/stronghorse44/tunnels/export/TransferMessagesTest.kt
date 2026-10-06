@@ -27,6 +27,7 @@ class TransferMessagesTest {
         assertEquals("The export is damaged or incomplete. Nothing was changed.", msg(FwxError.DAMAGED))
         assertEquals("The export's contents are invalid. Nothing was changed.", msg(FwxError.MALFORMED_PAYLOAD))
         assertEquals("This is a Prikey export, not a Tunnels export. Nothing was changed.", msg(FwxError.WRONG_APP, "prikey"))
+        assertEquals("This is a Linx export, not a Tunnels export. Nothing was changed.", msg(FwxError.WRONG_APP, "linx"))
         assertEquals("This is a Mardi Gras export, not a Tunnels export. Nothing was changed.", msg(FwxError.WRONG_APP, "mardigras"))
         assertEquals("This is another app's export, not a Tunnels export. Nothing was changed.", msg(FwxError.WRONG_APP, "x-unknown"))
         assertEquals("Made by a newer version of Tunnels. Update first. Nothing was changed.", msg(FwxError.SCHEMA_TOO_NEW))

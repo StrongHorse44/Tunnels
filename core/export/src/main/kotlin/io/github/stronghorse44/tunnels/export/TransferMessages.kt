@@ -47,6 +47,7 @@ object TransferMessages {
         "pusher" -> "Pusher"
         "pusher-server" -> "Pusher server backup"
         "prikey" -> "Prikey"
+        "linx" -> "Linx"
         else -> "another app's"
     }
 
