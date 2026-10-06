@@ -58,7 +58,9 @@ class ObservationsTest {
         assertEquals(AppStatus.STALE, lumen.status)
         assertTrue(lumen.tracked)
         assertEquals(40L, lumen.ageDays)
-        assertEquals(BackupApps.all.size, v.apps.size)
+        // The view has one row per registry entry, so pin the registry itself: dropping or adding an app fails here.
+        assertEquals(listOf("tunnels", "lumen", "southbound", "mardigras", "pusher", "pusher-server", "prikey", "linx"), BackupApps.all.map { it.id })
+        assertEquals(BackupApps.all.map { it.id }, v.apps.map { it.app.id })
         assertTrue(v.apps.any { it.app.id == "linx" })
         assertEquals(null, v.apps.first { it.app.id == "southbound" }.status)
     }

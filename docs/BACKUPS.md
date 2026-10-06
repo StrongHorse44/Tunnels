@@ -24,7 +24,7 @@ let the header be read, and that would happen in the background check too. Pick 
 
 | Found | Shown as |
 |---|---|
-| `app_id` in the registry (`tunnels`, `lumen`, `southbound`, `mardigras`, `pusher`, `pusher-server`, `prikey`) | that app, newest header time and file count |
+| `app_id` in the registry (`tunnels`, `lumen`, `southbound`, `mardigras`, `pusher`, `pusher-server`, `prikey`, `linx`) | that app, newest header time and file count |
 | any other app ID | **other**: a count and the newest time, never the ID or the name |
 | old `TSNAPE1` Tunnels export | Tunnels, "old format", with the file's own last-modified date (it has no header date) |
 | a header dated more than a day ahead of the clock | **suspicious**, never counted as fresh (a planted file cannot hide a stale backup) |
