@@ -60,6 +60,7 @@ import io.github.stronghorse44.tunnels.common.GlassColors
 import io.github.stronghorse44.tunnels.common.GlassPanel
 import io.github.stronghorse44.tunnels.common.StratumColors
 import io.github.stronghorse44.tunnels.common.WellView
+import io.github.stronghorse44.tunnels.convert.ConvertActivity
 import io.github.stronghorse44.tunnels.common.rememberReducedMotion
 import io.github.stronghorse44.tunnels.metro.Depth
 import io.github.stronghorse44.tunnels.metro.Well
@@ -90,6 +91,7 @@ fun WellHome(
     onOpenTunnel: (String) -> Unit,
     onOpenUpdates: () -> Unit = {},
     onOpenBreaches: () -> Unit = {},
+    onOpenConvert: () -> Unit = {},
     onOpenFindings: () -> Unit = {},
     onOpenChecks: () -> Unit = {},
 ) {
@@ -112,6 +114,9 @@ fun WellHome(
     }
     val lastUnzip by produceState<EventEntity?>(null, store) {
         store?.events(TunnelCatalog.UNZIP, 1)?.collect { value = it.firstOrNull() }
+    }
+    val lastConvert by produceState<EventEntity?>(null, store) {
+        store?.events(ConvertActivity.STREAM, 1)?.collect { value = it.firstOrNull() }
     }
 
     val liveIds = runtime?.registry?.modules?.keys.orEmpty()
@@ -146,7 +151,7 @@ fun WellHome(
             Spacer(Modifier.height(12.dp))
             FindingsConsole(summaries.values, onOpenFindings, onOpenChecks)
             Spacer(Modifier.height(12.dp))
-            Console(version, netOn, keyLevel, lastInstall, lastUnzip, onOpenUpdates, onOpenBreaches)
+            Console(version, netOn, keyLevel, lastInstall, lastUnzip, lastConvert, onOpenUpdates, onOpenBreaches, onOpenConvert)
             Spacer(Modifier.navigationBarsPadding().height(12.dp))
         }
     }
@@ -302,7 +307,17 @@ private fun GaugeGroup(
 }
 
 @Composable
-private fun Console(version: String, netOn: Boolean, keyLevel: String, lastInstall: EventEntity?, lastUnzip: EventEntity?, onOpenUpdates: () -> Unit, onOpenBreaches: () -> Unit) {
+private fun Console(
+    version: String,
+    netOn: Boolean,
+    keyLevel: String,
+    lastInstall: EventEntity?,
+    lastUnzip: EventEntity?,
+    lastConvert: EventEntity?,
+    onOpenUpdates: () -> Unit,
+    onOpenBreaches: () -> Unit,
+    onOpenConvert: () -> Unit,
+) {
     val context = LocalContext.current
     GlassPanel(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -311,6 +326,12 @@ private fun Console(version: String, netOn: Boolean, keyLevel: String, lastInsta
             ConsoleLine("store", "SQLCipher · $keyLevel")
             lastInstall?.let { ConsoleLine("install", it.summary) }
             lastUnzip?.let { ConsoleLine("unzip", it.subject) }
+            lastConvert?.let { ConsoleLine("convert", it.summary) }
+            Row {
+                Spacer(Modifier.weight(1f))
+                // Files: offline converter (RTF, Word, ODT, text, images to PDF; PDF to images).
+                TextButton(onClick = onOpenConvert) { Text("convert ›", fontFamily = Mono, color = StratumColors.of(Stratum.TOPSOIL)) }
+            }
             Row {
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = onOpenUpdates) { Text("update ›", fontFamily = Mono, color = StratumColors.of(Stratum.BEDROCK)) }

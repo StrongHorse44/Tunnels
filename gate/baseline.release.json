@@ -84,6 +84,37 @@
     },
     {
       "type": "activity",
+      "name": "io.github.stronghorse44.tunnels.convert.ConvertActivity",
+      "exported": true,
+      "permission": null,
+      "read_permission": null,
+      "write_permission": null,
+      "grant_uri_permissions": null,
+      "authorities": [],
+      "foreground_service_type": null,
+      "actions": [
+        "android.intent.action.SEND",
+        "android.intent.action.VIEW"
+      ],
+      "categories": [
+        "android.intent.category.DEFAULT"
+      ],
+      "data": [
+        "mimeType=application/pdf",
+        "mimeType=application/rtf",
+        "mimeType=application/vnd.oasis.opendocument.text",
+        "mimeType=application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "mimeType=image/heic",
+        "mimeType=image/jpeg",
+        "mimeType=image/png",
+        "mimeType=image/webp",
+        "mimeType=text/plain",
+        "mimeType=text/rtf",
+        "scheme=content"
+      ]
+    },
+    {
+      "type": "activity",
       "name": "io.github.stronghorse44.tunnels.installer.InstallActivity",
       "exported": true,
       "permission": null,

@@ -70,6 +70,9 @@ everything, so uninstall wipes all data and nothing goes to cloud backup.
 - `core:breaches` + `tunnels:breaches` the breach list for Linx (user-started fetch of the public Have I Been Pwned
   list, INTERNET allowed; held in memory only and handed to Linx through a not-exported content provider; rule 1,
   `docs/BREACHES.md`)
+- `core:convert` + `tunnels:convert` offline file converter (RTF/DOCX/ODT/text readers, format detection, page geometry in
+  plain Kotlin; PDF writing and rendering with the platform's `PdfDocument`/`PdfRenderer`; no permission, opened from the
+  home console)
 - `core:crossrules` + `tunnels:crossroads` Crossroads, a derived tunnel (joins other tunnels' data; a bead in the well)
 - `core:watchrules` + `tunnels:watch` findings inbox and opt-in background checks (JobScheduler, offline tunnels only)
 - `core:devicecheck` + `tunnels:devicecheck` device checks: confirms on the phone the readings Tunnels relies on
