@@ -331,7 +331,7 @@ jobs:
           disk-size: 4096M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: ./gradlew --no-daemon $VERIFY :app:connectedDebugAndroidTest :core:runtime:connectedDebugAndroidTest :tunnels:updater:connectedDebugAndroidTest :tunnels:crossroads:connectedDebugAndroidTest :tunnels:watch:connectedDebugAndroidTest :tunnels:devicecheck:connectedDebugAndroidTest :tunnels:pairing:connectedDebugAndroidTest
+          script: ./gradlew --no-daemon $VERIFY :app:connectedDebugAndroidTest :core:runtime:connectedDebugAndroidTest :tunnels:updater:connectedDebugAndroidTest :tunnels:crossroads:connectedDebugAndroidTest :tunnels:watch:connectedDebugAndroidTest :tunnels:devicecheck:connectedDebugAndroidTest :tunnels:pairing:connectedDebugAndroidTest :tunnels:convert:connectedDebugAndroidTest
 
       # The test APK carries AndroidX test components and permissions, so this checks gate.py's manifest
       # reading against aapt2 on a real APK that has them.

@@ -103,6 +103,7 @@ dependencies {
     implementation(project(":core:runtime"))
     implementation(project(":tunnels:installer"))
     implementation(project(":tunnels:unzip"))
+    implementation(project(":tunnels:convert"))
     implementation(project(":tunnels:permissions"))
     implementation(project(":tunnels:apk"))
     implementation(project(":tunnels:hardening"))

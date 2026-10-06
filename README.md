@@ -14,6 +14,7 @@ network, the updater and the breach list fetch for Linx), used only during sessi
 | --- | --- | --- |
 | Files | Installer | Inspect an APK or bundle before installing: signer vs installed copy, ABI, SDK levels, real failure reasons |
 | Files | Unzip | zip (incl. password), 7z, tar, tar.gz/xz/bz2, gz, xz, bz2; zip-slip and archive-bomb guards |
+| Files | Convert | Offline file converter (home console, "convert ›"): RTF, Word (.docx), OpenDocument (.odt) and plain text to PDF or text; PDF to PNG or JPEG pages; PNG, JPEG, WebP and HEIC to PDF or another image format. No new dependency or permission; old .doc is refused with a hint |
 | Files | Backups | Watches the folder you keep your exports in: reads only each bundle's plaintext header (never a passphrase) to find when each app's newest export was made, flags one that is older than your limit or gone, with "Open <app>"; reminds you to do a restore drill every 90 days. See [docs/BACKUPS.md](docs/BACKUPS.md) |
 | Inspect | Permissions | Declared vs granted per app, GrapheneOS Network/Sensors toggles, risky combinations, changes since last scan |
 | Inspect | APK excavation | 167-SDK curated tracker catalog matched in each app's dex, signing certs with lineage, installer, native ABIs |

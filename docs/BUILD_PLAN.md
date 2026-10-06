@@ -36,6 +36,7 @@ compile and test locally.
 | 6 | `tunnels:deepmode` | `core:posture` (B07: the posture allowlist, parser, readings, rules; also read by `core:devicecheck`) | deep_mode |
 | — | `tunnels:updater` (INTERNET allowed: user-started update checks) | `core:updates` | — |
 | — | `tunnels:breaches` (INTERNET allowed: user-started breach list for Linx) | `core:breaches` | — |
+| — | `tunnels:convert` (file converter, opened from the home console; no permission) | `core:convert` (RTF, DOCX, ODT and text readers, format detection, conversion table, pagination) | — |
 | — | `tunnels:crossroads` (derived: joins other tunnels, no system reads) | `core:crossrules` | crossroads |
 | — | `tunnels:watch` (findings inbox, background checks, notification) | `core:watchrules` | — |
 | — | `tunnels:devicecheck` (device checks screen) | `core:devicecheck` | — |

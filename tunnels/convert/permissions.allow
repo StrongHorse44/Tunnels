@@ -1,0 +1,2 @@
+# Permissions the convert module may declare, one per line. CI fails on anything else.
+# None: files arrive by intent grant or the system file picker, and results go where the user picks (SAF).
