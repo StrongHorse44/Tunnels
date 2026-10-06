@@ -5,8 +5,8 @@ layer is a *tunnel*; every security finding comes with an action. Home screen: a
 one lit ring per stratum with each tunnel a bead on its ring; the app grows darker the deeper you go.
 
 **No network egress by design.** CI fails the build if any module declares a permission outside its own
-`permissions.allow`, and `android.permission.INTERNET` is allowed in exactly three modules (Traffic, Home
-network and the updater), used only during sessions you start. The built APK is audited again with `aapt2`.
+`permissions.allow`, and `android.permission.INTERNET` is allowed in exactly four modules (Traffic, Home
+network, the updater and the breach list fetch for Linx), used only during sessions or taps you start. The built APK is audited again with `aapt2`.
 
 ## Tunnels
 

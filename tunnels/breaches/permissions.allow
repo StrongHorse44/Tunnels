@@ -1,0 +1,5 @@
+# Permissions the breaches module may declare, one per line. CI fails on anything else.
+# INTERNET is approved here (and in tunnels/traffic, tunnels/homenet and tunnels/updater) only: one user-started
+# request for the public breach list at haveibeenpwned.com (RJ, Q7). No account, address, domain or key is sent;
+# the list is kept in memory and handed to Linx on this phone.
+android.permission.INTERNET

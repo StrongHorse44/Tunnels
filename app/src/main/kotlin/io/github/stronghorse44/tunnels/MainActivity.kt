@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import io.github.stronghorse44.tunnels.breaches.BreachActivity
 import io.github.stronghorse44.tunnels.common.TunnelsTheme
 import io.github.stronghorse44.tunnels.devicecheck.DeviceChecksActivity
 import io.github.stronghorse44.tunnels.installer.InstallActivity
@@ -31,6 +32,7 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     onOpenUpdates = { startActivity(UpdateActivity.intent(this)) },
+                    onOpenBreaches = { startActivity(BreachActivity.intent(this)) },
                     onOpenFindings = { startActivity(InboxActivity.intent(this)) },
                     onOpenChecks = { startActivity(DeviceChecksActivity.intent(this)) },
                 )

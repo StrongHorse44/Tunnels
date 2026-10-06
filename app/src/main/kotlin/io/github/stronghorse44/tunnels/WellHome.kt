@@ -89,6 +89,7 @@ const val SNAPSHOTS_ACTION = "io.github.stronghorse44.tunnels.action.SNAPSHOTS"
 fun WellHome(
     onOpenTunnel: (String) -> Unit,
     onOpenUpdates: () -> Unit = {},
+    onOpenBreaches: () -> Unit = {},
     onOpenFindings: () -> Unit = {},
     onOpenChecks: () -> Unit = {},
 ) {
@@ -145,7 +146,7 @@ fun WellHome(
             Spacer(Modifier.height(12.dp))
             FindingsConsole(summaries.values, onOpenFindings, onOpenChecks)
             Spacer(Modifier.height(12.dp))
-            Console(version, netOn, keyLevel, lastInstall, lastUnzip, onOpenUpdates)
+            Console(version, netOn, keyLevel, lastInstall, lastUnzip, onOpenUpdates, onOpenBreaches)
             Spacer(Modifier.navigationBarsPadding().height(12.dp))
         }
     }
@@ -301,7 +302,7 @@ private fun GaugeGroup(
 }
 
 @Composable
-private fun Console(version: String, netOn: Boolean, keyLevel: String, lastInstall: EventEntity?, lastUnzip: EventEntity?, onOpenUpdates: () -> Unit) {
+private fun Console(version: String, netOn: Boolean, keyLevel: String, lastInstall: EventEntity?, lastUnzip: EventEntity?, onOpenUpdates: () -> Unit, onOpenBreaches: () -> Unit) {
     val context = LocalContext.current
     GlassPanel(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -313,6 +314,7 @@ private fun Console(version: String, netOn: Boolean, keyLevel: String, lastInsta
             Row {
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = onOpenUpdates) { Text("update ›", fontFamily = Mono, color = StratumColors.of(Stratum.BEDROCK)) }
+                TextButton(onClick = onOpenBreaches) { Text("breaches ›", fontFamily = Mono, color = StratumColors.of(Stratum.BEDROCK)) }
                 TextButton(onClick = {
                     val intent = Intent(SNAPSHOTS_ACTION).setPackage(context.packageName)
                     if (context.packageManager.resolveActivity(intent, 0) != null) context.startActivity(intent)
@@ -337,8 +339,8 @@ private fun versionName(context: Context): String = runCatching {
 
 /**
  * Whether this app may reach the network right now. INTERNET is declared only for the Traffic and Home
- * network sessions and the updater's checks (rule #1); GrapheneOS's Network toggle revokes it, which is what
- * this reads.
+ * network sessions, the updater's checks and the breach list fetch (rule #1); GrapheneOS's Network toggle
+ * revokes it, which is what this reads.
  */
 private fun networkAllowed(context: Context): Boolean =
     context.checkSelfPermission(Manifest.permission.INTERNET) == PackageManager.PERMISSION_GRANTED
