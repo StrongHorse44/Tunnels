@@ -21,6 +21,7 @@ object BackupApps {
         BackupApp("pusher", "Pusher", listOf("com.stronghorse44.pusher")),
         BackupApp("pusher-server", "Pusher server"),
         BackupApp("prikey", "Prikey", listOf("io.github.stronghorse44.prikey")),
+        BackupApp("linx", "Linx", listOf("io.github.stronghorse44.linx")),
     )
 
     fun byId(id: String): BackupApp? = all.firstOrNull { it.id == id }
