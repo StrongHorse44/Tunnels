@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.net.wifi.WifiManager
 import android.os.ParcelUuid
+import android.os.SystemClock
 import android.telephony.CellInfo
 import android.telephony.CellIdentityGsm
 import android.telephony.CellIdentityLte
@@ -187,11 +188,19 @@ object BleWindow {
     }
 }
 
-data class WifiProbeResult(val available: String, val summaries: List<WifiSummary>)
+/**
+ * [summaries] are what the Wi-Fi check keeps. [fresh] are the access points of a scan that finished within
+ * [WifiProbe.FRESH_MS], with their addresses, **in memory only**: the caller turns them into keyed ids
+ * ([WifiSightings]) and drops them. Older cached results are left out of [fresh] so one scan is never counted twice.
+ */
+data class WifiProbeResult(val available: String, val summaries: List<WifiSummary>, val fresh: List<WifiNetwork> = emptyList())
 
 /** Reads the cached Wi-Fi scan results (one fresh scan is requested first, within Android's throttle) and summarises them. */
 object WifiProbe {
     private const val REDACTED_BSSID = "02:00:00:00:00:00"
+
+    /** A scan result counts for the sightings when the access point was last heard this recently. */
+    const val FRESH_MS = 3 * 60_000L
 
     /** Asks for a fresh scan. Android throttles this; a refused request just means the cache is used. */
     fun requestScan(context: Context) {
@@ -221,18 +230,23 @@ object WifiProbe {
             return WifiProbeResult(SurroundingsKeys.AVAILABLE_FAILED, emptyList())
         }
         val (currentBssid, currentSubject) = current(wifi)
+        // ScanResult.timestamp is microseconds since boot, when the access point was last heard.
+        val freshSince = SystemClock.elapsedRealtimeNanos() / 1_000 - FRESH_MS * 1_000
+        val fresh = ArrayList<WifiNetwork>()
         val networks = results.mapNotNull { r ->
             try {
                 val bssid = r.BSSID ?: return@mapNotNull null
                 val subject = WifiHeuristics.subjectOf(ssidOf(r))
                 val isCurrent = (currentBssid != null && bssid.equals(currentBssid, ignoreCase = true)) ||
                     (currentBssid == null && currentSubject != null && currentSubject != WifiHeuristics.HIDDEN && subject == currentSubject)
-                WifiNetwork(subject, bssid, r.capabilities, r.frequency, isCurrent)
+                WifiNetwork(subject, bssid, r.capabilities, r.frequency, isCurrent).also {
+                    if (r.timestamp >= freshSince && !bssid.equals(REDACTED_BSSID, ignoreCase = true)) fresh += it
+                }
             } catch (_: Exception) {
                 null
             }
         }
-        return WifiProbeResult(SurroundingsKeys.AVAILABLE_YES, WifiHeuristics.summarise(networks))
+        return WifiProbeResult(SurroundingsKeys.AVAILABLE_YES, WifiHeuristics.summarise(networks), fresh)
     }
 
     private fun ssidOf(r: android.net.wifi.ScanResult): String? {

@@ -27,6 +27,11 @@ Full spec: `docs/HANDOFF.md`. Read it before starting work.
    best-radio-generation digit per place and an 8-hex fingerprint of the key (OQ74).
    The key is an HMAC key in the Android keystore that never leaves it. Never a coordinate,
    a raw cell identity, a timestamp or an order of visits.
+   Second exception, Wi-Fi sightings (RJ, 2026-10-10): Surroundings may keep, for each Wi-Fi scan
+   and for the 30-day event retention, the scan's time and place number and, per access point
+   heard, a keyed hash of its address (same keystore key) with the network name it broadcast.
+   RJ chose to keep the names knowing that timestamped names amount to a coarse location trail.
+   Never an address or a coordinate.
 4. **Short retention.** Events expire after 30 days. Keep the last 12 snapshots
    plus pinned ones. Enforce in code, not by convention. The hashed sets allowed under
    rule 3 (the hashed sets, the digit and the fingerprint) are the one exception: they last

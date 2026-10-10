@@ -70,7 +70,7 @@ import kotlinx.coroutines.launch
 
 private val line: Color get() = LineColors.of(MetroLine.NETWORK)
 
-/** Live scan readout, the cell logbook, the background-monitor switch with its opt-in text, the tracker section with per-identity detail, and the guide. */
+/** Live scan readout, the cell logbook, the background-monitor switch with its opt-in text, the tracker section with per-identity detail, Wi-Fi over time, and the guide. */
 @Composable
 fun SurroundingsPanel(state: TunnelScreenState, actions: TunnelScreenActions) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -78,6 +78,7 @@ fun SurroundingsPanel(state: TunnelScreenState, actions: TunnelScreenActions) {
         CellLogbookCard(state)
         MonitorCard(actions)
         TrackerSection(state, actions)
+        WifiOverTimeSection(state, actions)
         GuideCard()
     }
 }
@@ -95,7 +96,7 @@ private fun LiveCard(state: TunnelScreenState) {
             } else if (obs.isEmpty()) {
                 Text(
                     "A scan listens for Bluetooth trackers for ${SurroundingsTunnel.BLE_WINDOW_MS / 1000} seconds, reads the Wi-Fi networks in " +
-                        "range and the cell the phone is on. Only counts, names and kinds are kept: no addresses, no positions.",
+                        "range and the cell the phone is on. Only counts, names, kinds and keyed hashes are kept: no addresses, no positions.",
                     style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
                 )
             }

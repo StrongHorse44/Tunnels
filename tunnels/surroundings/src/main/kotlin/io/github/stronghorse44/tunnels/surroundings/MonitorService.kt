@@ -124,25 +124,30 @@ class MonitorService : Service() {
                         return@launch
                     }
                     val session = "monitor-$now"
+                    val wifiDue = now - lastWifiCellAt >= WIFI_CELL_INTERVAL_MS
+                    // Asked for before the window, so the results read after it are fresh enough to count as this scan's.
+                    if (wifiDue) withContext(Dispatchers.IO) { WifiProbe.requestScan(this@MonitorService) }
                     // Probes are binder calls and waits; keep them off the main thread the service lives on. The place
                     // fix runs during the window, so a tag seen before and after a move is told from one next door.
-                    val ble = withContext(Dispatchers.IO) {
+                    val (ble, placeNumber) = withContext(Dispatchers.IO) {
                         coroutineScope {
                             val place = async { SurroundingsTunnel.placeOf(this@MonitorService, BLE_WINDOW_MS) }
                             val window = withTimeoutOrNull(BLE_WINDOW_MS + GRACE_MS) {
                                 BleWindow.scan(this@MonitorService, session, BLE_WINDOW_MS, filters = TrackerSignatures.scanFilters)
                             }
                             val at = place.await().place
-                            window?.copy(sightings = window.sightings.map { it.copy(place = at) })
+                            window?.copy(sightings = window.sightings.map { it.copy(place = at) }) to at
                         }
                     }
                     var cell: CellSummary? = null
                     var twins: List<WifiSummary> = emptyList()
-                    if (now - lastWifiCellAt >= WIFI_CELL_INTERVAL_MS) {
+                    if (wifiDue) {
                         lastWifiCellAt = now
                         withContext(Dispatchers.IO) {
-                            WifiProbe.requestScan(this@MonitorService)
-                            twins = runCatching { WifiProbe.read(this@MonitorService).summaries.filter { it.twinSuspect != null } }.getOrDefault(emptyList())
+                            val wifi = runCatching { WifiProbe.read(this@MonitorService) }.getOrNull()
+                            twins = wifi?.summaries?.filter { it.twinSuspect != null }.orEmpty()
+                            // Access points over time: one row of keyed ids and names, judged at the next manual scan.
+                            wifi?.let { WifiSightings.recordOf(session, now, placeNumber, it.fresh) }?.let { WifiSightings.record(this@MonitorService, it) }
                             cell = runCatching { withTimeoutOrNull(CELL_TIMEOUT_MS) { CellProbe.read(this@MonitorService) }?.cell }.getOrNull()
                         }
                     }

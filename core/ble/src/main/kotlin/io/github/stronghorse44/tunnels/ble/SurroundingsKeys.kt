@@ -21,6 +21,17 @@ object SurroundingsKeys {
     const val MUTE_LEDGER = "surroundings.mutes"
     /** Mute rows read from [MUTE_LEDGER]: one per user tap, so a few hundred cover 30 days with room to spare. */
     const val MAX_MUTE_ROWS = 2_000
+    /**
+     * The events stream of Wi-Fi scans ([WifiScanRecord], kind [EVENT_WIFI_SCAN], subject the session), apart from the
+     * Bluetooth sightings: a home with thirty access points and the monitor's ten-minute scans would otherwise crowd
+     * the sightings out of their bounded read, and the other way round.
+     */
+    const val WIFI_LEDGER = "surroundings.wifi"
+    const val EVENT_WIFI_SCAN = "wifi.scan"
+    /** Wi-Fi scan rows read back: the monitor's ten-minute scans for 30 days are about 4,300, plus manual scans. */
+    const val MAX_WIFI_ROWS = 6_000
+    /** The settings row holding the user's Wi-Fi threshold in scans ([WifiFollowing.threshold]). */
+    const val WIFI_THRESHOLD_SETTING = "surroundings.wifi.threshold"
     const val EVENT_MONITOR = "monitor"
     /** One find-it session: `minutes=3;closest=-48;type=findmy`. Nothing else of the session is kept. */
     const val EVENT_FINDIT = "findit.session"
@@ -103,6 +114,33 @@ object SurroundingsKeys {
     const val WIFI_CURRENT = "wifi:current"
     const val WIFI_TWIN = "wifi:twinSuspect"
 
+    // Wi-Fi access points over time: summary keys on [WIFI_SUMMARY], per access point on `wifiap:<key>` subjects, and
+    // one device broadcasting many names on `wifidev:<key>` subjects. Keyed ids, names, counts and times; no address.
+    const val AP_TRACKED = "ap:tracked"
+    const val AP_REPEATED = "ap:repeated"
+    const val AP_FOLLOWING = "ap:following"
+    const val AP_THRESHOLD = "ap:threshold"
+    const val AP_UNLISTED = "ap:unlisted"
+    const val AP_NAME = "ap:name"
+    /** Distinct names the access point broadcast under one address. */
+    const val AP_NAMES = "ap:names"
+    const val AP_SESSIONS = "ap:sessions"
+    const val AP_SPAN = "ap:spanMinutes"
+    const val AP_PLACES = "ap:places"
+    /** Real moves ([WifiFollowing.realMoves]) it was seen on both sides of. */
+    const val AP_MOVES = "ap:moves"
+    const val AP_FIRST = "ap:first"
+    const val AP_LAST = "ap:last"
+    const val AP_THIS_SCAN = "ap:thisScan"
+    /** [WifiFollowing.Level] slug, judged at scan time against the threshold. */
+    const val AP_LEVEL = "ap:level"
+    const val DEV_NAMES = "dev:names"
+    const val DEV_OPEN = "dev:open"
+    /** Up to [MAX_SAMPLE_NAMES] of the device's names, comma-separated. */
+    const val DEV_SAMPLE = "dev:sample"
+    /** [ManyNames.Level] slug. */
+    const val DEV_LEVEL = "dev:level"
+
     const val CELL_AVAILABLE = "cell:available"
     const val CELL_TYPE = "cell:registeredType"
     const val CELL_OPERATOR = "cell:operator"
@@ -150,6 +188,9 @@ object SurroundingsKeys {
     const val MAX_LISTED_DEVICES = 40
     /** Network names listed one by one; more are counted in [WIFI_SUMMARY]. */
     const val MAX_LISTED_NETWORKS = 60
+    /** Access points listed one by one; flagged unmuted ones past the cap are listed too. */
+    const val MAX_LISTED_APS = 60
+    const val MAX_SAMPLE_NAMES = 6
     const val MUTE_DAYS = 30
     const val DAY_MS = 24 * 60 * 60_000L
 
@@ -311,6 +352,78 @@ object SurroundingsKeys {
             add(s.subject, WIFI_BANDS, s.bands.sorted().joinToString(","))
             add(s.subject, WIFI_CURRENT, s.current.toString())
             s.twinSuspect?.let { add(s.subject, WIFI_TWIN, it) }
+        }
+        return out
+    }
+
+    private const val AP_PREFIX = "wifiap:"
+    private const val DEVICE_PREFIX = "wifidev:"
+    private val KEYED_ID = Regex("[0-9a-f]{${WifiFollowing.KEY_LENGTH}}")
+
+    fun apSubject(key: String): String = AP_PREFIX + key
+
+    /** The keyed id in `wifiap:<key>`, or null for anything else (a network name can be any text). */
+    fun parseApSubject(subject: String): String? = subject.removePrefix(AP_PREFIX).takeIf { subject.startsWith(AP_PREFIX) && KEYED_ID.matches(it) }
+
+    fun deviceSubject(key: String): String = DEVICE_PREFIX + key
+
+    fun parseDeviceSubject(subject: String): String? =
+        subject.removePrefix(DEVICE_PREFIX).takeIf { subject.startsWith(DEVICE_PREFIX) && KEYED_ID.matches(it) }
+
+    /**
+     * Observations for Wi-Fi access points over time: the summary counts and threshold, then one subject per access
+     * point by [WifiFollowing.order], capped at [MAX_LISTED_APS] plus every unmuted flagged one past the cap. Each
+     * carries its level as judged now, so the rules need no clock. Muted ones carry `muted=true`.
+     */
+    fun apObservations(
+        aps: List<AccessPointSighting>,
+        threshold: Int,
+        now: Long,
+        muted: Set<String> = emptySet(),
+        currentSession: String? = null,
+    ): List<Observation> {
+        val out = ArrayList<Observation>()
+        fun add(subject: String, key: String, value: String) = out.add(Observation(TUNNEL_ID, subject, key, value))
+        fun isMuted(a: AccessPointSighting) = apSubject(a.key) in muted
+        val ordered = aps.sortedWith(WifiFollowing.order(threshold, now))
+        val levels = ordered.associate { it.key to WifiFollowing.level(it, threshold, now) }
+        val flagged = ordered.filter { !isMuted(it) && levels[it.key] != WifiFollowing.Level.NONE }
+        add(WIFI_SUMMARY, AP_TRACKED, aps.size.toString())
+        add(WIFI_SUMMARY, AP_REPEATED, flagged.count { levels[it.key] == WifiFollowing.Level.REPEATED }.toString())
+        add(WIFI_SUMMARY, AP_FOLLOWING, flagged.count { levels[it.key] == WifiFollowing.Level.FOLLOWING }.toString())
+        add(WIFI_SUMMARY, AP_THRESHOLD, threshold.toString())
+        val listed = ordered.take(MAX_LISTED_APS) + ordered.drop(MAX_LISTED_APS).filter { it in flagged }
+        for (a in listed) {
+            val subject = apSubject(a.key)
+            add(subject, AP_NAME, a.name)
+            add(subject, AP_NAMES, a.names.toString())
+            add(subject, AP_SESSIONS, a.sessions.toString())
+            add(subject, AP_SPAN, a.spanMinutes.toString())
+            add(subject, AP_PLACES, a.places.toString())
+            add(subject, AP_MOVES, a.moves.toString())
+            add(subject, AP_FIRST, a.firstSeen.toString())
+            add(subject, AP_LAST, a.lastSeen.toString())
+            add(subject, AP_THIS_SCAN, (currentSession != null && a.lastSession == currentSession).toString())
+            add(subject, AP_LEVEL, levels.getValue(a.key).slug)
+            if (isMuted(a)) add(subject, MUTED, "true")
+        }
+        if (aps.size > listed.size) add(WIFI_SUMMARY, AP_UNLISTED, (aps.size - listed.size).toString())
+        return out
+    }
+
+    /** Observations for this scan's devices that broadcast many names ([ManyNames]); only those with a level. */
+    fun clusterObservations(clusters: List<NameCluster>, muted: Set<String> = emptySet()): List<Observation> {
+        val out = ArrayList<Observation>()
+        for (c in clusters) {
+            val level = ManyNames.level(c)
+            if (level == ManyNames.Level.NONE) continue
+            val subject = deviceSubject(c.key)
+            fun add(key: String, value: String) = out.add(Observation(TUNNEL_ID, subject, key, value))
+            add(DEV_NAMES, c.names.size.toString())
+            add(DEV_OPEN, c.open.toString())
+            add(DEV_SAMPLE, c.names.take(MAX_SAMPLE_NAMES).joinToString(", "))
+            add(DEV_LEVEL, level.slug)
+            if (subject in muted) add(MUTED, "true")
         }
         return out
     }
