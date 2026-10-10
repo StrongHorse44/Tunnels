@@ -1,6 +1,6 @@
 package io.github.stronghorse44.tunnels.model
 
-/** Metro lines on the home map. Each groups related tunnels; EXPLORE is curiosity-only. */
+/** Groups of related tunnels, left from the metro map: a tunnel's tint (`LineColors`) and header label. EXPLORE is curiosity-only. */
 enum class MetroLine(val label: String, val code: String) {
     FILES("Files", "F"),
     INSPECT("Inspect", "I"),
@@ -32,7 +32,7 @@ object TunnelCatalog {
     const val UNZIP = "unzip"
     const val BACKUPS = "backups"
 
-    /** What the phone itself transmits, with Silence and Restore. Only on the well home: the old map has no spot for it. */
+    /** What the phone itself transmits, with Silence and Restore. */
     const val EMISSIONS = "emissions"
 
     /** The derived tunnel that joins the others ([DerivedTunnel]); on the home map it is Central, where the lines meet. */

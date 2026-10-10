@@ -43,7 +43,7 @@ compile and test locally.
 | — | `tunnels:pairing` (Second phone: QR attestation between two phones, CAMERA) | `core:pairing` | — |
 | — | `tunnels:backups` (B06: export-folder watcher; no permission, SAF read grant) | `core:backups` (header scan, freshness rules, findings, tests with a fake folder) | backups |
 | — | `tunnels:emissions` (what the phone transmits, Silence/Restore via Deep mode's shell or Settings, QS tile, bag test) | `core:emissions` (readings, shell plans and parsers, rules, quiet level, bag-test verdict) | emissions |
-| — | `app` (well home) | `core:metro` (well geometry, depth palette, map layout) | — |
+| — | `app` (well home) | `core:metro` (well geometry, depth palette) | — |
 
 Shared, lead-owned: `core:model`, `core:engine`, `core:store`, `core:common`, `core:runtime`, `app`.
 

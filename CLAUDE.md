@@ -61,7 +61,7 @@ everything, so uninstall wipes all data and nothing goes to cloud backup.
 - `core:store` Room + SQLCipher, Keystore-wrapped key
 - `core:common` theme, shared composables, private staging area for incoming files
 - `tunnels:installer`, `tunnels:unzip` one module per tunnel group; each declares its own permissions
-- `core:metro` home well geometry, depth palette, and the older metro map layout (plain Kotlin, unit-tested)
+- `core:metro` home well geometry and depth palette (plain Kotlin, unit-tested)
 - `core:updates` + `tunnels:updater` in-app updates from GitHub releases (user-started; INTERNET allowed). One
   published channel, `vX.Y.Z` (`io.github.stronghorse44.tunnels`); the debug package
   (`io.github.stronghorse44.tunnels.debug`) is still built and gated by CI but no longer published (an old debug
