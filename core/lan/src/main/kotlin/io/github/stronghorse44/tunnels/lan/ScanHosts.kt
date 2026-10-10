@@ -16,6 +16,10 @@ class LanHostRecord(val ip: String) {
     val ssdpLocations: MutableSet<String> = Collections.synchronizedSet(LinkedHashSet())
     @Volatile var ssdpServer: String? = null
     val openPorts: MutableSet<Int> = ConcurrentHashMap.newKeySet<Int>()
+    /** True when the address sweep ([LanSweep]) found this host; false when it announced itself. */
+    @Volatile var swept: Boolean = false
+    /** The name the router gave for this address ([ReverseDns.deviceName]); null when it gave none or was not asked. */
+    @Volatile var routerName: String? = null
     val upnp: Boolean get() = ssdpTypes.isNotEmpty() || ssdpLocations.isNotEmpty() || ssdpServer != null
 
     private val uuids = TreeSet<String>()

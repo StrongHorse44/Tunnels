@@ -32,6 +32,9 @@ object LanKeys {
      * were made from are never stored under this key, and a token differs on every network.
      */
     const val HOST_IDS = "host:ids"
+    /** "sweep" when the address sweep ([LanSweep]) found the host because it announced nothing; absent otherwise. */
+    const val HOST_FOUND_BY = "host:foundBy"
+    const val FOUND_BY_SWEEP = "sweep"
 
     const val ROUTER_IP = "router:ip"
     /** "true", "false" or "unknown": the gateway advertises a WAN(IP|PPP)Connection UPnP service. */
@@ -86,6 +89,16 @@ object LanKeys {
      * They are not "outside this network": the address is simply not routable here. Count only. Absent when zero.
      */
     const val SCAN_LINK_LOCAL_ONLY = "scan:linkLocalOnly"
+    /**
+     * The address sweep ([LanSweep], opt-in): [SWEEP_OFF], [SWEEP_DONE] or [SWEEP_PARTIAL] (it ran out of time or lost the
+     * network). Absent in scans from before the sweep existed.
+     */
+    const val SCAN_SWEEP = "scan:sweep"
+    /** Hosts the sweep found that announced nothing. Count only; present when the sweep ran. */
+    const val SCAN_SWEEP_FOUND = "scan:sweepFound"
+    const val SWEEP_OFF = "off"
+    const val SWEEP_DONE = "done"
+    const val SWEEP_PARTIAL = "partial"
 
     // Device census (subject [SUBJECT_SUMMARY]; see [DeviceCensus]). Summaries only: tokens, counts and state words.
     /** "set" (a list exists for this network), "unset" (none yet) or "unavailable" (the store could not be read: nothing was judged). */

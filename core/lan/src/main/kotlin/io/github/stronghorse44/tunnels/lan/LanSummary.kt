@@ -20,6 +20,8 @@ data class LanHost(
      * identity reads false.
      */
     val listed: Boolean? = null,
+    /** Found by the address sweep: it announced nothing on mDNS or SSDP. */
+    val swept: Boolean = false,
 ) {
     val title: String get() = name ?: vendor ?: ip
 
@@ -71,6 +73,10 @@ data class LanSummary(
     val linkLocalOnly: Int = 0,
     /** In-scope hosts not recorded because the host cap was full. */
     val overCap: Int = 0,
+    /** [LanKeys.SWEEP_OFF], [LanKeys.SWEEP_DONE] or [LanKeys.SWEEP_PARTIAL]; null for a scan from before the sweep existed. */
+    val sweep: String? = null,
+    /** Hosts the sweep found that announced nothing. */
+    val sweepFound: Int = 0,
 ) {
     val scanned: Boolean get() = gate == LanKeys.GATE_CONFIRMED
 
@@ -113,6 +119,7 @@ data class LanSummary(
                     vendor = LanKeys.value(list, LanKeys.HOST_VENDOR),
                     ids = ids,
                     listed = if (known == null || ip == gateway) null else DeviceCensus.isListed(ids, known),
+                    swept = LanKeys.value(list, LanKeys.HOST_FOUND_BY) == LanKeys.FOUND_BY_SWEEP,
                 )
             }.sortedWith(compareBy<LanHost> { it.kind.ordinal }.thenBy { ipSortKey(it.ip) })
             val router = bySubject[LanKeys.SUBJECT_ROUTER]?.let { r ->
@@ -145,6 +152,8 @@ data class LanSummary(
                 full = LanKeys.value(summary, LanKeys.CENSUS_FULL) == LanKeys.TRUE,
                 linkLocalOnly = LanKeys.value(summary, LanKeys.SCAN_LINK_LOCAL_ONLY)?.toIntOrNull() ?: 0,
                 overCap = LanKeys.value(summary, LanKeys.SCAN_OVER_CAP)?.toIntOrNull() ?: 0,
+                sweep = LanKeys.value(summary, LanKeys.SCAN_SWEEP),
+                sweepFound = LanKeys.value(summary, LanKeys.SCAN_SWEEP_FOUND)?.toIntOrNull() ?: 0,
             )
         }
 
