@@ -145,6 +145,10 @@ Device checks to make on the Pixel 10 (the Device checks screen walks through mo
   events only); decide after a few weeks of manual scans show how often the notice appears. Verify on device which
   screen `ACTION_NETWORK_OPERATOR_SETTINGS` opens on GrapheneOS (expected: "Preferred network type", "Allow 2G"), and
   that `allCellInfo` with fine location returns the registered cell's tracking area, cell id, PCI and channel.
+- Surroundings Wi-Fi over time (2026-10-10): verify on the Pixel 10 that the monitor's scan, asked for before its Bluetooth
+  window, comes back fresh (results heard within 3 minutes count; older cached ones are left out), how many access points a
+  day at home adds, and that a real move (home to shop) is told from a wandering fix at home. The monitor records Wi-Fi rows
+  but only a manual scan judges them; decide whether its notification should count Wi-Fi access points that travelled too.
 - Notifications: a model-level OpenSettings variant carrying a package extra would let the engine own
   the per-app notification-settings intent (currently a Perform action).
 - Deep mode: ShellRunner timeout kills only the shell, not grandchildren; a single dumpsys appops parse

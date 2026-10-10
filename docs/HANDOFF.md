@@ -60,6 +60,14 @@
 > phone used there (the Q6 exception to rules 3 and 4: no coordinate, raw cell identity, timestamp or order; 64 places, capped
 > sets, until cleared). A never-seen cell at a place scanned four times or more, with a second signal, is a NOTICE worded as a
 > possible network change. Off until RJ taps "Start the cell logbook"; manual scans only; not exported; no new permission.
+> **Wi-Fi over time (2026-10-10):** Surroundings now remembers Wi-Fi access points the way it remembers tracker identities:
+> one row per Wi-Fi scan (manual and the monitor's ten-minute scans) in its own events stream, each access point as a keyed hash
+> of its address (the Surroundings keystore key) with the name it broadcast, plus the scan's time and place number, kept 30 days
+> (RJ's second exception to rule 3). Every access point seen in 5 scans over 30 minutes (RJ sets the number, 2 to 50) is a
+> notice wherever it is; one also seen on both sides of a real move (a place change where most of the access points around
+> changed too, so a wandering fix at home is not a move) is a warning; one device broadcasting 5+ names with 3+ open is a
+> warning (8+ names a notice). Each has a 30-day mute and "Mute all" for the notices. Android shows apps only access points:
+> a phone or camera that only joins a network is invisible to it.
 > **Breach list for Linx (2026-10, B11-T):** a fourth network module, `tunnels/breaches` (rule 1, RJ's Q7): on a tap, "breaches ›"
 > on the home console downloads the public Have I Been Pwned breach list (one HTTPS request to the one host, a User-Agent and no
 > account, address, domain or key; CC BY 4.0), reduces it to names, titles, domains, dates, counts, flags and data classes, holds
@@ -109,7 +117,7 @@ Design language: geological cross-section. Home screen is a stack of strata, sur
 ## Principles (hard rules)
 1. Offline by default. Phase 1 declares no INTERNET permission. Later, the GrapheneOS Network toggle stays off except during a session.
 2. Nothing leaves the device. No analytics, crash reporting, cloud sync, or SDKs that phone home. Snapshot exports are manual, encrypted files.
-3. Store summaries, not raw data. "App X contacted 14 domains today," not packet captures. "Tracker seen at 3 places," not a GPS trail. Exception (Q6, OQ74): the cell logbook's keyed hashed sets per place, with a best-radio-generation digit and a key fingerprint (CLAUDE.md rule 3).
+3. Store summaries, not raw data. "App X contacted 14 domains today," not packet captures. "Tracker seen at 3 places," not a GPS trail. Exception (Q6, OQ74): the cell logbook's keyed hashed sets per place, with a best-radio-generation digit and a key fingerprint (CLAUDE.md rule 3). Second exception (RJ, 2026-10-10): Surroundings' Wi-Fi scans for 30 days, each access point as a keyed hash with its broadcast name (CLAUDE.md rule 3).
 4. Short retention. Events expire after 30 days. Keep the last 12 snapshots plus pinned ones. Exception (Q6, OQ74): the cell logbook's hashed sets, digit and fingerprint last until cleared, capped in code.
 5. Encrypted at rest. SQLCipher with key wrapped by Android Keystore (StrongBox when available). Optional app lock via device credentials.
 6. Opt-in per tunnel. Fresh install asks for nothing. Permissions requested only when opening the tunnel that needs them, with a one-line reason.

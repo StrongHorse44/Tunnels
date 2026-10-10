@@ -24,6 +24,12 @@ object SurroundingsRules {
     const val CELL_DOWNGRADED = "CELL_DOWNGRADED"
     /** A cell the phone never used at a place it knows, with a second signal. Worded as a possible network change, never as an attack. */
     const val UNFAMILIAR_TOWER = "UNFAMILIAR_TOWER"
+    /** One Wi-Fi access point seen in the threshold's scans and time, wherever it was (RJ's choice, 2026-10-10). */
+    const val WIFI_AP_REPEATED = "WIFI_AP_REPEATED"
+    /** The same, and seen on both sides of a real move: it travelled with the phone. */
+    const val WIFI_AP_FOLLOWING = "WIFI_AP_FOLLOWING"
+    /** One device in this scan broadcasting many network names ([ManyNames]). */
+    const val WIFI_MANY_NAMES = "WIFI_MANY_NAMES"
 
     private fun List<Observation>.v(key: String) = SurroundingsKeys.value(this, key)
     private fun List<Observation>.muted() = v(SurroundingsKeys.MUTED) == "true"
@@ -215,10 +221,77 @@ object SurroundingsRules {
             "so if it keeps happening here, use LTE only and turn off 2G."
     }
 
-    val all: List<FindingRule> = listOf(trackerFollowing, rotatingTracker, newTrackerType, openWifiConnected, evilTwinSuspect, cellDowngrade, cellDowngraded, unfamiliarTower)
+    /**
+     * State rule on access point subjects (`wifiap:<key>`): the level the scan judged ([WifiFollowing.level]) becomes a
+     * NOTICE ([WIFI_AP_REPEATED]) or a WARN ([WIFI_AP_FOLLOWING]). Muted access points are skipped.
+     */
+    val wifiAccessPoint: FindingRule = FindingRule { ctx ->
+        ctx.bySubject().mapNotNull { (subject, obs) ->
+            if (SurroundingsKeys.parseApSubject(subject) == null || obs.muted()) return@mapNotNull null
+            val level = WifiFollowing.Level.bySlug(obs.v(SurroundingsKeys.AP_LEVEL))
+            if (level == WifiFollowing.Level.NONE) return@mapNotNull null
+            val name = obs.v(SurroundingsKeys.AP_NAME) ?: WifiHeuristics.HIDDEN
+            val sessions = obs.v(SurroundingsKeys.AP_SESSIONS)?.toIntOrNull() ?: return@mapNotNull null
+            val span = obs.v(SurroundingsKeys.AP_SPAN)?.toLongOrNull() ?: 0L
+            val places = obs.v(SurroundingsKeys.AP_PLACES)?.toIntOrNull() ?: 0
+            val moves = obs.v(SurroundingsKeys.AP_MOVES)?.toIntOrNull() ?: 0
+            val names = obs.v(SurroundingsKeys.AP_NAMES)?.toIntOrNull() ?: 1
+            val lastSeen = obs.v(SurroundingsKeys.AP_LAST)?.toLongOrNull()?.let { ", last seen ${lastSeenLabel(it)}" }.orEmpty()
+            val where = if (places > 1) " at $places places" else ""
+            val renamed = if (names > 1) " It broadcast $names different names from the same address." else ""
+            when (level) {
+                WifiFollowing.Level.FOLLOWING -> FindingDraft(
+                    ctx.tunnelId, subject, WIFI_AP_FOLLOWING, Severity.WARN,
+                    "Wi-Fi \"$name\" was seen in $sessions separate scans over ${duration(span)} and on both sides of $moves " +
+                        "${if (moves == 1) "move" else "moves"}$lastSeen: it travelled with you.$renamed Usually a phone hotspot, a mobile " +
+                        "Wi-Fi box or car Wi-Fi. If it is not yours or a companion's, find out who carries it; mute it if you know it.",
+                )
+                else -> FindingDraft(
+                    ctx.tunnelId, subject, WIFI_AP_REPEATED, Severity.NOTICE,
+                    "Wi-Fi \"$name\" was seen in $sessions separate scans over ${duration(span)}$where$lastSeen.$renamed It keeps " +
+                        "broadcasting where you are: a neighbour's router, a doorbell or camera, or a phone hotspot. Mute it if you know it; " +
+                        "Tunnels warns if it turns up after you have moved.",
+                )
+            }
+        }
+    }
+
+    /** State rule on device subjects (`wifidev:<key>`): one device in this scan broadcasting many names. */
+    val wifiManyNames: FindingRule = FindingRule { ctx ->
+        ctx.bySubject().mapNotNull { (subject, obs) ->
+            if (SurroundingsKeys.parseDeviceSubject(subject) == null || obs.muted()) return@mapNotNull null
+            val level = ManyNames.Level.bySlug(obs.v(SurroundingsKeys.DEV_LEVEL))
+            val names = obs.v(SurroundingsKeys.DEV_NAMES)?.toIntOrNull() ?: return@mapNotNull null
+            val open = obs.v(SurroundingsKeys.DEV_OPEN)?.toIntOrNull() ?: 0
+            val sample = obs.v(SurroundingsKeys.DEV_SAMPLE).orEmpty()
+            val more = if (names > SurroundingsKeys.MAX_SAMPLE_NAMES) ", …" else ""
+            when (level) {
+                ManyNames.Level.WARN -> FindingDraft(
+                    ctx.tunnelId, subject, WIFI_MANY_NAMES, Severity.WARN,
+                    "One device nearby is broadcasting $names network names, $open of them open ($sample$more). A rogue access point " +
+                        "answers to whatever names phones ask for, so a phone can join it thinking it is a network it knows. Do not join " +
+                        "open networks here, and turn off auto-connect for open networks you have saved.",
+                )
+                ManyNames.Level.NOTICE -> FindingDraft(
+                    ctx.tunnelId, subject, WIFI_MANY_NAMES, Severity.NOTICE,
+                    "One device nearby is broadcasting $names network names ($sample$more). Offices and venues do this; a rogue access " +
+                        "point does too. Be careful which network you join here.",
+                )
+                ManyNames.Level.NONE -> null
+            }
+        }
+    }
+
+    val all: List<FindingRule> = listOf(
+        trackerFollowing, rotatingTracker, newTrackerType, openWifiConnected, evilTwinSuspect, wifiAccessPoint, wifiManyNames,
+        cellDowngrade, cellDowngraded, unfamiliarTower,
+    )
 
     /** Kinds about one tracker identity or family: they get the tracker actions. */
     val trackerKinds: Set<String> = setOf(TRACKER_FOLLOWING, TRACKER_STAYS, ROTATING_TRACKER, NEW_TRACKER_TYPE)
+
+    /** Kinds about one access point or device: they get the Wi-Fi actions and a mute. */
+    val wifiDeviceKinds: Set<String> = setOf(WIFI_AP_REPEATED, WIFI_AP_FOLLOWING, WIFI_MANY_NAMES)
 
     /** Minutes as a short phrase: "45 minutes", "1 hour 20 minutes", "3 days". */
     fun duration(minutes: Long): String {

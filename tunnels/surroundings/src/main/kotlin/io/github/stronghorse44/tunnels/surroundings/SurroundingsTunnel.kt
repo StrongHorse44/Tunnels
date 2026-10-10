@@ -12,6 +12,7 @@ import io.github.stronghorse44.tunnels.ble.SightingAggregator
 import io.github.stronghorse44.tunnels.ble.SightingRecord
 import io.github.stronghorse44.tunnels.ble.SurroundingsKeys
 import io.github.stronghorse44.tunnels.ble.SurroundingsRules
+import io.github.stronghorse44.tunnels.ble.WifiFollowing
 import io.github.stronghorse44.tunnels.model.FindingAction
 import io.github.stronghorse44.tunnels.model.FindingDraft
 import io.github.stronghorse44.tunnels.model.FindingRule
@@ -57,6 +58,7 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
         val session = "scan-$now"
         progress.report(0, STEPS, "reading history")
         val history = readEvents()
+        val wifiHistory = WifiSightings.history(context, now)
 
         progress.report(1, STEPS, "asking for a Wi-Fi scan")
         WifiProbe.requestScan(context)
@@ -78,6 +80,13 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
         } catch (e: Exception) {
             WifiProbeResult(SurroundingsKeys.AVAILABLE_FAILED, emptyList())
         }
+
+        // This scan's access points as keyed ids, kept with the 30-day Wi-Fi stream; the addresses end here.
+        val wifiScan = WifiSightings.recordOf(session, now, place.place, wifi.fresh)
+        val clusters = WifiSightings.clustersOf(wifi.fresh)
+        wifiScan?.let { WifiSightings.record(context, it) }
+        val accessPoints = WifiFollowing.aggregate(wifiHistory + listOfNotNull(wifiScan))
+        val threshold = WifiSightings.threshold(context)
 
         progress.report(4, STEPS, "reading the cell")
         val cell = try {
@@ -108,6 +117,8 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
         progress.report(STEPS, STEPS, "done")
         return SurroundingsKeys.bleObservations(aggregate, ble.devicesTotal, ble.available, now, muted, sessions, currentSession = session, placeAvailable = place.available) +
             SurroundingsKeys.wifiObservations(wifi.summaries, wifi.available, twinsRecorded) +
+            SurroundingsKeys.apObservations(accessPoints, threshold, now, muted, currentSession = session) +
+            SurroundingsKeys.clusterObservations(clusters, muted) +
             SurroundingsKeys.cellObservations(cell.cell, cell.available, changed, downgrades) +
             SurroundingsKeys.logObservations(log.first, log.second)
     }
@@ -160,6 +171,10 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
         SurroundingsRules.CELL_DOWNGRADE, SurroundingsRules.CELL_DOWNGRADED -> listOf(
             FindingAction.OpenSettings(Settings.ACTION_NETWORK_OPERATOR_SETTINGS, "Mobile network settings"),
         )
+        in SurroundingsRules.wifiDeviceKinds -> listOf(
+            wifiMuteAction(draft.subject),
+            FindingAction.OpenSettings(Settings.ACTION_WIFI_SETTINGS, "Wi-Fi settings"),
+        )
         SurroundingsRules.UNFAMILIAR_TOWER -> listOfNotNull(
             FindingAction.OpenSettings(Settings.ACTION_NETWORK_OPERATOR_SETTINGS, "Mobile network settings"),
             SurroundingsKeys.parseTowerSubject(draft.subject)?.let { id -> FindingAction.Perform(LABEL_NORMAL_HERE) { CellLogStore(context).accept(id) } },
@@ -201,6 +216,36 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
         }
     }
 
+    /** Mutes one Wi-Fi access point or device for [SurroundingsKeys.MUTE_DAYS] days; it stays listed without a finding. */
+    fun wifiMuteAction(subject: String): FindingAction = FindingAction.Perform(LABEL_MUTE_WIFI, destructive = true) { muteWifi(listOf(subject)) }
+
+    /** Mutes several access points at once (the list's "Mute all repeated"); rescans so their findings clear. */
+    fun wifiMuteAllAction(subjects: List<String>): FindingAction =
+        FindingAction.Perform("Mute all ${subjects.size}", destructive = true) { muteWifi(subjects) }
+
+    /** Cancels the mute on one access point or device; rescans so its finding can come back at once. */
+    fun wifiUnmuteAction(subject: String, name: String): FindingAction = FindingAction.Perform("Unmute", destructive = true) {
+        try {
+            TunnelsStore.get(context).recordEvent(SurroundingsKeys.MUTE_LEDGER, SurroundingsKeys.EVENT_UNMUTE, subject, "unmuted")
+            "Unmuted \"$name\"."
+        } catch (e: Exception) {
+            "Could not save the unmute: ${e.javaClass.simpleName}"
+        }
+    }
+
+    private suspend fun muteWifi(subjects: List<String>): String {
+        val valid = subjects.filter { SurroundingsKeys.parseApSubject(it) != null || SurroundingsKeys.parseDeviceSubject(it) != null }
+        if (valid.isEmpty()) return "Only a Wi-Fi access point or device can be muted here."
+        return try {
+            val store = TunnelsStore.get(context)
+            valid.forEach { store.recordEvent(SurroundingsKeys.MUTE_LEDGER, SurroundingsKeys.EVENT_MUTE, it, "muted") }
+            "Muted ${if (valid.size == 1) "it" else "${valid.size} access points"} for ${SurroundingsKeys.MUTE_DAYS} days. " +
+                "Muted access points stay in the list without a finding."
+        } catch (e: Exception) {
+            "Could not save the mute: ${e.javaClass.simpleName}"
+        }
+    }
+
     /** Records a mute row for the identity subject; the next scan marks it muted and the finding clears. */
     private suspend fun mute(subject: String): String = if (SurroundingsKeys.parseTrackerSubject(subject)?.second == null) {
         "Only a single identity can be muted."
@@ -220,6 +265,7 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
         private const val TAG = "Surroundings"
         const val LABEL_MUTE = "Known tracker: mute 30 days"
         const val LABEL_NORMAL_HERE = "Normal here: remember this tower"
+        const val LABEL_MUTE_WIFI = "Known: mute 30 days"
 
         /**
          * Subjects muted right now. Mute rows since v3 come from their own small stream
