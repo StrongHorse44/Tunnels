@@ -34,7 +34,8 @@ network, the updater and the breach list fetch for Linx), used only during sessi
 | Central | Crossroads | Findings that take two tunnels to see: an accessibility service in an app from a file, ad or location SDKs in an app holding your location or contacts, a microphone used while the app sat unopened, a new signing key plus new permissions |
 
 **Findings** (home → findings ›): every open finding from every tunnel in one list, most severe first, each with
-its actions, new ones marked since your last visit. It also holds the opt-in **background checks**: a scheduled,
+its actions, new ones marked since your last visit. Three or more findings of one kind from one tunnel fold into one row
+("14 Wi-Fi access points keep turning up", with how many of each severity and how many are new); Show all lists them. It also holds the opt-in **background checks**: a scheduled,
 offline re-check of Permissions, Trust store, System packages, Silicon and Backups (plus APK excavation, Doors and Hardening
 when apps changed, after a restart, or once a day) that stores a snapshot only when something changed and can notify
 you about new findings. The notification names tunnels and kinds, never apps; the lock screen shows only "New

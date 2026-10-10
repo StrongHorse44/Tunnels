@@ -31,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -56,13 +57,15 @@ import io.github.stronghorse44.tunnels.runtime.ToolScaffold
 import io.github.stronghorse44.tunnels.runtime.TunnelActivity
 import io.github.stronghorse44.tunnels.runtime.severityColor
 import io.github.stronghorse44.tunnels.watchrules.Inbox
+import io.github.stronghorse44.tunnels.watchrules.InboxRow
+import io.github.stronghorse44.tunnels.watchrules.InboxRows
 import io.github.stronghorse44.tunnels.watchrules.WatchPolicy
 import java.text.DateFormat
 import java.util.Date
 
 private val Mono = FontFamily.Monospace
 
-/** Every open finding, most severe first, with its actions; and the background checks panel. */
+/** Every open finding, most severe first, with its actions (three or more of one kind folded into one row); and the background checks panel. */
 @Composable
 fun InboxScreen(vm: InboxViewModel, onBack: () -> Unit) {
     LaunchedEffect(Unit) { vm.open() }
@@ -80,6 +83,9 @@ fun InboxScreen(vm: InboxViewModel, onBack: () -> Unit) {
     val visible = remember(state.findings, state.filter, state.lastVisit, state.tunnel) {
         Inbox.filter(state.findings, state.filter, state.lastVisit, state.tunnel)
     }
+    // Three or more of one kind from one tunnel read as one row; the open ones list their findings below the row.
+    val rows = remember(visible, state.lastVisit) { InboxRows.rows(visible, state.lastVisit) }
+    var openGroups by remember { mutableStateOf(emptySet<String>()) }
 
     ToolScaffold("Findings", "every tunnel · most severe first", tint, onBack) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
@@ -122,14 +128,40 @@ fun InboxScreen(vm: InboxViewModel, onBack: () -> Unit) {
                         )
                     }
                 }
-                items(visible, key = { it.id }) { f ->
-                    InboxCard(
-                        f = f,
-                        isNew = Inbox.isNew(f, state.lastVisit),
-                        onOpenTunnel = { context.startActivity(TunnelActivity.intent(context, f.tunnelId)) },
-                        onAction = vm::perform,
-                        onDismiss = { vm.dismiss(f) },
-                    )
+                for (row in rows) {
+                    when (row) {
+                        is InboxRow.Single -> item(key = row.key) {
+                            InboxCard(
+                                f = row.finding,
+                                isNew = Inbox.isNew(row.finding, state.lastVisit),
+                                onOpenTunnel = { context.startActivity(TunnelActivity.intent(context, row.finding.tunnelId)) },
+                                onAction = vm::perform,
+                                onDismiss = { vm.dismiss(row.finding) },
+                            )
+                        }
+                        is InboxRow.Group -> {
+                            val open = row.key in openGroups
+                            item(key = row.key) {
+                                GroupCard(
+                                    group = row,
+                                    open = open,
+                                    onToggle = { openGroups = if (open) openGroups - row.key else openGroups + row.key },
+                                    onOpenTunnel = { context.startActivity(TunnelActivity.intent(context, row.tunnelId)) },
+                                )
+                            }
+                            if (open) {
+                                items(row.findings, key = { it.id }) { f ->
+                                    InboxCard(
+                                        f = f,
+                                        isNew = Inbox.isNew(f, state.lastVisit),
+                                        onOpenTunnel = { context.startActivity(TunnelActivity.intent(context, f.tunnelId)) },
+                                        onAction = vm::perform,
+                                        onDismiss = { vm.dismiss(f) },
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
             state.message?.let { msg ->
@@ -267,6 +299,43 @@ private fun FilterRow(state: InboxState, tint: androidx.compose.ui.graphics.Colo
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Choice("All tunnels", state.tunnel == null, tint, { onTunnel(null) })
                 tunnels.forEach { id -> Choice(TunnelCatalog.byId(id)?.title ?: id, state.tunnel == id, tint, { onTunnel(id) }) }
+            }
+        }
+    }
+}
+
+/**
+ * One row for several findings of one kind from one tunnel: the count in words, how many of each severity and how many
+ * are new. Show all lists them below, each with its own actions.
+ */
+@Composable
+private fun GroupCard(group: InboxRow.Group, open: Boolean, onToggle: () -> Unit, onOpenTunnel: () -> Unit) {
+    val info = TunnelCatalog.byId(group.tunnelId)
+    val bySeverity = remember(group) { group.findings.groupingBy { it.severity }.eachCount() }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                (info?.title ?: group.tunnelId) + " ›",
+                fontFamily = Mono,
+                fontSize = 11.sp,
+                color = info?.let { LineColors.of(it.line) } ?: GlassColors.dim,
+                modifier = Modifier.clickable(onClick = onOpenTunnel),
+            )
+            if (group.newCount > 0) {
+                Spacer(Modifier.width(8.dp))
+                Text("${group.newCount} NEW", fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = StatusColors.info)
+            }
+        }
+        GlassPanel(Modifier.fillMaxWidth().clickable(onClick = onToggle), tint = severityColor(group.severity)) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(group.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = severityColor(group.severity))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Severity.entries.reversed().forEach { s ->
+                        bySeverity[s]?.let { n -> Text(WatchPolicy.severityCount(n, s), fontFamily = Mono, fontSize = 12.sp, color = severityColor(s)) }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = onToggle) { Text(if (open) "Hide" else "Show all ${group.findings.size}") }
+                }
             }
         }
     }
