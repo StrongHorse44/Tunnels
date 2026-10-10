@@ -281,6 +281,22 @@
     },
     {
       "type": "service",
+      "name": "io.github.stronghorse44.tunnels.emissions.EmissionsTileService",
+      "exported": true,
+      "permission": "android.permission.BIND_QUICK_SETTINGS_TILE",
+      "read_permission": null,
+      "write_permission": null,
+      "grant_uri_permissions": null,
+      "authorities": [],
+      "foreground_service_type": null,
+      "actions": [
+        "android.service.quicksettings.action.QS_TILE"
+      ],
+      "categories": [],
+      "data": []
+    },
+    {
+      "type": "service",
       "name": "io.github.stronghorse44.tunnels.notifications.NotifListenerService",
       "exported": true,
       "permission": "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE",
@@ -373,7 +389,7 @@
     },
     {
       "value": "Landroid/net/ConnectivityManager;",
-      "note": "tunnels/traffic (session the user starts), tunnels/homenet (own-network gate), tunnels/devicecheck and tunnels/explore (read-only checks); also AndroidX core; read-only state getters, no sockets, no egress, so no toggle"
+      "note": "tunnels/traffic (session the user starts), tunnels/homenet (own-network gate), tunnels/devicecheck and tunnels/explore (read-only checks); also AndroidX core; read-only state getters, no sockets, no egress, so no toggle; tunnels/emissions (bag test: whether Wi-Fi is the connected network, read-only)"
     },
     {
       "value": "Landroid/net/DhcpInfo;",
@@ -393,11 +409,11 @@
     },
     {
       "value": "Landroid/net/Network;",
-      "note": "network handle used by tunnels/homenet, tunnels/traffic (session the user starts), tunnels/devicecheck and tunnels/explore for state queries and binding; also AndroidX core"
+      "note": "network handle used by tunnels/homenet, tunnels/traffic (session the user starts), tunnels/devicecheck and tunnels/explore for state queries and binding; also AndroidX core; tunnels/emissions (bag test: the active network for a capabilities query)"
     },
     {
       "value": "Landroid/net/NetworkCapabilities;",
-      "note": "tunnels/traffic (another VPN present), tunnels/homenet (Wi-Fi gate), tunnels/devicecheck, tunnels/explore; read-only state getters, no sockets, no egress, so no toggle"
+      "note": "tunnels/traffic (another VPN present), tunnels/homenet (Wi-Fi gate), tunnels/devicecheck, tunnels/explore; read-only state getters, no sockets, no egress, so no toggle; tunnels/emissions (bag test: is the active network Wi-Fi, read-only)"
     },
     {
       "value": "Landroid/net/NetworkInfo;",
@@ -441,7 +457,7 @@
     },
     {
       "value": "Landroid/net/wifi/ScanResult;",
-      "note": "tunnels/surroundings: nearby Wi-Fi scan results (security, evil-twin check); read-only state getters (plus WifiManager.startScan in surroundings), no sockets, no egress, so no toggle"
+      "note": "tunnels/surroundings: nearby Wi-Fi scan results (security, evil-twin check); read-only state getters (plus WifiManager.startScan in surroundings), no sockets, no egress, so no toggle; tunnels/emissions (bag test: counts the networks in one fresh scan per window, nothing kept)"
     },
     {
       "value": "Landroid/net/wifi/WifiInfo;",
@@ -453,7 +469,7 @@
     },
     {
       "value": "Landroid/net/wifi/WifiManager;",
-      "note": "tunnels/homenet (multicast lock, DHCP info during a scan), tunnels/surroundings (scan results), tunnels/explore (read-only); also an AndroidX core service-name table; WifiManager itself: read-only state getters (plus WifiManager.startScan in surroundings), no sockets, no egress, so no toggle"
+      "note": "tunnels/homenet (multicast lock, DHCP info during a scan), tunnels/surroundings (scan results), tunnels/explore (read-only); also an AndroidX core service-name table; WifiManager itself: read-only state getters (plus WifiManager.startScan in surroundings), no sockets, no egress, so no toggle; tunnels/emissions (Wi-Fi and Wi-Fi scanning on or off, one startScan per bag-test window; its Silence switches radios through the Shizuku shell, never through this API)"
     },
     {
       "value": "Landroid/net/wifi/WifiSsid;",

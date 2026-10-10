@@ -67,6 +67,15 @@
 > served from memory, with an explicit-package send. No file is written anywhere (rules 2, 3 and 5 are untouched). One new
 > component (the share provider, not exported), no new permission at APK level, no new dependency. See [BREACHES.md](BREACHES.md).
 
+> **Emissions (2026-10-10):** a fourth Network tunnel for what the phone itself transmits: cellular, Wi-Fi and its scanning,
+> Bluetooth and its scanning, NFC, UWB and the hotspot, with a quiet level and what full silence takes (power off and a tested
+> Faraday bag; airplane mode is a request to the modem, not proof). With Shizuku, Silence turns everything off in one tap and
+> Restore brings back what it turned off; without it each transmitter opens Android's own panel. Findings for transmitters left
+> on where they are easy to forget (airplane mode with Wi-Fi or Bluetooth still on, scanning while its radio is off, NFC, UWB,
+> a hotspot), each with "Turn off" and its Settings screen. Apps that used a radio in the last 15 minutes are shown, never
+> stored. A "Silence" Quick Settings tile and a Faraday bag test. No new permission at APK level; one new service (the tile).
+> See [EMISSIONS.md](EMISSIONS.md).
+
 ## Instructions for Claude Code
 This is the full spec for Tunnels, a native Android app for my GrapheneOS Pixel 10.
 

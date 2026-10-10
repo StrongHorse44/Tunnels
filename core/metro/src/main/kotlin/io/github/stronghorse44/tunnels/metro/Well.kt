@@ -47,8 +47,10 @@ object Well {
      */
     const val LABEL_GAP = 56.0
     private val TURN = mapOf(
-        Stratum.SURFACE to 0.0,
-        Stratum.TOPSOIL to -12.0,
+        // Four Network beads (Emissions joined) sit a quarter slot off the nine Apps beads, so neither ring can keep
+        // its old turn: these two are the smallest change that keeps every bead 6° from the next ring's and clear of the labels.
+        Stratum.SURFACE to 37.0,
+        Stratum.TOPSOIL to -16.0,
         Stratum.BEDROCK to -25.0,
         Stratum.CORE to 30.0,
     )
