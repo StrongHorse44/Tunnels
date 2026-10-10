@@ -164,9 +164,10 @@ Device checks to make on the Pixel 10 (the Device checks screen walks through mo
 - Emissions (2026-10-10): every shell command and the UWB and tethering parsers are unconfirmed on the Pixel 10; the device
   checks are in `docs/EMISSIONS.md`. Deep mode's `SCAN_ALWAYS_ENABLED` overlaps `EMISSION_SCANNING_WHILE_OFF` when a radio is
   off; decide whether Deep mode keeps it once Emissions has been used for a while.
-- Home network census (B08): devices that announce nothing on mDNS or SSDP (most phones) are invisible; an opt-in sweep
-  of the confirmed network's addresses is the only way to see them, and is parked (revisit if the cameras turn out to be
-  silent). `ACCESS_LOCAL_NETWORK` is needed only when targetSdk moves to 37: that build must name the permission, ask for
+- Home network census (B08): devices that announce nothing on mDNS or SSDP (most phones) were invisible; the opt-in
+  address sweep (2026-10-10, `core:lan` `LanSweep` and `ReverseDns`) now finds them on the confirmed network and asks the
+  router (the gateway only) for their names. Verify on the Pixel 10: how long a sweep of the home /24 takes, how many
+  phones answer while asleep, and which names the router gives (some routers answer PTR queries for DHCP clients, some do not). `ACCESS_LOCAL_NETWORK` is needed only when targetSdk moves to 37: that build must name the permission, ask for
   it when Home network opens with a one-line reason, and is a gate change. The census pins only Home-network-only
   snapshots (one per network, moved to the newest, which also moves or removes the pin on such a snapshot of that network that was pinned by hand), so a list that only mixed snapshots carry is not kept past retention.
   A "Start the list again" does not dismiss UNKNOWN_DEVICE findings already raised; they expire at 30 days or on Dismiss.

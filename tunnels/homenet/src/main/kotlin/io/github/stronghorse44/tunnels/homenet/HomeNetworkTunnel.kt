@@ -72,7 +72,8 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
             return out
         }
         val allowed = decision as GateDecision.Allowed
-        val result = scanner.scan(allowed.state, progress)
+        val sweep = SweepSetting.isOn(context)
+        val result = scanner.scan(allowed.state, progress, sweep)
         if (!result.scanned) {
             // Nothing was sent (no confirmed prefix to stay inside): not a scan, so no snapshot with zero hosts
             // that would reset the new-device baseline.
@@ -100,7 +101,9 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
                     models = host.models.toList(),
                 )
                 val kind = HostKinds.infer(evidence)
-                val name = DeviceIdentity.canonicalName(host.names.toList()) ?: if (host.ip == gateway) result.router.description?.label else null
+                val name = DeviceIdentity.canonicalName(host.names.toList())
+                    ?: (if (host.ip == gateway) result.router.description?.label else null)
+                    ?: host.routerName
                 val services = (host.mdnsTypes.map(MdnsTypes::shortName) + host.ssdpTypes.map(Ssdp::shortType)).distinct().take(12)
                 val open = host.openPorts.toList()
                 val riskyPorts = PortCatalog.riskyOf(open)
@@ -111,6 +114,7 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
                 add(host.ip, LanKeys.HOST_OPEN_PORTS, LanKeys.portList(open))
                 add(host.ip, LanKeys.HOST_RISKY, LanKeys.portList(riskyPorts))
                 add(host.ip, LanKeys.HOST_UPNP, host.upnp.toString())
+                if (host.swept) add(host.ip, LanKeys.HOST_FOUND_BY, LanKeys.FOUND_BY_SWEEP)
                 val vendor = VendorHints.vendorOf(host.ssdpServer, *host.names.toTypedArray(), *host.models.toTypedArray())
                     ?: if (host.ip == gateway) result.router.description?.manufacturer else null
                 vendor?.let { add(host.ip, LanKeys.HOST_VENDOR, it) }
@@ -152,6 +156,8 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
         if (result.partial.isNotEmpty()) add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_PARTIAL, LanKeys.list(result.partial))
         if (result.linkLocalOnly > 0) add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_LINK_LOCAL_ONLY, result.linkLocalOnly.toString())
         if (result.overCap > 0) add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_OVER_CAP, result.overCap.toString())
+        add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_SWEEP, result.sweep)
+        if (result.sweep != LanKeys.SWEEP_OFF) add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_SWEEP_FOUND, result.sweepFound.toString())
 
         // The census step: only bookkeeping on the replies already received, plus reads and writes in the encrypted
         // store. A store that cannot be read gives "unavailable" and no list, so nothing is judged (never "all known").

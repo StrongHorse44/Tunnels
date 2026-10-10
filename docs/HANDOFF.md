@@ -68,6 +68,12 @@
 > changed too, so a wandering fix at home is not a move) is a warning; one device broadcasting 5+ names with 3+ open is a
 > warning (8+ names a notice). Each has a 30-day mute and "Mute all" for the notices. Android shows apps only access points:
 > a phone or camera that only joins a network is invisible to it.
+> **Address sweep (2026-10-10):** Home network can sweep every address of the confirmed network around the phone (the /24, up to
+> 254) for devices that announce nothing: a TCP connection to a few common ports that is accepted or refused means a device is
+> there. The router (the gateway only) is then asked for each device's name by reverse DNS, which often returns the name the
+> device gave it when it joined; that name becomes a census token (`h`), so the device can be put on the list. One the router
+> does not name is listed by its address and raises one finding per device, as before (RJ's choice). Off until switched on in
+> Home network; runs only during a scan the user starts, only on a confirmed network, every probe inside it.
 > **Breach list for Linx (2026-10, B11-T):** a fourth network module, `tunnels/breaches` (rule 1, RJ's Q7): on a tap, "breaches ›"
 > on the home console downloads the public Have I Been Pwned breach list (one HTTPS request to the one host, a User-Agent and no
 > account, address, domain or key; CC BY 4.0), reduces it to names, titles, domains, dates, counts, flags and data classes, holds

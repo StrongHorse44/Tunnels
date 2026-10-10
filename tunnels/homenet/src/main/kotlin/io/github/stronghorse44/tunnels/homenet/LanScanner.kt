@@ -14,12 +14,14 @@ import io.github.stronghorse44.tunnels.lan.LanAddresses
 import io.github.stronghorse44.tunnels.lan.LanKeys
 import io.github.stronghorse44.tunnels.lan.LanHostRecord
 import io.github.stronghorse44.tunnels.lan.LanScope
+import io.github.stronghorse44.tunnels.lan.LanSweep
 import io.github.stronghorse44.tunnels.lan.MdnsAddress
 import io.github.stronghorse44.tunnels.lan.MdnsPick
 import io.github.stronghorse44.tunnels.lan.MdnsTypes
 import io.github.stronghorse44.tunnels.lan.PortCatalog
 import io.github.stronghorse44.tunnels.lan.ProbeBinder
 import io.github.stronghorse44.tunnels.lan.ResolverScope
+import io.github.stronghorse44.tunnels.lan.ReverseDns
 import io.github.stronghorse44.tunnels.lan.ScanHosts
 import io.github.stronghorse44.tunnels.lan.Ssdp
 import io.github.stronghorse44.tunnels.lan.SsdpResponse
@@ -84,6 +86,10 @@ data class LanScanOutput(
     val probesSkipped: Int = 0,
     /** False when nothing was sent because there was no confirmed prefix or network to stay inside. */
     val scanned: Boolean = true,
+    /** The address sweep: [LanKeys.SWEEP_OFF], [LanKeys.SWEEP_DONE] or [LanKeys.SWEEP_PARTIAL]. */
+    val sweep: String = LanKeys.SWEEP_OFF,
+    /** Hosts the sweep found that announced nothing. */
+    val sweepFound: Int = 0,
 )
 
 /** Pins sockets to the confirmed Wi-Fi [network]; a failure throws and the [BindGuard] treats the network as gone. */
@@ -99,7 +105,11 @@ private class NetworkBinder(private val network: Network) : ProbeBinder {
 class LanScanner(private val context: Context) {
     private val executor = Dispatchers.IO.asExecutor()
 
-    suspend fun scan(state: WifiState, progress: ScanProgress): LanScanOutput = withContext(Dispatchers.IO) {
+    /**
+     * [sweep] adds the opt-in address sweep after discovery ([LanSweep]) and asks the router for the names of the hosts
+     * found ([ReverseDns]); both stay inside the confirmed network like every other probe.
+     */
+    suspend fun scan(state: WifiState, progress: ScanProgress, sweep: Boolean = false): LanScanOutput = withContext(Dispatchers.IO) {
         val partial = ArrayList<String>()
         val gateway = state.gateway?.hostAddress
 
@@ -138,6 +148,23 @@ class LanScanner(private val context: Context) {
             response.server?.let { rec.ssdpServer = it }
         }
         val ssdpResponded = ssdpInScope && "ssdp" !in partial
+
+        // The opt-in sweep: every other address of the network around the phone, for hosts that announced nothing.
+        var sweepState = LanKeys.SWEEP_OFF
+        var sweepFound = 0
+        if (sweep) {
+            progress.report(0, STAGES, STAGE_SWEEP)
+            val found = withTimeoutOrNull(LanSweep.BUDGET_MS) { sweepAddresses(guard, prefixes, table) }
+            sweepFound = found ?: table.hosts.values.count { it.swept }
+            sweepState = if (found == null || guard.lost) LanKeys.SWEEP_PARTIAL else LanKeys.SWEEP_DONE
+            if (found == null) partial += STAGE_SWEEP
+            // Names from the router, asked of the gateway only (inside the network), never of an outside resolver.
+            val resolver = gateway?.let { LanScope.parseLiteral(it) }?.takeIf { LanScope.accepts(it, prefixes, own) }
+            if (resolver != null) {
+                val named = withTimeoutOrNull(NAMES_BUDGET_MS) { routerNames(guard, resolver, table.hosts.values.filter { it.ip != gateway }) }
+                if (named == null) partial += STAGE_NAMES
+            }
+        }
         val hosts = table.hosts
 
         progress.report(1, STAGES, STAGE_PORTS)
@@ -153,7 +180,94 @@ class LanScanner(private val context: Context) {
             }
         progress.report(STAGES, STAGES, "done")
         if (guard.lost) partial += PARTIAL_NETWORK
-        LanScanOutput(hosts, router, partial, table.dropped.count, linkLocalOnly.get(), table.overCap, guard.skipped)
+        LanScanOutput(
+            hosts, router, partial, table.dropped.count, linkLocalOnly.get(), table.overCap, guard.skipped,
+            sweep = sweepState, sweepFound = sweepFound,
+        )
+    }
+
+    // ---- Sweep --------------------------------------------------------------------------------------
+
+    /**
+     * Tries [LanSweep.PORTS] on every address [LanSweep.targets] gives, in turn, until one answers: accepted or refused
+     * means a host is there and it gets a record (within the host cap), marked [LanHostRecord.swept]. An accepted port is
+     * open and recorded as such. Returns how many hosts it found.
+     */
+    private suspend fun sweepAddresses(guard: BindGuard, prefixes: List<Pair<InetAddress, Int>>, table: ScanHosts): Int = coroutineScope {
+        val found = AtomicInteger()
+        val inFlight = Semaphore(LanSweep.CONCURRENCY)
+        for (ip in LanSweep.targets(prefixes, table.hosts.keys)) {
+            if (guard.lost) break
+            val address = LanScope.parseLiteral(ip) ?: continue
+            launch(Dispatchers.IO) {
+                inFlight.withPermit {
+                    for (port in LanSweep.PORTS) {
+                        if (!isActive || guard.lost) return@withPermit
+                        val socket = Socket()
+                        var connected = false
+                        val answer = try {
+                            // A failed bind skips this probe; it must never connect over the default network.
+                            if (!guard.bindTcp(socket)) return@withPermit
+                            socket.connect(InetSocketAddress(address, port), LanSweep.CONNECT_TIMEOUT_MS)
+                            connected = true
+                            LanSweep.classify(null)
+                        } catch (e: Exception) {
+                            LanSweep.classify(e)
+                        } finally {
+                            runCatching { socket.close() }
+                        }
+                        if (answer == LanSweep.Answer.PRESENT) {
+                            val rec = table.record(ip) ?: return@withPermit
+                            if (connected) rec.openPorts += port
+                            if (!rec.swept) {
+                                rec.swept = true
+                                found.incrementAndGet()
+                            }
+                            return@withPermit
+                        }
+                    }
+                }
+            }
+            yield()
+        }
+        found.get()
+    }
+
+    /** Asks [resolver] (the gateway) for the name of each host in [hosts], a few at a time; returns how many it named. */
+    private suspend fun routerNames(guard: BindGuard, resolver: InetAddress, hosts: List<LanHostRecord>): Int = coroutineScope {
+        val named = AtomicInteger()
+        val limit = Semaphore(NAME_CONCURRENCY)
+        for (host in hosts) {
+            launch(Dispatchers.IO) {
+                limit.withPermit {
+                    if (guard.lost) return@withPermit
+                    ReverseDns.deviceName(ptr(guard, resolver, host.ip))?.let {
+                        host.routerName = it
+                        named.incrementAndGet()
+                    }
+                }
+            }
+        }
+        named.get()
+    }
+
+    /** One PTR query for [ip] to [resolver] on the confirmed network; null for no answer, no name or a lost network. */
+    private fun ptr(guard: BindGuard, resolver: InetAddress, ip: String): String? {
+        val id = Random.nextInt(1, 0xFFFF)
+        val query = ReverseDns.query(ip, id) ?: return null
+        return try {
+            DatagramSocket().use { socket ->
+                if (!guard.bindUdp(socket)) return null
+                socket.soTimeout = NAME_TIMEOUT_MS
+                socket.send(DatagramPacket(query, query.size, InetSocketAddress(resolver, 53)))
+                val buffer = ByteArray(1500)
+                val packet = DatagramPacket(buffer, buffer.size)
+                socket.receive(packet)
+                ReverseDns.parse(id, packet.data, packet.length)
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     // ---- mDNS -------------------------------------------------------------------------------------
@@ -507,6 +621,10 @@ class LanScanner(private val context: Context) {
         const val STAGE_DISCOVERY = "discovery"
         const val STAGE_PORTS = "ports"
         const val STAGE_ROUTER = "router"
+        /** The opt-in address sweep, reported under the discovery stage. */
+        const val STAGE_SWEEP = "sweep"
+        /** The router names asked after the sweep. */
+        const val STAGE_NAMES = "names"
         /** Reported in [LanScanOutput.partial] when the link has no address prefix, so nothing was scanned. */
         const val PARTIAL_SCOPE = "scope"
         /** Reported in [LanScanOutput.partial] when a socket could not be bound to the confirmed network mid-scan. */
@@ -533,6 +651,9 @@ class LanScanner(private val context: Context) {
         const val FETCH_TIMEOUT_MS = 3_000L
         const val DNS_TIMEOUT_MS = 2_000L
         const val ROUTER_BUDGET_MS = 12_000L
+        const val NAMES_BUDGET_MS = 10_000L
+        const val NAME_TIMEOUT_MS = 1_500
+        const val NAME_CONCURRENCY = 8
 
         private val MODEL_TXT_KEYS = listOf("model", "md", "ty", "product", "manufacturer", "am")
     }

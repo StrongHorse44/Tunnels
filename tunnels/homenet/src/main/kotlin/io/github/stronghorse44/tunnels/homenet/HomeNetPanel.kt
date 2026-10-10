@@ -17,6 +17,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -31,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -73,6 +75,10 @@ fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: N
         if (fingerprint != null) confirmed = withContext(Dispatchers.IO) { gate.isConfirmed(fingerprint) }
     }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    // The opt-in sweep's switch, read from the encrypted store. null = still reading.
+    var sweepOn by remember(generation) { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(generation) { sweepOn = SweepSetting.isOn(context) }
     val summary = remember(state.observations) { LanSummary.from(state.observations) }
     var censusNote by remember { mutableStateOf<String?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
@@ -115,6 +121,14 @@ fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: N
             },
             onScan = actions::scan,
         )
+        if (confirmed == true) {
+            SweepCard(sweepOn, summary, scanning = state.scan.running) { on ->
+                scope.launch {
+                    runCatching { SweepSetting.set(context, on) }
+                    sweepOn = SweepSetting.isOn(context)
+                }
+            }
+        }
         if (saveFailed) {
             GlassPanel(Modifier.fillMaxWidth(), tint = StatusColors.warn) {
                 Text(
@@ -167,6 +181,39 @@ fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: N
             },
             dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("Keep the list") } },
         )
+    }
+}
+
+/**
+ * The opt-in address sweep (RJ, 2026-10-10): its switch, what the last scan's sweep found, and what it does and cannot
+ * do. Off until switched on; only ever on a confirmed network, inside it, during a scan the user starts.
+ */
+@Composable
+private fun SweepCard(on: Boolean?, summary: LanSummary, scanning: Boolean, onToggle: (Boolean) -> Unit) {
+    GlassPanel(Modifier.fillMaxWidth(), tint = LineColors.of(MetroLine.NETWORK)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Sweep every address", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        when (summary.sweep) {
+                            LanKeys.SWEEP_DONE -> "Last scan: swept; ${summary.sweepFound} ${if (summary.sweepFound == 1) "device" else "devices"} that announce nothing"
+                            LanKeys.SWEEP_PARTIAL -> "Last scan: the sweep ran out of time; ${summary.sweepFound} found so far"
+                            else -> if (on == true) "On from the next scan" else "Off"
+                        },
+                        style = MaterialTheme.typography.labelSmall, color = GlassColors.dim,
+                    )
+                }
+                Switch(checked = on == true, onCheckedChange = onToggle, enabled = on != null && !scanning)
+            }
+            Text(
+                "Devices that announce nothing (most phones, many cameras) only show up when Tunnels tries every address of " +
+                    "this network, up to 254, and asks the router for their names. It adds up to about 40 seconds to a scan and " +
+                    "only runs on this confirmed network. A sleeping phone may not answer, and Android hides other devices' " +
+                    "hardware addresses, so a device the router does not name shows by its address only.",
+                style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
+            )
+        }
     }
 }
 
@@ -445,6 +492,7 @@ private fun HostRow(host: LanHost, onMine: (LanHost) -> Unit) {
             host.vendor?.takeIf { it != host.title }?.let { add(it) }
             if (host.services.isNotEmpty()) add(host.services.take(6).joinToString(" "))
             if (host.upnp) add("upnp")
+            if (host.swept) add("found by sweep")
         }
         if (details.isNotEmpty()) {
             Text(details.joinToString(" · "), fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = GlassColors.dim)

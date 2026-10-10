@@ -15,6 +15,9 @@ import java.util.Locale
  *  - `n`: an mDNS instance name, normalised ([normalizeName]), at most 4, sorted.
  *  - `s`: a shape of kind, vendor, models and services, only when there is no `u` and no `n`, and only when the shape
  *    says something (a vendor, a model or a service). Open ports are never part of an identity: timeouts make them flicker.
+ *  - `h`: the name the router gave for the host's address ([ReverseDns.deviceName]), normalised like an mDNS name, at most
+ *    1. Last, so a device already on the list keeps its primary token; for a host that announced nothing (found by the
+ *    sweep, [LanSweep]) it is the only token, and makes it one that can be added to the list.
  *
  * A host with no token has no identity: the census judges it unknown. Plain JVM, unit-tested.
  */
@@ -25,15 +28,15 @@ object DeviceIdentity {
     const val MAX_NAME_TOKENS = 4
     private const val HEX_LENGTH = 16
 
-    /** `u`, `n` or `s`, then 16 lowercase hex digits. */
-    val TOKEN = Regex("[uns][0-9a-f]{$HEX_LENGTH}")
+    /** `u`, `n`, `s` or `h`, then 16 lowercase hex digits. */
+    val TOKEN = Regex("[unsh][0-9a-f]{$HEX_LENGTH}")
 
     private val conflictSuffix = Regex("\\s\\(\\d{1,3}\\)$")
     private val whitespace = Regex("\\s+")
 
     fun isToken(text: String): Boolean = TOKEN.matches(text)
 
-    /** One token: [type] ("u", "n" or "s") plus 16 hex chars of the salted hash of [value] on the network [networkHash]. */
+    /** One token: [type] ("u", "n", "s" or "h") plus 16 hex chars of the salted hash of [value] on the network [networkHash]. */
     fun token(networkHash: String, type: String, value: String): String =
         type + NetworkFingerprint.sha256Hex("$DOMAIN\n$networkHash\n$type\n$value").take(HEX_LENGTH)
 
@@ -73,6 +76,7 @@ object DeviceIdentity {
             val services = record.mdnsTypes.toList().map(MdnsTypes::shortName) + record.ssdpTypes.toList().map(Ssdp::shortType)
             shape(kind, vendor, record.models.toList(), services)?.let { out += token(networkHash, "s", it) }
         }
+        record.routerName?.let(::normalizeName)?.let { out += token(networkHash, "h", it) }
         return out.take(MAX_TOKENS)
     }
 
