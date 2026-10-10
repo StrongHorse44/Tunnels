@@ -743,6 +743,10 @@
       "note": "tunnels/updater: the allowed download host suffix in core/updates UpdateSource.isAllowed (Updates.kt), used only on a user-started update download; same host family as the githubusercontent.com entry"
     },
     {
+      "value": ".in-addr.arpa",
+      "note": "core/lan ReverseDns.questionName (LanSweep.kt): the zone suffix a reverse (PTR) question name ends with, \"d.c.b.a.in-addr.arpa\"; the question goes only to the confirmed network's gateway inside a user-started Home network scan with the address sweep switched on; a DNS zone, never a host anything connects to"
+    },
+    {
       "value": "0.0.0.0",
       "note": "core/dns HostList.kt: sinkhole address skipped when parsing hosts-file blocklist lines (parser ignore list); not an address Tunnels binds or connects to"
     },
@@ -1681,6 +1685,10 @@
     {
       "value": "imrworldwide.com",
       "note": "tracker list core/dns/src/main/kotlin/io/github/stronghorse44/tunnels/dns/TrackerDomains.kt, matched locally against DNS queries in a Traffic session, never contacted"
+    },
+    {
+      "value": "in-addr.arpa",
+      "note": "core/lan ReverseDns.PTR_ZONE (LanSweep.kt): the reverse-lookup DNS zone named in PTR questions asked of the confirmed network's gateway only, during a user-started Home network scan with the address sweep switched on; a DNS zone, never a host anything connects to"
     },
     {
       "value": "indexww.com",
