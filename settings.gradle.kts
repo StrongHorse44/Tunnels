@@ -46,6 +46,7 @@ include(
     ":core:posture",
     ":core:breaches",
     ":core:convert",
+    ":core:emissions",
     ":tunnels:installer",
     ":tunnels:unzip",
     ":tunnels:convert",
@@ -71,4 +72,5 @@ include(
     ":tunnels:pairing",
     ":tunnels:backups",
     ":tunnels:breaches",
+    ":tunnels:emissions",
 )

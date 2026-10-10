@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Declare only what permissions.allow lists. Every one is already in the app; Emissions adds none to the APK. -->
+    <!-- Wi-Fi and Wi-Fi scanning on or off; the bag test's connected-network check. Normal permissions. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Mobile data on or off. Normal permission, no prompt, no identifiers. -->
+    <uses-permission android:name="android.permission.READ_BASIC_PHONE_STATE" />
+    <!-- Faraday bag test, asked for when the user starts it: counts of Bluetooth devices heard and Wi-Fi networks
+         seen outside and inside the bag. Never used for positioning; nothing is stored. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation" />
+    <!-- The bag test buzzes when listening starts and ends, with the phone in the bag. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <application>
+        <!-- Quick Settings "Silence" tile. Only the system can bind it (BIND_QUICK_SETTINGS_TILE). With Shizuku it
+             silences or, after an unlock, restores; without it, it opens the Emissions tunnel. -->
+        <service
+            android:name=".EmissionsTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_emissions"
+            android:label="Silence"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+                android:value="true" />
+        </service>
+    </application>
+</manifest>

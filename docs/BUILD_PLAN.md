@@ -42,6 +42,7 @@ compile and test locally.
 | — | `tunnels:devicecheck` (device checks screen) | `core:devicecheck` | — |
 | — | `tunnels:pairing` (Second phone: QR attestation between two phones, CAMERA) | `core:pairing` | — |
 | — | `tunnels:backups` (B06: export-folder watcher; no permission, SAF read grant) | `core:backups` (header scan, freshness rules, findings, tests with a fake folder) | backups |
+| — | `tunnels:emissions` (what the phone transmits, Silence/Restore via Deep mode's shell or Settings, QS tile, bag test) | `core:emissions` (readings, shell plans and parsers, rules, quiet level, bag-test verdict) | emissions |
 | — | `app` (well home) | `core:metro` (well geometry, depth palette, map layout) | — |
 
 Shared, lead-owned: `core:model`, `core:engine`, `core:store`, `core:common`, `core:runtime`, `app`.
@@ -156,6 +157,9 @@ Device checks to make on the Pixel 10 (the Device checks screen walks through mo
 - Timeline: scans without usage access clear non-sticky data findings; consider holding them.
 - Runtime: a shared "is system app" helper for the PackageManager tunnels; a hard cap on the generic
   observations list for tunnels with hundreds of subjects.
+- Emissions (2026-10-10): every shell command and the UWB and tethering parsers are unconfirmed on the Pixel 10; the device
+  checks are in `docs/EMISSIONS.md`. Deep mode's `SCAN_ALWAYS_ENABLED` overlaps `EMISSION_SCANNING_WHILE_OFF` when a radio is
+  off; decide whether Deep mode keeps it once Emissions has been used for a while.
 - Home network census (B08): devices that announce nothing on mDNS or SSDP (most phones) are invisible; an opt-in sweep
   of the confirmed network's addresses is the only way to see them, and is parked (revisit if the cameras turn out to be
   silent). `ACCESS_LOCAL_NETWORK` is needed only when targetSdk moves to 37: that build must name the permission, ask for

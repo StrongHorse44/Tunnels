@@ -32,6 +32,9 @@ object TunnelCatalog {
     const val UNZIP = "unzip"
     const val BACKUPS = "backups"
 
+    /** What the phone itself transmits, with Silence and Restore. Only on the well home: the old map has no spot for it. */
+    const val EMISSIONS = "emissions"
+
     /** The derived tunnel that joins the others ([DerivedTunnel]); on the home map it is Central, where the lines meet. */
     const val CROSSROADS = "crossroads"
 
@@ -57,6 +60,7 @@ object TunnelCatalog {
         TunnelInfo("traffic", "Traffic", Stratum.SURFACE, MetroLine.NETWORK, "Which apps talk to which domains", null),
         TunnelInfo("surroundings", "Surroundings", Stratum.SURFACE, MetroLine.NETWORK, "Nearby trackers, Wi-Fi and cell changes", null),
         TunnelInfo("home_network", "Home network", Stratum.SURFACE, MetroLine.NETWORK, "Devices and open doors on your LAN", null),
+        TunnelInfo(EMISSIONS, "Emissions", Stratum.SURFACE, MetroLine.NETWORK, "What the phone transmits, and silencing it", null),
 
         TunnelInfo("sensors", "Sensors", Stratum.EXPLORE, MetroLine.EXPLORE, "Every sensor on the device", null),
         TunnelInfo("cameras", "Cameras", Stratum.EXPLORE, MetroLine.EXPLORE, "Camera hardware characteristics", null),
