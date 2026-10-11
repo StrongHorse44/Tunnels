@@ -87,9 +87,10 @@
 > router's name for it, and one ping for the TTL's system hint. Nothing past a greeting is sent. Only a summary is kept
 > (kind, maker, a few words, open ports, names, system hint; 30 days, its own events stream); the device list places an
 > unidentified device by it at the next scan. Also: open its web page, open the router admin, and steps to track it down.
-> A device that refuses (nearly) every door, gives no name, announces nothing and pings like Unix is guessed "Phone or
-> tablet, likely Android" (RJ, 2026-10-11, after 192.168.1.183 answered exactly so): shown as a guess with why and the
-> cloud-only-gadget caveat, and the list places it with the phones at the next scan.
+> A device that refuses (nearly) every door, gives no name, announces nothing and pings like Unix is said to be "a quiet
+> device: a phone, tablet, e-reader, game console or cloud-only gadget", as a guess with why and the router-list check;
+> the list keeps it under "Not identified" (RJ, 2026-10-11: first "likely Android", broadened once RJ's home, with no
+> other Android device, showed it can be wrong).
 > **Device notes (2026-10-11):** the second of the three. Each device's detail now also holds your notes for it on that network:
 > a name you give it (it titles the device in the list and in Watch findings), how often it is here as counts only (first and
 > last day, days and scans seen, and a word: new today, always here, here most days, comes and goes, seen on one day only;

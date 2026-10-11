@@ -54,11 +54,16 @@ object LanGuides {
             "tells you what it was.",
     )
 
-    /** Why Look closer guessed a phone or tablet from silence ([LookCloser.Findings.quietLikeAndroid]), said under its guess. */
-    const val QUIET_ANDROID =
-        "It refused every door, runs no service, gave no name and announces nothing, and its ping looks like Android's: " +
-            "that is how an Android phone or tablet behaves. A cloud-only gadget, such as a video doorbell, can look the same; " +
-            "the router's device list can tell (a hardware address whose second character is 2, 6, A or E is a phone's or tablet's)."
+    /** The guess Look closer makes for a quiet device ([LookCloser.Findings.quiet]). */
+    const val QUIET_GUESS = "a quiet device: a phone, tablet, e-reader, game console or cloud-only gadget"
+
+    /** Why, said under the guess. */
+    const val QUIET_WHY =
+        "It refused every door, runs no service, gave no name and announces nothing, and its ping is Unix-like. Android " +
+            "phones and tablets answer this way, and so do e-readers, game consoles, VR headsets and gadgets that only talk " +
+            "to their maker's cloud (video doorbells, robot vacuums, thermostats). Your router's device list can tell: a " +
+            "hardware address whose second character is 2, 6, A or E is a random one (a phone, tablet or watch), and it " +
+            "often shows the name the device gave when it joined."
 
     /** What "Look closer" keeps, said on the screen next to its button. */
     const val CLOSER_KEEPS =

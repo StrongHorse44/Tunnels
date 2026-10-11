@@ -377,14 +377,9 @@ object LookCloser {
         val openPorts: List<Int>,
         val names: List<String>,
         val os: OsHint?,
+        /** The device answered like a quiet one ([Findings.quiet]): said as a guess wherever its kind is shown. */
+        val quiet: Boolean = false,
     ) {
-        /**
-         * The look guessed a phone or tablet from how the device answers alone ([Findings.quietLikeAndroid]): nothing open,
-         * no name, no words, a Unix-like ping. Said as a guess wherever the kind is shown.
-         */
-        val guessedFromSilence: Boolean
-            get() = kind == HostKind.PHONE && openPorts.isEmpty() && names.isEmpty() && vendor == null && says == null && os == OsHint.UNIX_LIKE
-
         fun encode(): String = buildString {
             append("at=").append(at)
             append(";kind=").append(kind.label)
@@ -393,6 +388,7 @@ object LookCloser {
             append(";ports=").append(LanKeys.portList(openPorts))
             if (names.isNotEmpty()) append(";names=").append(names.joinToString(",") { escape(it) })
             os?.let { append(";os=").append(it.slug) }
+            if (quiet) append(";quiet=1")
         }
 
         companion object {
@@ -410,6 +406,7 @@ object LookCloser {
                     openPorts = LanKeys.ports(fields["ports"]),
                     names = fields["names"].orEmpty().split(',').filter { it.isNotEmpty() }.mapNotNull(::unescape),
                     os = OsHint.bySlug(fields["os"]),
+                    quiet = fields["quiet"] == "1",
                 )
             }
         }
@@ -453,31 +450,27 @@ object LookCloser {
         val vendor: String? get() = VendorHints.vendorOf(*texts.toTypedArray())
 
         /**
-         * How an Android phone or tablet answers (RJ, 2026-10-11): it refused (nearly) every door tried, so it is awake
-         * and hides behind no firewall, yet runs no service; it gave no name and said nothing, and the scan heard nothing
-         * from it; and its ping is Unix-like. An iPhone keeps its sync port open, Windows pings with TTL 128 and ignores
-         * knocks, and Macs, TVs, speakers, printers and most gadgets announce themselves or open a door. A cloud-only
-         * gadget (a video doorbell, some hubs) can look the same, so this is only ever a guess.
+         * A quiet device (RJ, 2026-10-11): it refused (nearly) every door tried, so it is awake and hides behind no
+         * firewall, yet runs no service; it gave no name and said nothing, and the scan heard nothing from it; and its
+         * ping is Unix-like. Android phones and tablets answer this way, and so do e-readers, game consoles, VR headsets
+         * and cloud-only gadgets (RJ's home showed the narrower "likely Android" can be wrong). It names no kind: it is said
+         * as a guess on the screen, and the list keeps the device under "Not identified".
          */
-        val quietLikeAndroid: Boolean
+        val quiet: Boolean
             get() = open.isEmpty() && refused.size * 10 >= PortCatalog.closer.size * 9 && os == OsHint.UNIX_LIKE && texts.isEmpty()
 
-        /** The kind its words and ports point to; the ports decide only when the words say nothing, and silence last. */
+        /** The kind its words and ports point to; the ports decide only when the words say nothing. */
         val kind: HostKind
             get() {
                 val fromWords = HostKinds.infer(HostEvidence(names = texts, openPorts = open.toSet()))
                 if (fromWords != HostKind.UNKNOWN) return fromWords
-                return PortClues.kindOf(open) ?: when {
-                    os == OsHint.WINDOWS -> HostKind.COMPUTER
-                    quietLikeAndroid -> HostKind.PHONE
-                    else -> HostKind.UNKNOWN
-                }
+                return PortClues.kindOf(open) ?: if (os == OsHint.WINDOWS) HostKind.COMPUTER else HostKind.UNKNOWN
             }
 
         /** The few words worth keeping: the page title, else the certificate's name, else a server name. */
         val says: String? get() = (httpTitle ?: cert?.commonName ?: rtspServer ?: httpServer ?: authRealm)?.let { Greetings.clean(it, 60) }
 
-        fun summary(at: Long): Summary = Summary(at, kind, vendor, says, open.sorted(), names.take(4), os)
+        fun summary(at: Long): Summary = Summary(at, kind, vendor, says, open.sorted(), names.take(4), os, quiet)
     }
 
     private const val SPECIAL = "%,;="

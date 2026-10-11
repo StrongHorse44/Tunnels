@@ -181,7 +181,7 @@ internal fun DeviceDetailDialog(
 
                 host.closer?.takeIf { findings == null }?.let { kept ->
                     Section("Your last look, ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(kept.at))}")
-                    Line(if (kept.guessedFromSilence) "Phone or tablet, likely Android (a guess from how it answers)" else listOfNotNull(kindWords(kept.kind), kept.vendor).joinToString(" · "))
+                    Line(if (kept.quiet) "Probably ${LanGuides.QUIET_GUESS} (a guess from how it answers)" else listOfNotNull(kindWords(kept.kind), kept.vendor).joinToString(" · "))
                     kept.says?.let { Line("It said: $it") }
                     if (kept.names.isNotEmpty()) Line("Names: ${kept.names.joinToString(", ")}")
                     kept.os?.let { Line("System: ${it.words}") }
@@ -236,9 +236,9 @@ internal fun DeviceDetailDialog(
 
 @Composable
 private fun FindingsView(f: LookCloser.Findings) {
-    if (f.quietLikeAndroid) {
-        Line("Probably: Phone or tablet, likely Android (a guess)", bold = true)
-        Text(LanGuides.QUIET_ANDROID, style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)
+    if (f.quiet) {
+        Line("Probably ${LanGuides.QUIET_GUESS} (a guess)", bold = true)
+        Text(LanGuides.QUIET_WHY, style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)
     } else {
         Line("Probably: ${kindWords(f.kind)}" + (f.vendor?.let { ", made by $it" } ?: ""), bold = true)
     }
