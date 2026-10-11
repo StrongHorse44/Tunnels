@@ -378,6 +378,13 @@ object LookCloser {
         val names: List<String>,
         val os: OsHint?,
     ) {
+        /**
+         * The look guessed a phone or tablet from how the device answers alone ([Findings.quietLikeAndroid]): nothing open,
+         * no name, no words, a Unix-like ping. Said as a guess wherever the kind is shown.
+         */
+        val guessedFromSilence: Boolean
+            get() = kind == HostKind.PHONE && openPorts.isEmpty() && names.isEmpty() && vendor == null && says == null && os == OsHint.UNIX_LIKE
+
         fun encode(): String = buildString {
             append("at=").append(at)
             append(";kind=").append(kind.label)
@@ -445,12 +452,26 @@ object LookCloser {
 
         val vendor: String? get() = VendorHints.vendorOf(*texts.toTypedArray())
 
-        /** The kind its words and ports point to; the ports decide only when the words say nothing. */
+        /**
+         * How an Android phone or tablet answers (RJ, 2026-10-11): it refused (nearly) every door tried, so it is awake
+         * and hides behind no firewall, yet runs no service; it gave no name and said nothing, and the scan heard nothing
+         * from it; and its ping is Unix-like. An iPhone keeps its sync port open, Windows pings with TTL 128 and ignores
+         * knocks, and Macs, TVs, speakers, printers and most gadgets announce themselves or open a door. A cloud-only
+         * gadget (a video doorbell, some hubs) can look the same, so this is only ever a guess.
+         */
+        val quietLikeAndroid: Boolean
+            get() = open.isEmpty() && refused.size * 10 >= PortCatalog.closer.size * 9 && os == OsHint.UNIX_LIKE && texts.isEmpty()
+
+        /** The kind its words and ports point to; the ports decide only when the words say nothing, and silence last. */
         val kind: HostKind
             get() {
                 val fromWords = HostKinds.infer(HostEvidence(names = texts, openPorts = open.toSet()))
                 if (fromWords != HostKind.UNKNOWN) return fromWords
-                return PortClues.kindOf(open) ?: if (os == OsHint.WINDOWS) HostKind.COMPUTER else HostKind.UNKNOWN
+                return PortClues.kindOf(open) ?: when {
+                    os == OsHint.WINDOWS -> HostKind.COMPUTER
+                    quietLikeAndroid -> HostKind.PHONE
+                    else -> HostKind.UNKNOWN
+                }
             }
 
         /** The few words worth keeping: the page title, else the certificate's name, else a server name. */
