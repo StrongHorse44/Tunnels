@@ -22,6 +22,11 @@ import java.util.Locale
  *    answer), normalised like an mDNS name, at most 2. Asked only of devices the user looked closer at (RJ, 2026-10-11),
  *    so a device that announces nothing and that the router does not name can still go on the list. Last of all, so it
  *    never moves a primary token that was there before.
+ *  - `a`: the device's address, for a quiet device only (RJ, 2026-10-11: Mine by address): one that gave no other token,
+ *    announced nothing, gave no name and opened none of the scanned doors, on a scan whose discovery and port stages
+ *    were complete ([tokens]' `quietAddress`). It matches "a quiet device at this address", so a device that announces
+ *    itself or opens a door at a listed address is judged again; another quiet device there would pass, which is why the
+ *    screen asks to reserve the address in the router.
  *
  * A host with no token has no identity: the census judges it unknown. Plain JVM, unit-tested.
  */
@@ -33,15 +38,15 @@ object DeviceIdentity {
     const val MAX_DIRECT_TOKENS = 2
     private const val HEX_LENGTH = 16
 
-    /** `u`, `n`, `s`, `h` or `c`, then 16 lowercase hex digits. */
-    val TOKEN = Regex("[unshc][0-9a-f]{$HEX_LENGTH}")
+    /** `u`, `n`, `s`, `h`, `c` or `a`, then 16 lowercase hex digits. */
+    val TOKEN = Regex("[unshca][0-9a-f]{$HEX_LENGTH}")
 
     private val conflictSuffix = Regex("\\s\\(\\d{1,3}\\)$")
     private val whitespace = Regex("\\s+")
 
     fun isToken(text: String): Boolean = TOKEN.matches(text)
 
-    /** One token: [type] ("u", "n", "s", "h" or "c") plus 16 hex chars of the salted hash of [value] on the network [networkHash]. */
+    /** One token: [type] ("u", "n", "s", "h", "c" or "a") plus 16 hex chars of the salted hash of [value] on the network [networkHash]. */
     fun token(networkHash: String, type: String, value: String): String =
         type + NetworkFingerprint.sha256Hex("$DOMAIN\n$networkHash\n$type\n$value").take(HEX_LENGTH)
 
@@ -70,8 +75,10 @@ object DeviceIdentity {
     /**
      * The host's tokens on the network [networkHash]. [kind] must be the kind inferred without the host's open ports
      * (the ports are not part of an identity, and the kind would otherwise carry them in); [vendor] is the vendor hint.
+     * [quietAddress] allows the `a` token: true only for a host that is not the gateway, on a scan whose discovery and
+     * port stages were complete (a cut-short stage could have missed what makes a device not quiet).
      */
-    fun tokens(networkHash: String, record: LanHostRecord, kind: HostKind, vendor: String?): List<String> {
+    fun tokens(networkHash: String, record: LanHostRecord, kind: HostKind, vendor: String?, quietAddress: Boolean = false): List<String> {
         val out = ArrayList<String>(MAX_TOKENS)
         val uuids = record.ssdpUuids.distinct().sorted().take(MAX_UUID_TOKENS)
         uuids.forEach { out += token(networkHash, "u", it) }
@@ -84,8 +91,18 @@ object DeviceIdentity {
         record.routerName?.let(::normalizeName)?.let { out += token(networkHash, "h", it) }
         record.directNames.toList().mapNotNull(::normalizeName).distinct().sorted().take(MAX_DIRECT_TOKENS)
             .forEach { out += token(networkHash, "c", it) }
+        if (out.isEmpty() && quietAddress && isQuiet(record)) out += token(networkHash, "a", "quiet\n${record.ip}")
         return out.take(MAX_TOKENS)
     }
+
+    /** Announced nothing, gave no name of any kind and opened none of the scanned doors. */
+    fun isQuiet(record: LanHostRecord): Boolean =
+        record.names.isEmpty() && record.mdnsTypes.isEmpty() && record.models.isEmpty() && record.ssdpTypes.isEmpty() &&
+            record.ssdpLocations.isEmpty() && record.ssdpServer == null && record.ssdpUuids.isEmpty() && record.routerName == null &&
+            record.directNames.isEmpty() && record.openPorts.isEmpty()
+
+    /** True for a token that matches a quiet device by its address (`a`). */
+    fun isAddressToken(token: String?): Boolean = token != null && token.startsWith("a") && isToken(token)
 
     /**
      * The name a host is shown and titled by: the one whose normalised form sorts first (ties by the text itself), so a

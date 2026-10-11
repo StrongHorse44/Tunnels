@@ -45,6 +45,7 @@ import io.github.stronghorse44.tunnels.common.LineColors
 import io.github.stronghorse44.tunnels.common.StatusColors
 import io.github.stronghorse44.tunnels.lan.CensusMessages
 import io.github.stronghorse44.tunnels.lan.DeviceCensus
+import io.github.stronghorse44.tunnels.lan.DeviceIdentity
 import io.github.stronghorse44.tunnels.lan.LanGuides
 import io.github.stronghorse44.tunnels.lan.LanHost
 import io.github.stronghorse44.tunnels.lan.LanKeys
@@ -281,7 +282,7 @@ private fun allMine(census: CensusStore, tag: String?) = FindingAction.Perform(L
 }
 
 /** "Mine" for one host row: the same action as its finding, built from the same subject so the finding is dismissed too. */
-private fun mine(census: CensusStore, host: LanHost) = FindingAction.Perform(LanGuides.MINE_LABEL) {
+private fun mine(census: CensusStore, host: LanHost) = FindingAction.Perform(LanGuides.mineLabel(host.primaryId)) {
     val primary = host.primaryId
     if (primary == null) CensusMessages.NOT_IN_SCAN
     else withContext(Dispatchers.IO) { census.ack(DeviceCensus.subject(host.censusTitle, primary)) }
@@ -596,7 +597,9 @@ private fun HostRow(host: LanHost, notes: NotesView?, onMine: (LanHost) -> Unit,
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("not on your list", style = MaterialTheme.typography.labelMedium, color = StatusColors.warn, modifier = Modifier.weight(1f))
                 // A host that gave nothing to recognise it by has no identity to add.
-                if (host.primaryId != null) TextButton(onClick = { onMine(host) }) { Text("Mine") }
+                if (host.primaryId != null) {
+                    TextButton(onClick = { onMine(host) }) { Text(if (DeviceIdentity.isAddressToken(host.primaryId)) "Mine (by address)" else "Mine") }
+                }
             }
         }
     }

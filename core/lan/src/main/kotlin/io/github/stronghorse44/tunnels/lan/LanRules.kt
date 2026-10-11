@@ -149,6 +149,15 @@ object LanRules {
                     )
                 }
                 val title = DeviceCensus.title(LanKeys.value(obs, LanKeys.HOST_NAME), LanKeys.value(obs, LanKeys.HOST_VENDOR))
+                if (DeviceIdentity.isAddressToken(primary)) {
+                    return@mapNotNull FindingDraft(
+                        ctx.tunnelId, DeviceCensus.subject(title, primary), UNKNOWN_DEVICE, Severity.NOTICE,
+                        "A device that is not on your list for this network is here at $ip. It gives nothing to recognise it by, " +
+                            "so Mine adds it by its address: it stays yours while a device that announces nothing and opens no door " +
+                            "is at that address. Reserve the address for it in your router.$partialNote",
+                        sticky = true,
+                    )
+                }
                 val kind = kindWord(HostKind.byLabel(LanKeys.value(obs, LanKeys.HOST_KIND)))
                 val what = if (kind == null) title else "$title ($kind)"
                 FindingDraft(

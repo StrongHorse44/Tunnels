@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import io.github.stronghorse44.tunnels.common.GlassColors
 import io.github.stronghorse44.tunnels.common.StatusColors
 import io.github.stronghorse44.tunnels.lan.DeviceCensus
+import io.github.stronghorse44.tunnels.lan.DeviceIdentity
 import io.github.stronghorse44.tunnels.lan.HostKind
 import io.github.stronghorse44.tunnels.lan.Labels
 import io.github.stronghorse44.tunnels.lan.LanGuides
@@ -165,10 +166,11 @@ internal fun DeviceDetailDialog(
                                 }
                             },
                             enabled = !saving,
-                        ) { Text(LanGuides.MINE_LABEL) }
+                        ) { Text(LanGuides.mineLabel(primary)) }
                     }
                     notesNote?.let { Line(it) }
                     if (primary == null && !isGateway) Text(LanGuides.BY_ADDRESS, style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)
+                    if (DeviceIdentity.isAddressToken(primary)) Text(LanGuides.MINE_BY_ADDRESS, style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)
                     Text(LanGuides.NOTES_KEEP, style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)
                 }
 

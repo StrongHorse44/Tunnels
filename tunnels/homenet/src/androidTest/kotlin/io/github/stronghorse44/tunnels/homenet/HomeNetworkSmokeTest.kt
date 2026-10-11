@@ -106,6 +106,12 @@ class HomeNetworkSmokeTest {
             FindingDraft(module.id, DeviceCensus.subject("Living Room TV", primary), LanRules.UNKNOWN_DEVICE, Severity.NOTICE, "A device that is not on your list", sticky = true),
         )
         assertEquals(listOf(LanGuides.MINE_LABEL, LanGuides.FIX_LABEL, LanGuides.ROUTER_ADMIN_LABEL, LanGuides.WIFI_SETTINGS_LABEL), stranger.map { it.label })
+        // A quiet device matched by its address: Mine says so.
+        val quietToken = DeviceIdentity.token("00".repeat(32), "a", "quiet\n192.168.1.183")
+        val quiet = module.actionsFor(
+            FindingDraft(module.id, DeviceCensus.subject("Unnamed device", quietToken), LanRules.UNKNOWN_DEVICE, Severity.NOTICE, "e", sticky = true),
+        )
+        assertEquals(listOf(LanGuides.MINE_BY_ADDRESS_LABEL, LanGuides.FIX_LABEL, LanGuides.ROUTER_ADMIN_LABEL, LanGuides.WIFI_SETTINGS_LABEL), quiet.map { it.label })
         val unidentified = module.actionsFor(FindingDraft(module.id, "unidentified · 192.168.1.9", LanRules.UNKNOWN_DEVICE, Severity.NOTICE, "e", sticky = true))
         assertEquals(listOf(LanGuides.FIX_LABEL, LanGuides.ROUTER_ADMIN_LABEL, LanGuides.WIFI_SETTINGS_LABEL), unidentified.map { it.label })
         val setUp = module.actionsFor(FindingDraft(module.id, DeviceCensus.setupSubject("ab12cd34"), LanRules.CENSUS_NOT_SET_UP, Severity.NOTICE, "e"))

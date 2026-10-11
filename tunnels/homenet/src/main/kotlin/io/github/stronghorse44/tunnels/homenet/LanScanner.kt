@@ -98,6 +98,8 @@ data class LanScanOutput(
     val sweep: String = LanKeys.SWEEP_OFF,
     /** Hosts the sweep found that announced nothing. */
     val sweepFound: Int = 0,
+    /** Hosts the port scan tried (at most [LanScanner.MAX_PORT_SCAN_HOSTS]): only these can be known to open no door. */
+    val portScanned: Set<String> = emptySet(),
 )
 
 /** Pins sockets to the confirmed Wi-Fi [network]; a failure throws and the [BindGuard] treats the network as gone. */
@@ -195,7 +197,7 @@ class LanScanner(private val context: Context) {
         if (guard.lost) partial += PARTIAL_NETWORK
         LanScanOutput(
             hosts, router, partial, table.dropped.count, linkLocalOnly.get(), table.overCap, guard.skipped,
-            sweep = sweepState, sweepFound = sweepFound,
+            sweep = sweepState, sweepFound = sweepFound, portScanned = targets.toSet(),
         )
     }
 

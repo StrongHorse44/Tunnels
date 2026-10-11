@@ -35,8 +35,8 @@ object DeviceKeys {
     /**
      * [notes] with each host's entry moved to its key ([Host.key]) when it was kept under another: one of its other tokens
      * (a lost SSDP reply can change which token is primary), or its address while it gave nothing to recognise it by. The
-     * address entry moves only to a host whose tokens are all router or direct names (`h`, `c`): a device that announces
-     * nothing and became recognisable later, after a look closer. A device that announces itself never takes over what
+     * address entry moves only to a host whose tokens are all router or direct names or its quiet address (`h`, `c`, `a`):
+     * a device that announces nothing and became recognisable later, after a look closer or as a quiet device. A device that announces itself never takes over what
      * was noted under its address, which may have been another device's. A host whose key already holds an entry keeps it.
      */
     fun <T> rekey(notes: Map<String, T>, hosts: Collection<Host>): Map<String, T> {
@@ -44,7 +44,7 @@ object DeviceKeys {
         for (h in hosts) {
             val key = h.key
             if (key in out || isAddressKey(key)) continue
-            val quiet = h.ids.all { it.startsWith("h") || it.startsWith("c") }
+            val quiet = h.ids.all { it.startsWith("h") || it.startsWith("c") || it.startsWith("a") }
             val from = h.ids.firstOrNull { it in out } ?: address(h.ip).takeIf { quiet && it in out } ?: continue
             out.remove(from)?.let { out[key] = it }
         }
