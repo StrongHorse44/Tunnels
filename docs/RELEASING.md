@@ -127,6 +127,8 @@ job checks the format on every pull request, so a malformed file is a red pull r
 
 1. **Bump and open the pull request.** `VERSION` to the next version, one commit `Release vX.Y.Z`. CI checks the
    format. (A pull request with a real gate change that also bumps `VERSION` is a gate change like any other.)
+   Since 2026-10-11 agents bump in the feature pull request itself, one patch up, so merging the feature is this
+   step (RJ's release habit: CLAUDE.md, `.claude/skills/steward/SKILL.md`).
 2. **Dry run first, whenever the workflow or the build changed.** github.com in the phone's browser → the
    repository → **Actions → Release → Run workflow**. Branch: the pull request's branch; `publish`: **off**. It
    reads that branch's `VERSION`, builds, runs the release gate and rehearses signing with a throwaway key, and
