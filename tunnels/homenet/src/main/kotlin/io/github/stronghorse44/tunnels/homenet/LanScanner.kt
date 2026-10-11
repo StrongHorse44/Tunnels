@@ -18,6 +18,7 @@ import io.github.stronghorse44.tunnels.lan.LanSweep
 import io.github.stronghorse44.tunnels.lan.MdnsAddress
 import io.github.stronghorse44.tunnels.lan.MdnsPick
 import io.github.stronghorse44.tunnels.lan.MdnsTypes
+import io.github.stronghorse44.tunnels.lan.NetBios
 import io.github.stronghorse44.tunnels.lan.PortCatalog
 import io.github.stronghorse44.tunnels.lan.ProbeBinder
 import io.github.stronghorse44.tunnels.lan.ResolverScope
@@ -107,9 +108,12 @@ class LanScanner(private val context: Context) {
 
     /**
      * [sweep] adds the opt-in address sweep after discovery ([LanSweep]) and asks the router for the names of the hosts
-     * found ([ReverseDns]); both stay inside the confirmed network like every other probe.
+     * found ([ReverseDns]); both stay inside the confirmed network like every other probe. [askNames] are the addresses
+     * of devices the user looked closer at that answered with a name then: those found again are asked for their own
+     * names (a Windows name query and a direct mDNS question, one packet each), which lets a device that announces
+     * nothing be recognised ([LanHostRecord.directNames]). No other device is asked.
      */
-    suspend fun scan(state: WifiState, progress: ScanProgress, sweep: Boolean = false): LanScanOutput = withContext(Dispatchers.IO) {
+    suspend fun scan(state: WifiState, progress: ScanProgress, sweep: Boolean = false, askNames: Set<String> = emptySet()): LanScanOutput = withContext(Dispatchers.IO) {
         val partial = ArrayList<String>()
         val gateway = state.gateway?.hostAddress
 
@@ -166,6 +170,8 @@ class LanScanner(private val context: Context) {
             }
         }
         val hosts = table.hosts
+        val asked = hosts.values.filter { it.ip in askNames && it.ip != gateway }
+        if (asked.isNotEmpty() && withTimeoutOrNull(DIRECT_BUDGET_MS) { directNames(guard, asked) } == null) partial += STAGE_DIRECT
 
         progress.report(1, STAGES, STAGE_PORTS)
         val targets = hosts.keys.sortedWith(compareBy({ it != gateway }, { it })).take(MAX_PORT_SCAN_HOSTS)
@@ -253,6 +259,34 @@ class LanScanner(private val context: Context) {
                             host.routerName = it
                             named.incrementAndGet()
                         }
+                    }
+                }
+            }
+        }
+        return named.get()
+    }
+
+    /**
+     * Asks each of [hosts] for its own names, a few at a time: a Windows name query and an mDNS question for its address,
+     * both to the host itself. Returns how many answered with a name.
+     */
+    private suspend fun directNames(guard: BindGuard, hosts: List<LanHostRecord>): Int {
+        val named = AtomicInteger()
+        // Counted after the scope: it returns only once every question has been answered or timed out.
+        coroutineScope {
+            val limit = Semaphore(NAME_CONCURRENCY)
+            for (host in hosts) {
+                // Every record passed LanScope when it was made; the address is parsed again, never resolved.
+                val address = LanScope.parseLiteral(host.ip) ?: continue
+                launch(Dispatchers.IO) {
+                    limit.withPermit {
+                        if (guard.lost) return@withPermit
+                        val names = listOfNotNull(
+                            askNetBios(guard, NAME_TIMEOUT_MS, address)?.let(NetBios::computerName),
+                            if (guard.lost) null else askMdnsName(guard, NAME_TIMEOUT_MS, address, host.ip),
+                        ).map { it.trim().take(MAX_NAME) }.filter { it.isNotEmpty() }.distinct().take(LanHostRecord.MAX_DIRECT_NAMES)
+                        host.directNames += names
+                        if (names.isNotEmpty()) named.incrementAndGet()
                     }
                 }
             }
@@ -634,6 +668,8 @@ class LanScanner(private val context: Context) {
         const val STAGE_SWEEP = "sweep"
         /** The router names asked after the sweep. */
         const val STAGE_NAMES = "names"
+        /** The direct name questions to devices the user looked closer at. */
+        const val STAGE_DIRECT = "own names"
         /** Reported in [LanScanOutput.partial] when the link has no address prefix, so nothing was scanned. */
         const val PARTIAL_SCOPE = "scope"
         /** Reported in [LanScanOutput.partial] when a socket could not be bound to the confirmed network mid-scan. */
@@ -663,6 +699,8 @@ class LanScanner(private val context: Context) {
         const val NAMES_BUDGET_MS = 10_000L
         const val NAME_TIMEOUT_MS = 1_500
         const val NAME_CONCURRENCY = 8
+        /** Two questions of at most [NAME_TIMEOUT_MS] each per device, eight devices at a time. */
+        const val DIRECT_BUDGET_MS = 8_000L
 
         private val MODEL_TXT_KEYS = listOf("model", "md", "ty", "product", "manufacturer", "am")
     }

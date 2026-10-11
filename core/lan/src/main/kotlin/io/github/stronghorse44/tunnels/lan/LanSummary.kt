@@ -26,11 +26,16 @@ data class LanHost(
     val sweepAnswer: String? = null,
     /** The last "Look closer" of it on this network, within 30 days. */
     val closer: LookCloser.Summary? = null,
+    /** The name the user gave it ([Labels]). */
+    val label: String? = null,
 ) {
-    val title: String get() = name ?: closer?.names?.firstOrNull() ?: vendor ?: closer?.vendor ?: ip
+    val title: String get() = label ?: name ?: closer?.names?.firstOrNull() ?: vendor ?: closer?.vendor ?: ip
 
     /** The primary token, or null when the host has no identity (it cannot be added to the list). */
     val primaryId: String? get() = DeviceIdentity.primaryOf(ids)
+
+    /** What its notes (name, presence, watch) are kept under ([DeviceKeys]). */
+    val noteKey: String get() = DeviceKeys.of(primaryId, ip)
 
     /** The name the census shows for the device in findings (see [DeviceCensus.title]). */
     val censusTitle: String get() = DeviceCensus.title(name, vendor)
@@ -129,6 +134,7 @@ data class LanSummary(
                     swept = LanKeys.value(list, LanKeys.HOST_FOUND_BY) == LanKeys.FOUND_BY_SWEEP,
                     sweepAnswer = LanKeys.value(list, LanKeys.HOST_SWEEP_ANSWER),
                     closer = closer,
+                    label = LanKeys.value(list, LanKeys.HOST_LABEL)?.let(Labels::clean),
                 )
             }.sortedWith(compareBy<LanHost> { it.kind.ordinal }.thenBy { ipSortKey(it.ip) })
             val router = bySubject[LanKeys.SUBJECT_ROUTER]?.let { r ->

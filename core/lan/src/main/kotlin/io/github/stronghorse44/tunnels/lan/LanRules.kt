@@ -4,6 +4,7 @@ import io.github.stronghorse44.tunnels.engine.Rules
 import io.github.stronghorse44.tunnels.model.FindingDraft
 import io.github.stronghorse44.tunnels.model.FindingRule
 import io.github.stronghorse44.tunnels.model.Severity
+import java.time.LocalDate
 
 /** Finding rules of the home_network tunnel. Pure functions over observations, unit-tested here. */
 object LanRules {
@@ -18,6 +19,8 @@ object LanRules {
     private const val PARTIAL_NETWORK = "network"
     private const val MAX_NAMED = 8
     const val CAMERA_OPEN_WEB = "CAMERA_OPEN_WEB"
+    const val WATCHED_BACK = "WATCHED_BACK"
+    const val WATCHED_CHANGED = "WATCHED_CHANGED"
 
     /** Ports that make a camera reachable from a browser or video player. */
     val cameraWebPorts = setOf(80, 443, 554)
@@ -138,6 +141,47 @@ object LanRules {
         )
     }
 
+    /**
+     * Sticky NOTICE, one per watched device and day: a device the user watches ([Watch]) came back to the network, or
+     * opened or closed ports or changed its name since the last scan. The subject carries the device's key and the day,
+     * `<title> · <key> · <yyyy-mm-dd>`, so news on another day is a new finding even after the last one was dismissed.
+     */
+    val watchedDevice: FindingRule = FindingRule { ctx ->
+        val bySubject = ctx.bySubject()
+        val summary = bySubject[LanKeys.SUBJECT_SUMMARY].orEmpty()
+        if (LanKeys.value(summary, LanKeys.SCAN_GATE) != LanKeys.GATE_CONFIRMED) return@FindingRule emptyList()
+        bySubject.entries
+            .filter { (subject, _) -> LanKeys.isHostSubject(subject) }
+            .sortedBy { (subject, _) -> LanSummary.ipSortKey(subject) }
+            .mapNotNull { (ip, obs) ->
+                val noted = Watch.parseObservation(LanKeys.value(obs, LanKeys.HOST_WATCH_EVENT)) ?: return@mapNotNull null
+                val ids = LanKeys.items(LanKeys.value(obs, LanKeys.HOST_IDS)).filter(DeviceIdentity::isToken)
+                val key = DeviceKeys.of(DeviceIdentity.primaryOf(ids), ip)
+                val title = LanKeys.value(obs, LanKeys.HOST_LABEL)
+                    ?: DeviceCensus.title(LanKeys.value(obs, LanKeys.HOST_NAME), LanKeys.value(obs, LanKeys.HOST_VENDOR))
+                val subject = watchSubject(title, key, noted.day)
+                when (val event = noted.event) {
+                    Watch.Event.Back -> FindingDraft(
+                        ctx.tunnelId, subject, WATCHED_BACK, Severity.NOTICE,
+                        "$title, a device you watch, is back on this network at $ip. It was not here at the last scan.",
+                        sticky = true,
+                    )
+                    is Watch.Event.Changed -> FindingDraft(
+                        ctx.tunnelId, subject, WATCHED_CHANGED, Severity.NOTICE,
+                        "$title, a device you watch, changed since the last scan: ${event.what.joinToString("; ")}. It is at $ip.",
+                        sticky = true,
+                    )
+                }
+            }
+    }
+
+    /** `<title> · <key> · <yyyy-mm-dd>`: the subject of a watched device's news. */
+    fun watchSubject(title: String, key: String, day: Long): String = "$title$SUBJECT_JOIN$key$SUBJECT_JOIN${LocalDate.ofEpochDay(day)}"
+
+    /** The device key in a [watchSubject], or null when the subject is not one. */
+    fun watchKeyOf(subject: String): String? =
+        subject.substringBeforeLast(SUBJECT_JOIN, "").substringAfterLast(SUBJECT_JOIN, "").takeIf(DeviceKeys::isKey)
+
     /** Every rule of the tunnel, in display order. Declared last so the rule values above exist first. */
-    val all: List<FindingRule> = listOf(dnsHijack, riskyService, cameraOpenWeb, upnpIgd, unknownDevice, censusNotSetUp)
+    val all: List<FindingRule> = listOf(dnsHijack, riskyService, cameraOpenWeb, upnpIgd, unknownDevice, watchedDevice, censusNotSetUp)
 }

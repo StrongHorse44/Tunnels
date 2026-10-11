@@ -91,7 +91,10 @@ class HomeNetworkSmokeTest {
         assertTrue(hostGuide, hostGuide.contains("Telnet remote login") && hostGuide.contains("Windows file sharing"))
 
         // A retired NEW_HOST finding stored by an older build still gets its guide.
-        for (kind in listOf(LanRules.UPNP_IGD_ENABLED, LanRules.NEW_HOST, LanRules.CAMERA_OPEN_WEB, LanRules.UNKNOWN_DEVICE, LanRules.CENSUS_NOT_SET_UP)) {
+        for (kind in listOf(
+            LanRules.UPNP_IGD_ENABLED, LanRules.NEW_HOST, LanRules.CAMERA_OPEN_WEB, LanRules.UNKNOWN_DEVICE, LanRules.CENSUS_NOT_SET_UP,
+            LanRules.WATCHED_BACK, LanRules.WATCHED_CHANGED,
+        )) {
             val actions = module.actionsFor(FindingDraft(module.id, "x", kind, Severity.INFO, "e"))
             assertTrue(kind, actions.isNotEmpty())
             assertTrue(kind, (actions.first() as FindingAction.Perform).run().length > 40)
@@ -109,6 +112,14 @@ class HomeNetworkSmokeTest {
         assertEquals(listOf(LanGuides.ALL_MINE_LABEL, LanGuides.FIX_LABEL, LanGuides.WIFI_SETTINGS_LABEL), setUp.map { it.label })
         assertTrue(module.actionsFor(FindingDraft(module.id, "Device census", LanRules.CENSUS_NOT_SET_UP, Severity.NOTICE, "e")).none { it.label == LanGuides.ALL_MINE_LABEL })
         assertTrue(setUp.none { it is FindingAction.Perform && it.destructive })
+
+        // A watched device's news: Stop watching comes first, and only when the subject names the device.
+        val back = module.actionsFor(
+            FindingDraft(module.id, LanRules.watchSubject("Garage cam", "ip:192.168.1.50", 20_372L), LanRules.WATCHED_BACK, Severity.NOTICE, "e", sticky = true),
+        )
+        assertEquals(listOf(LanGuides.STOP_WATCHING_LABEL, LanGuides.FIX_LABEL, LanGuides.ROUTER_ADMIN_LABEL, LanGuides.WIFI_SETTINGS_LABEL), back.map { it.label })
+        val changed = module.actionsFor(FindingDraft(module.id, "Garage cam", LanRules.WATCHED_CHANGED, Severity.NOTICE, "e", sticky = true))
+        assertEquals(listOf(LanGuides.FIX_LABEL, LanGuides.WIFI_SETTINGS_LABEL), changed.map { it.label })
     }
 
     // ---- Device census, against the real encrypted store ---------------------------------------

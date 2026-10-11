@@ -87,6 +87,18 @@
 > router's name for it, and one ping for the TTL's system hint. Nothing past a greeting is sent. Only a summary is kept
 > (kind, maker, a few words, open ports, names, system hint; 30 days, its own events stream); the device list places an
 > unidentified device by it at the next scan. Also: open its web page, open the router admin, and steps to track it down.
+> **Device notes (2026-10-11):** the second of the three. Each device's detail now also holds your notes for it on that network:
+> a name you give it (it titles the device in the list and in Watch findings), how often it is here as counts only (first and
+> last day, days and scans seen, and a word: new today, always here, here most days, comes and goes, seen on one day only;
+> no timeline, RJ's choice), **Watch** and **Mine**. A watched device raises a sticky notice at the scan that sees it come
+> back or open or close a port or change its name ("Stop watching" is its action; gone is not news, the list shows that).
+> News comes only with the user's scans: background checks never touch the network. The notes are settings rows in the
+> encrypted store (`homenet.presence.<tag>`, `homenet.labels.<tag>`, `homenet.watch`); counts of a device not seen for 30
+> days are forgotten, names and the watch list last until cleared, Forget on the network clears them all, and they stay on
+> the phone (exports do not carry them). Notes are kept under the device's census token, or its address when it gave
+> nothing to recognise it by. A device the user looked closer at that answered with a name is asked for it again at each
+> scan (a NetBIOS query and a direct mDNS question, one packet each, to that device only); the answer becomes a census token
+> (`c`), so it can go on the list with Mine, and notes kept under its address move to it.
 > **Address sweep (2026-10-10):** Home network can sweep every address of the confirmed network around the phone (the /24, up to
 > 254) for devices that announce nothing: a TCP connection to a few common ports that is accepted or refused means a device is
 > there. The router (the gateway only) is then asked for each device's name by reverse DNS, which often returns the name the
