@@ -90,7 +90,9 @@
 > A device that refuses (nearly) every door, gives no name, announces nothing and pings like Unix is said to be "a quiet
 > device: a phone, tablet, e-reader, game console or cloud-only gadget", as a guess with why and the router-list check;
 > the list keeps it under "Not identified" (RJ, 2026-10-11: first "likely Android", broadened once RJ's home, with no
-> other Android device, showed it can be wrong).
+> other Android device, showed it can be wrong). RJ then confirmed .183 is a Chromebook server: ChromeOS refuses every
+> door unless its Linux apps' ports are forwarded and answers neither name question, so the guess names "a Chromebook or
+> Linux computer" too.
 > **Apple discovery (2026-10-11):** RJ's iPhone, MacBook and Apple Watch never showed up: the scan listened for no Apple
 > announcement but AirPlay and file sharing. It now also browses `_companion-link._tcp` (the device's own name, kept),
 > `_apple-mobdev2._tcp` (iPhones and iPads; its instance name holds the Wi-Fi hardware address and is never kept) and
