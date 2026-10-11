@@ -53,7 +53,7 @@ object HostKinds {
         val audioOnly = "_raop._tcp" in types && "_airplay._tcp" !in types
         if ("_sonos._tcp" in types || "_spotify-connect._tcp" in types || audioOnly || speakerWords.any { text.contains(it) }) return HostKind.SPEAKER
         if ("_googlecast._tcp" in types || "_airplay._tcp" in types || tvWords.any { text.containsWord(it) }) return HostKind.TV
-        if (phoneWords.any { text.contains(it) }) return HostKind.PHONE
+        if (phoneWords.any { text.contains(it) } || "_apple-mobdev2._tcp" in types) return HostKind.PHONE
         if ("_smb._tcp" in types || "_afpovertcp._tcp" in types || nasWords.any { text.containsWord(it) }) {
             return if (computerWords.any { text.contains(it) } || "_workstation._tcp" in types) HostKind.COMPUTER else HostKind.NAS
         }

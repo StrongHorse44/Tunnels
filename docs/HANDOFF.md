@@ -91,6 +91,12 @@
 > device: a phone, tablet, e-reader, game console or cloud-only gadget", as a guess with why and the router-list check;
 > the list keeps it under "Not identified" (RJ, 2026-10-11: first "likely Android", broadened once RJ's home, with no
 > other Android device, showed it can be wrong).
+> **Apple discovery (2026-10-11):** RJ's iPhone, MacBook and Apple Watch never showed up: the scan listened for no Apple
+> announcement but AirPlay and file sharing. It now also browses `_companion-link._tcp` (the device's own name, kept),
+> `_apple-mobdev2._tcp` (iPhones and iPads; its instance name holds the Wi-Fi hardware address and is never kept) and
+> `_rdlink._tcp` (name not kept); no name holding a hardware address is kept from any type (`MdnsTypes.nameToKeep`).
+> Discovery's budget grew from 28 to 34 seconds for the fifth batch. A sleeping iPhone or a closed MacBook still says
+> nothing, and a Watch is usually on Bluetooth to its iPhone rather than on Wi-Fi.
 > **Device notes (2026-10-11):** the second of the three. Each device's detail now also holds your notes for it on that network:
 > a name you give it (it titles the device in the list and in Watch findings), how often it is here as counts only (first and
 > last day, days and scans seen, and a word: new today, always here, here most days, comes and goes, seen on one day only;

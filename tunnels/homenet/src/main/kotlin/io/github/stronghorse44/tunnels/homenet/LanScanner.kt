@@ -375,7 +375,8 @@ class LanScanner(private val context: Context) {
                             }
                         }
                         val rec = table.record(address) ?: return@withPermit
-                        resolved.serviceName?.trim()?.takeIf { it.isNotEmpty() }?.let { if (rec.names.size < 4) rec.names += it.take(MAX_NAME) }
+                        // Only names that are the device's own: never one that holds a hardware address (MdnsTypes.nameToKeep).
+                        MdnsTypes.nameToKeep(resolved.serviceType ?: info.serviceType, resolved.serviceName)?.let { if (rec.names.size < 4) rec.names += it.take(MAX_NAME) }
                         resolved.serviceType?.let { rec.mdnsTypes += MdnsTypes.normalize(it) }
                         for (key in MODEL_TXT_KEYS) {
                             val bytes = runCatching { resolved.attributes[key] }.getOrNull() ?: continue
@@ -742,7 +743,8 @@ class LanScanner(private val context: Context) {
         const val RESOLVE_TIMEOUT_MS = 2_500L
         const val RESOLVE_CONCURRENCY = 4
         const val RETRY_DELAY_MS = 500L
-        const val DISCOVERY_BUDGET_MS = 28_000L
+        /** Five batches of [BROWSE_BATCH] types at [MDNS_WINDOW_MS] each, plus the last resolves. */
+        const val DISCOVERY_BUDGET_MS = 34_000L
         const val SSDP_WINDOW_MS = 4_000L
         const val SSDP_BUDGET_MS = 6_000L
         const val PORT_CONCURRENCY = 16
