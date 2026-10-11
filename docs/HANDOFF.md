@@ -93,6 +93,12 @@
 > other Android device, showed it can be wrong). RJ then confirmed .183 is a Chromebook server: ChromeOS refuses every
 > door unless its Linux apps' ports are forwarded and answers neither name question, so the guess names "a Chromebook or
 > Linux computer" too.
+> **Mine by address (2026-10-11):** a quiet device (no other token, announced nothing, gave no name, opened none of the
+> scanned doors) on a scan whose discovery, port and network stages were complete, and that the port scan tried, gets
+> an `a` census token: a salted hash of "quiet" and its address. Mine (by address), in its detail, on its row and on its
+> finding, puts it on the list; it stays listed while a quiet device is at that address, and a device that announces
+> itself or opens a door there is judged again (RJ: address + still quiet, everywhere Mine is). Another quiet device at the
+> same address would pass, so the screen asks to reserve the address in the router. Notes kept by address move to it.
 > **Apple discovery (2026-10-11):** RJ's iPhone, MacBook and Apple Watch never showed up: the scan listened for no Apple
 > announcement but AirPlay and file sharing. It now also browses `_companion-link._tcp` (the device's own name, kept),
 > `_apple-mobdev2._tcp` (iPhones and iPads; its instance name holds the Wi-Fi hardware address and is never kept) and

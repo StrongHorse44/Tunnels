@@ -77,6 +77,10 @@ object LanGuides {
     const val ROUTER_ADMIN_LABEL = "Open router admin"
     const val WIFI_SETTINGS_LABEL = "Wi-Fi settings"
     const val MINE_LABEL = "Mine: add to this network's list"
+    const val MINE_BY_ADDRESS_LABEL = "Mine (by address)"
+
+    /** Mine's label for a device whose primary token is [primary]: "by address" for a quiet device matched by its address. */
+    fun mineLabel(primary: String?): String = if (DeviceIdentity.isAddressToken(primary)) MINE_BY_ADDRESS_LABEL else MINE_LABEL
     const val ALL_MINE_LABEL = "These are all mine"
     const val STOP_WATCHING_LABEL = "Stop watching"
     const val CLOSE_OPENING_LABEL = "Close it"
@@ -91,6 +95,12 @@ object LanGuides {
         "This device gave nothing to recognise it by, so its name and watch follow its address: if the router gives the " +
             "address to another such device, they go with it. Look closer: if it answers with its own name, Tunnels asks " +
             "it again at each scan, and it can then go on your list and keep its notes wherever it moves."
+
+    /** Said next to Mine (by address) (RJ, 2026-10-11). */
+    const val MINE_BY_ADDRESS =
+        "Mine (by address) adds it by its address: it stays yours while a device that announces nothing, gives no name and " +
+            "opens no door is at that address. Reserve the address for it in your router (a DHCP reservation), so no other " +
+            "device gets it."
 
     /** Router-level kinds get an "Open router admin" action. */
     fun isRouterKind(kind: String) = kind == LanRules.UPNP_IGD_ENABLED || kind == LanRules.DNS_HIJACK

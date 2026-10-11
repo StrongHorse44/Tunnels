@@ -191,6 +191,8 @@ object DeviceCensus {
 /** The one-line results of the census actions, in one place so the panel and the findings say the same thing. */
 object CensusMessages {
     const val ADDED = "Added to this network's list. The panel updates at the next scan."
+    const val ADDED_BY_ADDRESS = "Added to this network's list by its address. Reserve that address for it in your router, " +
+        "so no other device gets it. The panel updates at the next scan."
     const val NOT_IN_SCAN = "Not in a recent scan of this network: scan again while it is connected, then tap Mine."
     const val NO_SCAN_FOR_SETUP = "No recent scan of this network: scan it while it is connected, then tap These are all mine."
     const val NOT_SAVED = "Tunnels' encrypted store could not be changed, so nothing was saved."

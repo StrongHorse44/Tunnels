@@ -108,6 +108,9 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
         // The table holds at most MAX_HOSTS hosts besides the gateway, which is reserved outside that cap.
         val hosts = result.hosts.values.sortedBy { LanSummary.ipSortKey(it.ip) }.take(LanScanner.MAX_HOSTS + 1)
         val networkHash = allowed.fingerprint.hash
+        // Mine by address (RJ, 2026-10-11): a quiet device gets an address token only when nothing that could have shown it
+        // is not quiet was cut short (discovery, the port scan, or the network itself).
+        val quietComplete = QUIET_STAGES.none { it in result.partial }
         val hostIds = HashMap<String, List<String>>()
         val hostNames = HashMap<String, String>()
         var risky = 0
@@ -150,7 +153,7 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
                     // Open ports are never part of an identity (timeouts make them flicker), and the kind is inferred from
                     // them, so the shape token gets the kind as it reads without them.
                     val identityKind = HostKinds.infer(evidence.copy(openPorts = emptySet()))
-                    val ids = DeviceIdentity.tokens(networkHash, host, identityKind, vendor)
+                    val ids = DeviceIdentity.tokens(networkHash, host, identityKind, vendor, quietAddress = quietComplete && host.ip in result.portScanned)
                     if (ids.isNotEmpty()) {
                         hostIds[host.ip] = ids
                         add(host.ip, LanKeys.HOST_IDS, LanKeys.list(ids))
@@ -270,7 +273,9 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
         when (draft.kind) {
             LanRules.UNKNOWN_DEVICE ->
                 if (DeviceCensus.parsePrimary(draft.subject) != null) {
-                    actions += FindingAction.Perform(LanGuides.MINE_LABEL) { withContext(Dispatchers.IO) { census.ack(draft.subject) } }
+                    actions += FindingAction.Perform(LanGuides.mineLabel(DeviceCensus.parsePrimary(draft.subject))) {
+                        withContext(Dispatchers.IO) { census.ack(draft.subject) }
+                    }
                 }
             LanRules.CENSUS_NOT_SET_UP ->
                 DeviceCensus.parseTag(draft.subject)?.let { tag ->
@@ -326,6 +331,9 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
 
     companion object {
         private val portsInParentheses = Regex("\\((\\d{1,5})\\)")
+
+        /** Stages whose cut-short result could hide what makes a device not quiet. */
+        private val QUIET_STAGES = listOf("mdns", "ssdp", LanScanner.STAGE_PORTS, LanScanner.PARTIAL_NETWORK)
         private const val STORE_TIMEOUT_MS = 10_000L
         /** Look closer summaries count for 30 days, like every events row (rule 4). */
         private const val LOOK_RETENTION_MS = 30L * 24 * 60 * 60_000L

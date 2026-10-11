@@ -135,7 +135,7 @@ class CensusStore(context: Context) {
                     throw e
                 } catch (_: Throwable) {
                 }
-                return@guarded CensusMessages.ADDED
+                return@guarded if (DeviceIdentity.isAddressToken(primary)) CensusMessages.ADDED_BY_ADDRESS else CensusMessages.ADDED
             }
             CensusMessages.NOT_IN_SCAN
         }
