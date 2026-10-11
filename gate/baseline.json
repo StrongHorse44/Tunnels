@@ -572,12 +572,36 @@
       "note": "tunnels/traffic DnsForwarder: DNS-over-HTTPS (RFC 8484) to the upstream the user picked (Upstream presets or custom); the default is the network's own resolver over UDP; only in a session the user starts"
     },
     {
+      "value": "Ljavax/net/ssl/SSLContext;",
+      "note": "tunnels/homenet LookCloserProbe.certificate: Look closer reads a LAN device's TLS certificate names (a camera's or NAS's model) in a handshake whose trust manager records the certificate and then refuses it, so no data is ever sent; only to an address inside the confirmed network, socket bound to it, when the user taps Look closer"
+    },
+    {
+      "value": "Ljavax/net/ssl/SSLSocket;",
+      "note": "tunnels/homenet LookCloserProbe.certificate: Look closer reads a LAN device's TLS certificate names (a camera's or NAS's model) in a handshake whose trust manager records the certificate and then refuses it, so no data is ever sent; only to an address inside the confirmed network, socket bound to it, when the user taps Look closer"
+    },
+    {
+      "value": "Ljavax/net/ssl/SSLSocketFactory;",
+      "note": "tunnels/homenet LookCloserProbe.certificate: Look closer reads a LAN device's TLS certificate names (a camera's or NAS's model) in a handshake whose trust manager records the certificate and then refuses it, so no data is ever sent; only to an address inside the confirmed network, socket bound to it, when the user taps Look closer"
+    },
+    {
+      "value": "Ljavax/net/ssl/X509TrustManager;",
+      "note": "tunnels/homenet LookCloserProbe.certificate: Look closer reads a LAN device's TLS certificate names (a camera's or NAS's model) in a handshake whose trust manager records the certificate and then refuses it, so no data is ever sent; only to an address inside the confirmed network, socket bound to it, when the user taps Look closer (the recording trust manager throws for every chain: it never trusts)"
+    },
+    {
       "value": "[Landroid/net/Network;",
       "note": "return type of ConnectivityManager.getAllNetworks. Callers: homenet NetworkGate: finds the Wi-Fi network under a VPN, which the user-started LAN scan binds its sockets to (own-network gate); traffic VpnStatus: finds the underlying network whose resolvers a user-started session forwards to; devicecheck Probes (DeviceCheckRunner): read-only capability and link-property reads"
     },
     {
       "value": "[Ljava/net/URL;",
       "note": "array types in signatures of URLClassLoader.getURLs, Apache commons-io FileUtils.toURLs/toFiles and commons-lang3 ClassLoaderUtils; library references only, no Tunnels code uses them and they open nothing"
+    },
+    {
+      "value": "[Ljavax/net/ssl/KeyManager;",
+      "note": "SSLContext.init's key-manager array parameter (passed null: no client certificate) in tunnels/homenet LookCloserProbe.certificate"
+    },
+    {
+      "value": "[Ljavax/net/ssl/TrustManager;",
+      "note": "SSLContext.init's trust-manager array in tunnels/homenet LookCloserProbe.certificate; holds only the recording trust manager that refuses every chain"
     }
   ],
   "dependencies": {

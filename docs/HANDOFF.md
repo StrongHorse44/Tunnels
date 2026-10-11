@@ -78,6 +78,15 @@
 > device or access point in range now is a notice at once, a hinted one that keeps turning up is a warning; "Mute all" leaves
 > hinted ones out. Bluetooth findings offer Find it (find-it mode follows one device by its keyed id). A card in the tunnel says
 > plainly what no phone can hear: SIM-card bugs, analog transmitters and recorders that send nothing.
+> **Look closer (2026-10-11):** RJ found the device list limiting and chose, of all suggestions, a detail per device first.
+> Tapping a device opens what the scan saw (including which port made the sweep find it) and **Look closer**, which asks
+> that one device directly, only on the confirmed network and inside it, every socket bound to it: the catalog's ports plus
+> 15 telling extras (iPhone sync 62078, AirPlay 7000, Google Cast 8009, Sonos 1400, ADB 5555, camera protocols 34567 and
+> 37777...), a plain GET of `/` for the page title, server and login realm, a TLS handshake broken off once the
+> certificate's names are read, the SSH, RTSP and login greetings, a NetBIOS name query, a direct mDNS question and the
+> router's name for it, and one ping for the TTL's system hint. Nothing past a greeting is sent. Only a summary is kept
+> (kind, maker, a few words, open ports, names, system hint; 30 days, its own events stream); the device list places an
+> unidentified device by it at the next scan. Also: open its web page, open the router admin, and steps to track it down.
 > **Address sweep (2026-10-10):** Home network can sweep every address of the confirmed network around the phone (the /24, up to
 > 254) for devices that announce nothing: a TCP connection to a few common ports that is accepted or refused means a device is
 > there. The router (the gateway only) is then asked for each device's name by reverse DNS, which often returns the name the

@@ -14,6 +14,7 @@ import io.github.stronghorse44.tunnels.lan.LanGuides
 import io.github.stronghorse44.tunnels.lan.LanKeys
 import io.github.stronghorse44.tunnels.lan.LanRules
 import io.github.stronghorse44.tunnels.lan.LanSummary
+import io.github.stronghorse44.tunnels.lan.LookCloser
 import io.github.stronghorse44.tunnels.lan.MdnsTypes
 import io.github.stronghorse44.tunnels.lan.PortCatalog
 import io.github.stronghorse44.tunnels.lan.ResolverScope
@@ -29,9 +30,12 @@ import io.github.stronghorse44.tunnels.model.TunnelModule
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenActions
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenState
 import io.github.stronghorse44.tunnels.runtime.TunnelUi
+import io.github.stronghorse44.tunnels.store.TunnelsStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Home network: which devices are on the Wi-Fi the user confirmed as theirs, which doors they leave
@@ -54,6 +58,9 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
 
     /** The device census's reads and writes in the encrypted store. */
     val census = CensusStore(context)
+
+    /** "Look closer" on one device, run from its detail on the screen. */
+    val closer = LookCloserProbe(context, gate)
 
     /** Gateway of the last allowed scan, for the "Open router admin" action. */
     @Volatile private var lastGateway: String? = null
@@ -87,6 +94,7 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
         // The table holds at most MAX_HOSTS hosts besides the gateway, which is reserved outside that cap.
         val hosts = result.hosts.values.sortedBy { LanSummary.ipSortKey(it.ip) }.take(LanScanner.MAX_HOSTS + 1)
         val networkHash = allowed.fingerprint.hash
+        val looks = readLooks(allowed.fingerprint.prefixTag)
         val hostIds = HashMap<String, List<String>>()
         var risky = 0
         for (host in hosts) {
@@ -115,6 +123,8 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
                 add(host.ip, LanKeys.HOST_RISKY, LanKeys.portList(riskyPorts))
                 add(host.ip, LanKeys.HOST_UPNP, host.upnp.toString())
                 if (host.swept) add(host.ip, LanKeys.HOST_FOUND_BY, LanKeys.FOUND_BY_SWEEP)
+                host.sweepAnswer?.let { add(host.ip, LanKeys.HOST_SWEEP_ANSWER, it) }
+                looks[host.ip]?.let { add(host.ip, LanKeys.HOST_CLOSER, it.encode()) }
                 val vendor = VendorHints.vendorOf(host.ssdpServer, *host.names.toTypedArray(), *host.models.toTypedArray())
                     ?: if (host.ip == gateway) result.router.description?.manufacturer else null
                 vendor?.let { add(host.ip, LanKeys.HOST_VENDOR, it) }
@@ -176,6 +186,28 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
         return out
     }
 
+    /**
+     * The newest "Look closer" summary per address on this network, from the last 30 days; empty when the store cannot be
+     * read (the devices then simply show what the scan saw).
+     */
+    private suspend fun readLooks(tag: String): Map<String, LookCloser.Summary> = withContext(Dispatchers.IO) {
+        try {
+            val cutoff = System.currentTimeMillis() - LOOK_RETENTION_MS
+            val rows = withTimeoutOrNull(STORE_TIMEOUT_MS) { TunnelsStore.get(context).dao.events(LookCloser.LEDGER, LookCloser.MAX_ROWS).first() }.orEmpty()
+            val out = HashMap<String, LookCloser.Summary>()
+            for (row in rows.filter { it.kind == LookCloser.EVENT && it.at >= cutoff }.sortedByDescending { it.at }) {
+                val ip = LookCloser.ipOf(row.subject, tag) ?: continue
+                if (ip in out) continue
+                LookCloser.Summary.parse(row.summary)?.let { out[ip] = it }
+            }
+            out
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            emptyMap()
+        }
+    }
+
     /** The list for this network, or null when the store could not be read. */
     private suspend fun readCensus(tag: String): DeviceCensus.Census? = withContext(Dispatchers.IO) {
         try {
@@ -215,8 +247,21 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
         return actions
     }
 
+    /** Opens a device's own web page in the browser ([https] when only its encrypted page is open). */
+    fun openDevicePage(ip: String, port: Int, https: Boolean): String {
+        val scheme = if (https) "https" else "http"
+        val default = if (https) 443 else 80
+        val url = "$scheme://$ip" + (if (port == default) "" else ":$port") + "/"
+        return try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            "Opening $url in your browser."
+        } catch (_: ActivityNotFoundException) {
+            "No browser can open $url."
+        }
+    }
+
     /** Opens http://<gateway>/ in the browser. Returns a one-line result for the UI. */
-    private fun openRouterAdmin(): String {
+    fun openRouterAdmin(): String {
         val gateway = lastGateway ?: runCatching { gate.current().gateway?.hostAddress }.getOrNull()
             ?: return "No gateway known yet: connect to your Wi-Fi and scan first."
         return try {
@@ -234,5 +279,8 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
 
     companion object {
         private val portsInParentheses = Regex("\\((\\d{1,5})\\)")
+        private const val STORE_TIMEOUT_MS = 10_000L
+        /** Look closer summaries count for 30 days, like every events row (rule 4). */
+        private const val LOOK_RETENTION_MS = 30L * 24 * 60 * 60_000L
     }
 }

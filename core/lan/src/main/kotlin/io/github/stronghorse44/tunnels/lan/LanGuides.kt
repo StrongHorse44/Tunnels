@@ -28,6 +28,25 @@ object LanGuides {
         else -> "Open your router's admin page, update its firmware, and check which devices and services are allowed."
     }
 
+    /**
+     * How to track down a device Tunnels cannot name (RJ, 2026-10-11): what the router knows that a phone cannot, and two
+     * ways to find out by elimination.
+     */
+    val TRACK_DOWN: List<String> = listOf(
+        "Open your router's admin page (the button below) and find its list of connected devices. It shows each device's " +
+            "hardware address, often its maker, and how long it has been connected: things Android hides from apps.",
+        "In that list, a hardware address whose second character is 2, 6, A or E is a private, random one. Phones, tablets " +
+            "and laptops use those; cameras, TVs and gadgets usually show their real maker.",
+        "Switch off or unplug your devices one at a time and scan again. The one whose address disappears is it.",
+        "Or block it in the router (or change the Wi-Fi password and reconnect only what you know): whatever stops working " +
+            "tells you what it was.",
+    )
+
+    /** What "Look closer" keeps, said on the screen next to its button. */
+    const val CLOSER_KEEPS =
+        "Asks only this device, on this network. Tunnels keeps its kind, maker, open ports and names for 30 days; " +
+            "the page text and greetings it shows here are not kept."
+
     /** Label for the finding's primary action. */
     const val FIX_LABEL = "How to fix"
     const val ROUTER_ADMIN_LABEL = "Open router admin"

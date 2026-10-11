@@ -47,9 +47,34 @@ object PortCatalog {
         PortInfo(49152, "upnp-ctl", "UPnP control (port 49152)", false, "Accepts UPnP commands."),
     )
 
+    /**
+     * Ports only "Look closer" tries, on the one device the user tapped (RJ, 2026-10-11): each says a lot about what the
+     * device is, or is a risk of its own. Never part of the regular scan, which stays at [all].
+     */
+    val closerOnly: List<PortInfo> = listOf(
+        PortInfo(62078, "apple-sync", "iPhone or iPad sync (port 62078)", false, "Apple's sync service: an iPhone or iPad listens here."),
+        PortInfo(7000, "airplay", "AirPlay (port 7000)", false, "Receives AirPlay: an Apple TV, HomePod, Mac or AirPlay TV or speaker."),
+        PortInfo(8009, "cast-ctl", "Google Cast (port 8009)", false, "Google Cast control: a Chromecast, Google TV, Nest speaker or Cast TV."),
+        PortInfo(1400, "sonos", "Sonos control (port 1400)", false, "Sonos speakers answer here."),
+        PortInfo(5555, "adb", "Android debug bridge (ADB)", true, "Full control of an Android device or TV box for anyone on the Wi-Fi."),
+        PortInfo(8554, "rtsp-alt", "Video stream (RTSP, port 8554)", false, "Live video, often from a camera."),
+        PortInfo(5001, "web5001", "Web admin (port 5001)", false, "Encrypted admin page, often of a NAS."),
+        PortInfo(515, "lpd", "Printing (LPD)", false, "Older network printing."),
+        PortInfo(34567, "dvr-sofia", "DVR protocol (port 34567)", true, "The protocol of many cheap cameras and video recorders (XMEye); often weakly protected."),
+        PortInfo(37777, "dahua", "Dahua recorder protocol (port 37777)", false, "Dahua cameras and video recorders."),
+        PortInfo(8000, "web8000", "Camera SDK or web (port 8000)", false, "Hikvision cameras use it; so do some web services."),
+        PortInfo(6668, "tuya", "Tuya smart home (port 6668)", false, "Tuya and Smart Life plugs, bulbs and sensors."),
+        PortInfo(2869, "upnp-host", "Windows UPnP host (port 2869)", false, "Windows network discovery."),
+        PortInfo(5357, "wsd", "Windows device discovery (WSD)", false, "Windows and some printers announce themselves here."),
+        PortInfo(2323, "telnet-alt", "Telnet (port 2323)", true, "Unencrypted remote login, common on cheap gadgets."),
+    )
+
+    /** Every port "Look closer" tries: the regular catalog first, then [closerOnly]. */
+    val closer: List<PortInfo> = all + closerOnly
+
     val ports: List<Int> = all.map { it.port }
-    val risky: Set<Int> = all.filter { it.risky }.map { it.port }.toSet()
-    private val byPort: Map<Int, PortInfo> = all.associateBy { it.port }
+    val risky: Set<Int> = closer.filter { it.risky }.map { it.port }.toSet()
+    private val byPort: Map<Int, PortInfo> = closer.associateBy { it.port }
 
     fun byPort(port: Int): PortInfo? = byPort[port]
 

@@ -22,8 +22,12 @@ data class LanHost(
     val listed: Boolean? = null,
     /** Found by the address sweep: it announced nothing on mDNS or SSDP. */
     val swept: Boolean = false,
+    /** What made the sweep find it ([LanSweep.answer]). */
+    val sweepAnswer: String? = null,
+    /** The last "Look closer" of it on this network, within 30 days. */
+    val closer: LookCloser.Summary? = null,
 ) {
-    val title: String get() = name ?: vendor ?: ip
+    val title: String get() = name ?: closer?.names?.firstOrNull() ?: vendor ?: closer?.vendor ?: ip
 
     /** The primary token, or null when the host has no identity (it cannot be added to the list). */
     val primaryId: String? get() = DeviceIdentity.primaryOf(ids)
@@ -108,10 +112,13 @@ data class LanSummary(
             val gateway = LanKeys.value(bySubject[LanKeys.SUBJECT_ROUTER].orEmpty(), LanKeys.ROUTER_IP)
             val hosts = bySubject.filterKeys(LanKeys::isHostSubject).map { (ip, list) ->
                 val ids = LanKeys.items(LanKeys.value(list, LanKeys.HOST_IDS)).filter(DeviceIdentity::isToken)
+                val closer = LanKeys.value(list, LanKeys.HOST_CLOSER)?.let(LookCloser.Summary::parse)
+                val scanKind = HostKind.byLabel(LanKeys.value(list, LanKeys.HOST_KIND))
                 LanHost(
                     ip = ip,
                     name = LanKeys.value(list, LanKeys.HOST_NAME),
-                    kind = HostKind.byLabel(LanKeys.value(list, LanKeys.HOST_KIND)),
+                    // A look closer places a device the scan could not; it never overrides what the scan itself saw.
+                    kind = if (scanKind == HostKind.UNKNOWN) closer?.kind ?: scanKind else scanKind,
                     services = LanKeys.items(LanKeys.value(list, LanKeys.HOST_SERVICES)),
                     openPorts = LanKeys.ports(LanKeys.value(list, LanKeys.HOST_OPEN_PORTS)),
                     riskyPorts = LanKeys.ports(LanKeys.value(list, LanKeys.HOST_RISKY)),
@@ -120,6 +127,8 @@ data class LanSummary(
                     ids = ids,
                     listed = if (known == null || ip == gateway) null else DeviceCensus.isListed(ids, known),
                     swept = LanKeys.value(list, LanKeys.HOST_FOUND_BY) == LanKeys.FOUND_BY_SWEEP,
+                    sweepAnswer = LanKeys.value(list, LanKeys.HOST_SWEEP_ANSWER),
+                    closer = closer,
                 )
             }.sortedWith(compareBy<LanHost> { it.kind.ordinal }.thenBy { ipSortKey(it.ip) })
             val router = bySubject[LanKeys.SUBJECT_ROUTER]?.let { r ->

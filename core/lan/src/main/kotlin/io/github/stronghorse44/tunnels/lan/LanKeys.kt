@@ -35,6 +35,13 @@ object LanKeys {
     /** "sweep" when the address sweep ([LanSweep]) found the host because it announced nothing; absent otherwise. */
     const val HOST_FOUND_BY = "host:foundBy"
     const val FOUND_BY_SWEEP = "sweep"
+    /** The port and answer that made the sweep find the host ([LanSweep.answer]); absent unless the sweep found it. */
+    const val HOST_SWEEP_ANSWER = "host:sweepAnswer"
+    /**
+     * The last "Look closer" of this device on this network within 30 days ([LookCloser.Summary], encoded): its kind,
+     * maker, a few words it says about itself, open ports, names and system hint. Absent when it was never looked at.
+     */
+    const val HOST_CLOSER = "host:closer"
 
     const val ROUTER_IP = "router:ip"
     /** "true", "false" or "unknown": the gateway advertises a WAN(IP|PPP)Connection UPnP service. */
