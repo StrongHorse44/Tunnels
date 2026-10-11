@@ -30,24 +30,40 @@ import io.github.stronghorse44.tunnels.common.GlassColors
 import io.github.stronghorse44.tunnels.common.GlassPanel
 import io.github.stronghorse44.tunnels.common.LineColors
 import io.github.stronghorse44.tunnels.common.StatusColors
+import io.github.stronghorse44.tunnels.model.FindingAction
 import io.github.stronghorse44.tunnels.model.MetroLine
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenActions
 import io.github.stronghorse44.tunnels.runtime.TunnelScreenState
 import kotlinx.coroutines.launch
 
-private fun apTint(level: WifiFollowing.Level, muted: Boolean): Color = when {
-    muted -> GlassColors.dim
-    level == WifiFollowing.Level.FOLLOWING -> StatusColors.warn
-    level == WifiFollowing.Level.REPEATED -> StatusColors.info
+/** A row's colour: warn for a traveller and for a hinted repeat (the rules' WARN), info for the other notices. */
+internal fun overTimeTint(item: WifiOverTime.ApFacts): Color = when {
+    item.muted -> GlassColors.dim
+    item.level == WifiFollowing.Level.FOLLOWING -> StatusColors.warn
+    item.level == WifiFollowing.Level.REPEATED && item.hint != null -> StatusColors.warn
+    item.flagged -> StatusColors.info
     else -> GlassColors.text
 }
 
-private fun apLabel(level: WifiFollowing.Level, muted: Boolean): String = when {
-    muted -> "muted"
-    level == WifiFollowing.Level.FOLLOWING -> "travelled with you"
-    level == WifiFollowing.Level.REPEATED -> "keeps turning up"
-    else -> ""
+/** "keeps turning up · may be a camera", "may be a microphone or recorder", "muted". */
+internal fun overTimeLabel(item: WifiOverTime.ApFacts): String = when {
+    item.muted -> "muted"
+    else -> listOfNotNull(
+        when (item.level) {
+            WifiFollowing.Level.FOLLOWING -> "travelled with you"
+            WifiFollowing.Level.REPEATED -> "keeps turning up"
+            WifiFollowing.Level.NONE -> null
+        },
+        item.hint?.let { "may be ${it.kind.label}" },
+    ).joinToString(" · ")
 }
+
+/** The headline counts shared by both over-time sections. */
+internal fun overTimeHeadline(summary: WifiOverTime.Summary): String = listOfNotNull(
+    if (summary.following > 0) "${summary.following} travelled with you" else null,
+    if (summary.repeated > 0) "${summary.repeated} keep turning up" else null,
+    if (summary.hinted > 0) "${summary.hinted} with a camera or bug hint in range" else null,
+).joinToString(" · ").ifEmpty { "None passed the threshold" }
 
 /**
  * Wi-Fi over time: every access point the last 30 days of scans heard, with how often, over how long, at how many
@@ -65,18 +81,15 @@ internal fun WifiOverTimeSection(state: TunnelScreenState, actions: TunnelScreen
     var showAll by remember { mutableStateOf(false) }
     val busy = state.scan.running
 
-    val flagged = aps.filter { it.level != WifiFollowing.Level.NONE && !it.muted }
+    val flagged = aps.filter { it.flagged }
     val rest = aps - flagged.toSet()
     val worstDevice = devices.filter { !it.muted }.maxOfOrNull { it.level } ?: ManyNames.Level.NONE
     val tint = when {
-        summary.following > 0 || worstDevice == ManyNames.Level.WARN -> StatusColors.warn
-        summary.repeated > 0 || worstDevice == ManyNames.Level.NOTICE -> StatusColors.info
+        summary.following > 0 || worstDevice == ManyNames.Level.WARN || flagged.any { overTimeTint(it) == StatusColors.warn } -> StatusColors.warn
+        summary.repeated > 0 || summary.hinted > 0 || worstDevice == ManyNames.Level.NOTICE -> StatusColors.info
         else -> LineColors.of(MetroLine.NETWORK)
     }
-    val headline = listOfNotNull(
-        if (summary.following > 0) "${summary.following} travelled with you" else null,
-        if (summary.repeated > 0) "${summary.repeated} keep turning up" else null,
-    ).joinToString(" · ").ifEmpty { "None passed the threshold" }
+    val headline = overTimeHeadline(summary)
 
     Text(
         "Wi-Fi over time · ${summary.tracked}", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = GlassColors.dim,
@@ -120,7 +133,7 @@ internal fun WifiOverTimeSection(state: TunnelScreenState, actions: TunnelScreen
                 }
             }
 
-            flagged.forEach { ap -> ApRow(ap, tunnel, actions, busy) }
+            flagged.forEach { ap -> OverTimeRow(ap, ap.name, tunnel, actions, busy) }
             val muteAll = WifiOverTime.muteAllCandidates(aps)
             if (tunnel != null && muteAll.size > 1) {
                 OutlinedButton(onClick = { actions.perform(tunnel.wifiMuteAllAction(muteAll)) }, enabled = !busy) {
@@ -133,7 +146,7 @@ internal fun WifiOverTimeSection(state: TunnelScreenState, actions: TunnelScreen
                 }
             }
             if (showAll) {
-                rest.forEach { ap -> ApRow(ap, tunnel, actions, busy) }
+                rest.forEach { ap -> OverTimeRow(ap, ap.name, tunnel, actions, busy) }
                 if (summary.unlisted > 0) {
                     Text("${summary.unlisted} more, each seen less often, are not listed.", style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)
                 }
@@ -142,24 +155,34 @@ internal fun WifiOverTimeSection(state: TunnelScreenState, actions: TunnelScreen
     }
 }
 
+/** One access point or Bluetooth device: name, level and hint, counts, and Find it (Bluetooth), Mute or Unmute. */
 @Composable
-private fun ApRow(ap: WifiOverTime.ApFacts, tunnel: SurroundingsTunnel?, actions: TunnelScreenActions, busy: Boolean) {
+internal fun OverTimeRow(
+    item: WifiOverTime.ApFacts,
+    name: String,
+    tunnel: SurroundingsTunnel?,
+    actions: TunnelScreenActions,
+    busy: Boolean,
+    findIt: FindingAction? = null,
+) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(ap.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f, fill = false))
-                val label = apLabel(ap.level, ap.muted)
-                if (label.isNotEmpty()) Text("  $label", style = MaterialTheme.typography.labelSmall, color = apTint(ap.level, ap.muted))
+                Text(name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f, fill = false))
+                val label = overTimeLabel(item)
+                if (label.isNotEmpty()) Text("  $label", style = MaterialTheme.typography.labelSmall, color = overTimeTint(item))
             }
             Text(
-                ap.counts + if (ap.thisScan) " · in range now" else ap.lastSeen?.let { " · last seen ${SurroundingsRules.lastSeenLabel(it)}" }.orEmpty(),
+                item.counts + if (item.thisScan) " · in range now" else item.lastSeen?.let { " · last seen ${SurroundingsRules.lastSeenLabel(it)}" }.orEmpty(),
                 style = MaterialTheme.typography.labelSmall, color = GlassColors.dim,
             )
+            item.hint?.takeIf { !item.muted }?.let { Text(it.sentence, style = MaterialTheme.typography.labelSmall, color = GlassColors.dim) }
         }
+        if (findIt != null && item.flagged) TextButton(onClick = { actions.perform(findIt) }, enabled = !busy) { Text(findIt.label) }
         if (tunnel != null) {
             when {
-                ap.muted -> TextButton(onClick = { actions.perform(tunnel.wifiUnmuteAction(ap.subject, ap.name)) }, enabled = !busy) { Text("Unmute") }
-                ap.level != WifiFollowing.Level.NONE -> TextButton(onClick = { actions.perform(tunnel.wifiMuteAction(ap.subject)) }, enabled = !busy) { Text("Mute") }
+                item.muted -> TextButton(onClick = { actions.perform(tunnel.wifiUnmuteAction(item.subject, name)) }, enabled = !busy) { Text("Unmute") }
+                item.flagged -> TextButton(onClick = { actions.perform(tunnel.wifiMuteAction(item.subject)) }, enabled = !busy) { Text("Mute") }
             }
         }
     }

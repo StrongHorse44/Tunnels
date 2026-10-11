@@ -86,6 +86,21 @@ object TrackerGuides {
         "the car (wheel wells, bumper, under seats, the charging port), a bike or pram, and anything given to you recently. " +
         "Find-it mode in Tunnels follows the signal: it gets warmer as you close in."
 
+    /**
+     * What Surroundings can and cannot hear of listening devices and cameras (RJ's question, 2026-10-11). Said plainly so a
+     * clean list is never read as "no bug here".
+     */
+    val LISTENING_DEVICES: List<String> = listOf(
+        "Heard: a camera or bug that runs its own Wi-Fi network (many cheap ones do, for setup or for a phone to connect " +
+            "to), and a Bluetooth device with a fixed address that advertises. Both are flagged when they keep turning up, " +
+            "and at once when their name or maker says camera, microphone or spy device.",
+        "Partly heard: one that joins your own Wi-Fi shows up in Home network's address sweep, maybe with the name your " +
+            "router has for it. One that joins a neighbour's network or a hotspot is invisible: it broadcasts no network of its own.",
+        "Not heard by any phone: bugs with a SIM card (you call them to listen in; the commonest cheap kind), analog radio " +
+            "transmitters, and recorders that store and send nothing. Those need a radio-frequency detector or a physical search.",
+        "A name is a hint, not proof, and a clean list means only that nothing announced itself.",
+    )
+
     /** The report steps shared by all families; the brand's [TrackerGuide.reportNote] goes after it. */
     val report: List<String> = listOf(
         "Screenshot this detail: the first and last seen times, how many scans, and the state. Screenshot the Timeline of your day if you can.",

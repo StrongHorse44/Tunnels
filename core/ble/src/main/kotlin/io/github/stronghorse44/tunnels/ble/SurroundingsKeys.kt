@@ -30,8 +30,16 @@ object SurroundingsKeys {
     const val EVENT_WIFI_SCAN = "wifi.scan"
     /** Wi-Fi scan rows read back: the monitor's ten-minute scans for 30 days are about 4,300, plus manual scans. */
     const val MAX_WIFI_ROWS = 6_000
-    /** The settings row holding the user's Wi-Fi threshold in scans ([WifiFollowing.threshold]). */
+    /** The settings row holding the user's threshold in scans ([WifiFollowing.threshold]), for Wi-Fi and Bluetooth alike. */
     const val WIFI_THRESHOLD_SETTING = "surroundings.wifi.threshold"
+    /**
+     * The events stream of Bluetooth scans that listened to every advertiser ([BtScanRecord], kind [EVENT_BT_SCAN],
+     * subject the session), apart from the tracker sightings and the Wi-Fi rows for the same reason those are apart.
+     */
+    const val BT_LEDGER = "surroundings.bt"
+    const val EVENT_BT_SCAN = "bt.scan"
+    /** Bluetooth scan rows read back: the monitor logs at most one every ten minutes, and only with the screen on. */
+    const val MAX_BT_ROWS = 6_000
     const val EVENT_MONITOR = "monitor"
     /** One find-it session: `minutes=3;closest=-48;type=findmy`. Nothing else of the session is kept. */
     const val EVENT_FINDIT = "findit.session"
@@ -41,6 +49,8 @@ object SurroundingsKeys {
     const val BLE_SUMMARY = "ble:summary"
     const val CELL_SUMMARY = "cell:summary"
     const val WIFI_SUMMARY = "wifi:summary"
+    /** Bluetooth devices over time: the same counts as [WIFI_SUMMARY] carries for access points, plus [BT_LOGGED]. */
+    const val BT_SUMMARY = "bt:summary"
 
     const val BLE_AVAILABLE = "ble:available"
     const val DEVICES_TOTAL = "devices:total"
@@ -134,6 +144,16 @@ object SurroundingsKeys {
     const val AP_THIS_SCAN = "ap:thisScan"
     /** [WifiFollowing.Level] slug, judged at scan time against the threshold. */
     const val AP_LEVEL = "ap:level"
+    /** The [DeviceHints] id its latest name or maker matched, when one did. */
+    const val AP_HINT = "ap:hint"
+    /** Summary: unmuted items with a hint that were in this scan. */
+    const val AP_HINTED = "ap:hinted"
+    // The `ap:` keys above are shared by `btdev:<key>` subjects (Bluetooth devices over time) on [BT_SUMMARY].
+    /** Whether this scan listened to every advertiser and so logged fixed-address devices (`true`/`false`). */
+    const val BT_LOGGED = "bt:logged"
+    /** Fixed-address devices (not trackers) and changing addresses this scan heard; only the first are logged. */
+    const val BT_FIXED = "bt:fixed"
+    const val BT_ROTATING = "bt:rotating"
     const val DEV_NAMES = "dev:names"
     const val DEV_OPEN = "dev:open"
     /** Up to [MAX_SAMPLE_NAMES] of the device's names, comma-separated. */
@@ -235,6 +255,10 @@ object SurroundingsKeys {
     /** The find-it session summary row: how long the user searched and the strongest signal, nothing else. */
     fun findItSummary(type: TrackerType, minutes: Long, closestDbm: Int?): String =
         "type=${type.slug};minutes=$minutes" + (closestDbm?.let { ";closest=$it" } ?: "")
+
+    /** The same row for a find-it session that followed one fixed-address Bluetooth device ([BtScanRecord]). */
+    fun findItDeviceSummary(minutes: Long, closestDbm: Int?): String =
+        "type=device;minutes=$minutes" + (closestDbm?.let { ";closest=$it" } ?: "")
 
     /**
      * Observations for the BLE side. [muted] holds subjects the user marked as known trackers: identity
@@ -358,6 +382,7 @@ object SurroundingsKeys {
 
     private const val AP_PREFIX = "wifiap:"
     private const val DEVICE_PREFIX = "wifidev:"
+    private const val BT_DEVICE_PREFIX = "btdev:"
     private val KEYED_ID = Regex("[0-9a-f]{${WifiFollowing.KEY_LENGTH}}")
 
     fun apSubject(key: String): String = AP_PREFIX + key
@@ -370,6 +395,12 @@ object SurroundingsKeys {
     fun parseDeviceSubject(subject: String): String? =
         subject.removePrefix(DEVICE_PREFIX).takeIf { subject.startsWith(DEVICE_PREFIX) && KEYED_ID.matches(it) }
 
+    fun btDeviceSubject(key: String): String = BT_DEVICE_PREFIX + key
+
+    /** The keyed id in `btdev:<key>`, or null for anything else. */
+    fun parseBtDeviceSubject(subject: String): String? =
+        subject.removePrefix(BT_DEVICE_PREFIX).takeIf { subject.startsWith(BT_DEVICE_PREFIX) && KEYED_ID.matches(it) }
+
     /**
      * Observations for Wi-Fi access points over time: the summary counts and threshold, then one subject per access
      * point by [WifiFollowing.order], capped at [MAX_LISTED_APS] plus every unmuted flagged one past the cap. Each
@@ -381,21 +412,61 @@ object SurroundingsKeys {
         now: Long,
         muted: Set<String> = emptySet(),
         currentSession: String? = null,
+    ): List<Observation> = overTimeObservations(WIFI_SUMMARY, ::apSubject, aps, threshold, now, muted, currentSession)
+
+    /**
+     * Observations for Bluetooth devices over time, built as [apObservations] builds them for access points, plus
+     * whether this scan logged devices ([logged]) and how many fixed and changing addresses it heard.
+     */
+    fun btObservations(
+        devices: List<BtDeviceSighting>,
+        threshold: Int,
+        now: Long,
+        logged: Boolean,
+        fixedNow: Int,
+        rotatingNow: Int,
+        muted: Set<String> = emptySet(),
+        currentSession: String? = null,
+    ): List<Observation> =
+        listOf(
+            Observation(TUNNEL_ID, BT_SUMMARY, BT_LOGGED, logged.toString()),
+            Observation(TUNNEL_ID, BT_SUMMARY, BT_FIXED, fixedNow.toString()),
+            Observation(TUNNEL_ID, BT_SUMMARY, BT_ROTATING, rotatingNow.toString()),
+        ) + overTimeObservations(BT_SUMMARY, ::btDeviceSubject, devices, threshold, now, muted, currentSession)
+
+    /**
+     * The summary counts and threshold on [summary], then one subject per item by [WifiFollowing.order], capped at
+     * [MAX_LISTED_APS] plus every unmuted flagged one past the cap (past the threshold, or hinted and in this scan).
+     * Each carries its level as judged now, so the rules need no clock. Muted ones carry `muted=true`.
+     */
+    private fun overTimeObservations(
+        summary: String,
+        subjectOf: (String) -> String,
+        items: List<OverTimeItem>,
+        threshold: Int,
+        now: Long,
+        muted: Set<String>,
+        currentSession: String?,
     ): List<Observation> {
         val out = ArrayList<Observation>()
         fun add(subject: String, key: String, value: String) = out.add(Observation(TUNNEL_ID, subject, key, value))
-        fun isMuted(a: AccessPointSighting) = apSubject(a.key) in muted
-        val ordered = aps.sortedWith(WifiFollowing.order(threshold, now))
+        fun isMuted(a: OverTimeItem) = subjectOf(a.key) in muted
+        fun thisScan(a: OverTimeItem) = currentSession != null && a.lastSession == currentSession
+        val ordered = items.sortedWith(WifiFollowing.order(threshold, now))
         val levels = ordered.associate { it.key to WifiFollowing.level(it, threshold, now) }
+        val hinted = ordered.filter { !isMuted(it) && DeviceHints.byId(it.hint) != null && thisScan(it) }
         val flagged = ordered.filter { !isMuted(it) && levels[it.key] != WifiFollowing.Level.NONE }
-        add(WIFI_SUMMARY, AP_TRACKED, aps.size.toString())
-        add(WIFI_SUMMARY, AP_REPEATED, flagged.count { levels[it.key] == WifiFollowing.Level.REPEATED }.toString())
-        add(WIFI_SUMMARY, AP_FOLLOWING, flagged.count { levels[it.key] == WifiFollowing.Level.FOLLOWING }.toString())
-        add(WIFI_SUMMARY, AP_THRESHOLD, threshold.toString())
-        val listed = ordered.take(MAX_LISTED_APS) + ordered.drop(MAX_LISTED_APS).filter { it in flagged }
+        add(summary, AP_TRACKED, items.size.toString())
+        add(summary, AP_REPEATED, flagged.count { levels[it.key] == WifiFollowing.Level.REPEATED }.toString())
+        add(summary, AP_FOLLOWING, flagged.count { levels[it.key] == WifiFollowing.Level.FOLLOWING }.toString())
+        add(summary, AP_HINTED, hinted.size.toString())
+        add(summary, AP_THRESHOLD, threshold.toString())
+        val mustList = (flagged + hinted).toSet()
+        val listed = ordered.take(MAX_LISTED_APS) + ordered.drop(MAX_LISTED_APS).filter { it in mustList }
         for (a in listed) {
-            val subject = apSubject(a.key)
-            add(subject, AP_NAME, a.name)
+            val subject = subjectOf(a.key)
+            // A Bluetooth device that advertised no name has no name fact: an observation is never empty.
+            if (a.name.isNotEmpty()) add(subject, AP_NAME, a.name)
             add(subject, AP_NAMES, a.names.toString())
             add(subject, AP_SESSIONS, a.sessions.toString())
             add(subject, AP_SPAN, a.spanMinutes.toString())
@@ -403,11 +474,12 @@ object SurroundingsKeys {
             add(subject, AP_MOVES, a.moves.toString())
             add(subject, AP_FIRST, a.firstSeen.toString())
             add(subject, AP_LAST, a.lastSeen.toString())
-            add(subject, AP_THIS_SCAN, (currentSession != null && a.lastSession == currentSession).toString())
+            add(subject, AP_THIS_SCAN, thisScan(a).toString())
             add(subject, AP_LEVEL, levels.getValue(a.key).slug)
+            DeviceHints.byId(a.hint)?.let { add(subject, AP_HINT, it.id) }
             if (isMuted(a)) add(subject, MUTED, "true")
         }
-        if (aps.size > listed.size) add(WIFI_SUMMARY, AP_UNLISTED, (aps.size - listed.size).toString())
+        if (items.size > listed.size) add(summary, AP_UNLISTED, (items.size - listed.size).toString())
         return out
     }
 

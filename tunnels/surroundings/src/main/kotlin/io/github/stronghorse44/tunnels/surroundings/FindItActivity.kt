@@ -100,7 +100,8 @@ data class DultState(
 )
 
 data class FindItState(
-    val type: TrackerType,
+    /** The tracker family searched for; null in device mode. */
+    val type: TrackerType?,
     val lockedKey: String?,
     val running: Boolean = false,
     val available: String? = null,
@@ -115,7 +116,10 @@ data class FindItState(
     val others: List<LiveIdentity> = emptyList(),
     val stopReason: String? = null,
     val dult: DultState = DultState(),
+    /** Device mode: the keyed id ([BtSightings]) of the one fixed-address Bluetooth device searched for. */
+    val deviceKey: String? = null,
 ) {
+    val label: String get() = type?.label ?: "Bluetooth device"
     val elapsedMs: Long get() = if (startedAt == 0L) 0L else (now - startedAt).coerceAtLeast(0L)
     val fresh: Boolean get() = running && lastHeardAt > 0 && now - lastHeardAt < FindItViewModel.STALE_MS
 }
@@ -123,13 +127,17 @@ data class FindItState(
 /**
  * Find-it mode: a low-latency BLE scan filtered to one tracker family, kept to the foreground and to
  * ten minutes, feeding a smoothed signal meter. Keeps BluetoothDevice handles in memory for the DULT
- * card and writes a single summary row when the session ends.
+ * card and writes a single summary row when the session ends. Device mode follows one fixed-address
+ * Bluetooth device instead: the scan is unfiltered (the screen is on) and each address heard is turned
+ * into its keyed id, in memory, until one matches.
  */
 class FindItViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(FindItState(TrackerType.APPLE_FINDMY, null))
     val state: StateFlow<FindItState> = _state.asStateFlow()
 
     private val devices = ConcurrentHashMap<String, BluetoothDevice>()
+    /** Device mode: address → keyed id, so each address is hashed once. In memory only. */
+    private val deviceKeys = ConcurrentHashMap<String, String>()
     private val live = ConcurrentHashMap<String, LiveIdentity>()
     private val smoother = RssiSmoother()
     private var trendSample: Double? = null
@@ -141,10 +149,10 @@ class FindItViewModel(app: Application) : AndroidViewModel(app) {
     private var dultSummary = DultProtocol.Summary()
     private var configured = false
 
-    fun configure(type: TrackerType, key: String?) {
+    fun configure(type: TrackerType?, key: String?, deviceKey: String? = null) {
         if (configured) return
         configured = true
-        _state.value = FindItState(type, key)
+        _state.value = FindItState(type, deviceKey ?: key, deviceKey = deviceKey)
         start()
     }
 
@@ -176,8 +184,11 @@ class FindItViewModel(app: Application) : AndroidViewModel(app) {
                 stop(ScanFailure.describe(errorCode))
             }
         }
-        val filters = TrackerSignatures.of(s.type).filters.mapNotNull { spec -> runCatching { with(BleWindow) { spec.toPlatform() } }.getOrNull() }
-        if (filters.isEmpty()) {
+        // Device mode listens to everything: a fixed-address device matches no tracker filter.
+        val type = s.type
+        val filters = if (s.deviceKey != null || type == null) null
+        else TrackerSignatures.of(type).filters.mapNotNull { spec -> runCatching { with(BleWindow) { spec.toPlatform() } }.getOrNull() }
+        if (s.deviceKey == null && filters.isNullOrEmpty()) {
             _state.update { it.copy(available = SurroundingsKeys.AVAILABLE_FAILED, running = false) }
             return
         }
@@ -210,28 +221,39 @@ class FindItViewModel(app: Application) : AndroidViewModel(app) {
         if (!s.running) return
         try {
             val address = result.device?.address ?: return
+            val wanted = s.deviceKey
+            if (wanted != null) {
+                val key = deviceKeys[address] ?: BtSightings.keyOf(address)?.also { deviceKeys[address] = it } ?: return
+                if (key == wanted) heard(s, key, result.rssi)
+                return
+            }
             val record = result.scanRecord ?: return
             val match = TrackerSignatures.match(with(BleWindow) { record.toAdvertisement() }) ?: return
             if (match.type != s.type) return
             val key = DeviceKey.of(address, match.idSource)
-            val now = System.currentTimeMillis()
             devices[key] = result.device
-            live[key] = LiveIdentity(key, result.rssi, match.state, now)
-            val target = s.target ?: s.lockedKey ?: key
-            if (target == key) {
-                val smoothed = smoother.add(result.rssi)
-                _state.update {
-                    it.copy(
-                        target = target,
-                        smoothed = smoothed,
-                        lastHeardAt = now,
-                        closest = maxOf(it.closest ?: Int.MIN_VALUE, result.rssi).takeIf { c -> c != Int.MIN_VALUE },
-                    )
-                }
-            } else if (s.target == null) {
-                _state.update { it.copy(target = target) }
-            }
+            live[key] = LiveIdentity(key, result.rssi, match.state, System.currentTimeMillis())
+            heard(s, key, result.rssi)
         } catch (_: Exception) {
+        }
+    }
+
+    /** One reading of [key]: it drives the meter when it is the followed identity (or nothing is followed yet). */
+    private fun heard(s: FindItState, key: String, rssi: Int) {
+        val now = System.currentTimeMillis()
+        val target = s.target ?: s.lockedKey ?: key
+        if (target == key) {
+            val smoothed = smoother.add(rssi)
+            _state.update {
+                it.copy(
+                    target = target,
+                    smoothed = smoothed,
+                    lastHeardAt = now,
+                    closest = maxOf(it.closest ?: Int.MIN_VALUE, rssi).takeIf { c -> c != Int.MIN_VALUE },
+                )
+            }
+        } else if (s.target == null) {
+            _state.update { it.copy(target = target) }
         }
     }
 
@@ -287,19 +309,23 @@ class FindItViewModel(app: Application) : AndroidViewModel(app) {
         val s = _state.value
         if (s.running || cb != null) {
             _state.update { it.copy(running = false, stopReason = reason, now = System.currentTimeMillis()) }
-            record(s.type, (System.currentTimeMillis() - s.startedAt).coerceAtLeast(0L) / 60_000, s.closest)
+            record(s, (System.currentTimeMillis() - s.startedAt).coerceAtLeast(0L) / 60_000, s.closest)
         }
     }
 
     /** The one row a session leaves: minutes searched and the strongest signal. */
-    private fun record(type: TrackerType, minutes: Long, closest: Int?) {
+    private fun record(s: FindItState, minutes: Long, closest: Int?) {
         if (recorded) return
+        val type = s.type
+        val (subject, summary) = when {
+            s.deviceKey != null -> SurroundingsKeys.btDeviceSubject(s.deviceKey) to SurroundingsKeys.findItDeviceSummary(minutes, closest)
+            type != null -> SurroundingsKeys.typeSubject(type) to SurroundingsKeys.findItSummary(type, minutes, closest)
+            else -> return
+        }
         recorded = true
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
-                TunnelsStore.get(getApplication()).recordEvent(
-                    SurroundingsKeys.TUNNEL_ID, SurroundingsKeys.EVENT_FINDIT, SurroundingsKeys.typeSubject(type), SurroundingsKeys.findItSummary(type, minutes, closest),
-                )
+                TunnelsStore.get(getApplication()).recordEvent(SurroundingsKeys.TUNNEL_ID, SurroundingsKeys.EVENT_FINDIT, subject, summary)
             }
         }
     }
@@ -381,7 +407,7 @@ class FindItViewModel(app: Application) : AndroidViewModel(app) {
         val line = dultSummary.line()
         if (line == lastDultLine || dultSummary == DultProtocol.Summary()) return
         lastDultLine = line
-        val type = _state.value.type
+        val type = _state.value.type ?: return
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { TunnelsStore.get(getApplication()).recordEvent(SurroundingsKeys.TUNNEL_ID, SurroundingsKeys.EVENT_DULT, SurroundingsKeys.typeSubject(type), line) }
         }
@@ -392,6 +418,7 @@ class FindItViewModel(app: Application) : AndroidViewModel(app) {
         dultClient?.close()
         dultClient = null
         devices.clear()
+        deviceKeys.clear()
         super.onCleared()
     }
 
@@ -407,8 +434,9 @@ class FindItViewModel(app: Application) : AndroidViewModel(app) {
 }
 
 /**
- * Hosts find-it mode for one tracker family. Foreground only: leaving the screen (another app, the app
- * lock, the home screen) stops the scan, and coming back resumes it; a rotation keeps it running.
+ * Hosts find-it mode for one tracker family, or for one Bluetooth device ([EXTRA_DEVICE_KEY]). Foreground
+ * only: leaving the screen (another app, the app lock, the home screen) stops the scan, and coming back
+ * resumes it; a rotation keeps it running.
  */
 class FindItActivity : ComponentActivity() {
     private val vm: FindItViewModel by viewModels()
@@ -420,8 +448,13 @@ class FindItActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        val type = TrackerType.bySlug(intent.getStringExtra(EXTRA_TYPE).orEmpty()) ?: run { finish(); return }
-        vm.configure(type, intent.getStringExtra(EXTRA_KEY)?.takeIf { it.isNotBlank() })
+        val deviceKey = intent.getStringExtra(EXTRA_DEVICE_KEY)?.takeIf { SurroundingsKeys.parseBtDeviceSubject(SurroundingsKeys.btDeviceSubject(it)) != null }
+        val type = TrackerType.bySlug(intent.getStringExtra(EXTRA_TYPE).orEmpty())
+        if (type == null && deviceKey == null) {
+            finish()
+            return
+        }
+        vm.configure(type, intent.getStringExtra(EXTRA_KEY)?.takeIf { it.isNotBlank() }, deviceKey)
         setContent { TunnelsTheme { AppLockGate { FindItScreen(vm, onBack = ::finish) } } }
     }
 
@@ -445,9 +478,14 @@ class FindItActivity : ComponentActivity() {
     companion object {
         const val EXTRA_TYPE = "io.github.stronghorse44.tunnels.surroundings.extra.TYPE"
         const val EXTRA_KEY = "io.github.stronghorse44.tunnels.surroundings.extra.KEY"
+        const val EXTRA_DEVICE_KEY = "io.github.stronghorse44.tunnels.surroundings.extra.DEVICE_KEY"
 
         fun intent(context: Context, type: TrackerType, key: String? = null): Intent =
             Intent(context, FindItActivity::class.java).putExtra(EXTRA_TYPE, type.slug).putExtra(EXTRA_KEY, key)
+
+        /** Device mode: follows the fixed-address Bluetooth device whose keyed id is [key]. */
+        fun deviceIntent(context: Context, key: String): Intent =
+            Intent(context, FindItActivity::class.java).putExtra(EXTRA_DEVICE_KEY, key)
     }
 }
 
@@ -456,14 +494,15 @@ private val line: Color get() = LineColors.of(MetroLine.NETWORK)
 @Composable
 fun FindItScreen(vm: FindItViewModel, onBack: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
-    TunnelScaffold("Find it · ${state.type.label}", MetroLine.NETWORK, onBack) { padding ->
+    TunnelScaffold("Find it · ${state.label}", MetroLine.NETWORK, onBack) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             MeterCard(state, vm)
             OthersCard(state, vm)
-            DultCard(state, vm)
+            // DULT is a tracker protocol: a camera or speaker does not speak it.
+            if (state.deviceKey == null) DultCard(state, vm)
             Text(
                 "Nothing of this session is stored except one line: how long you searched and the strongest signal. Addresses live in memory until you leave.",
                 style = MaterialTheme.typography.labelSmall, color = GlassColors.dim, modifier = Modifier.padding(horizontal = 6.dp),
@@ -508,7 +547,7 @@ private fun MeterCard(state: FindItState, vm: FindItViewModel) {
                 Column(Modifier.weight(1f)) {
                     Text("Signal", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
-                        state.target?.let { "following ${state.type.label} · $it" } ?: "waiting for a ${state.type.label} signal",
+                        state.target?.let { "following ${state.label} · $it" } ?: "waiting for a ${state.label} signal",
                         fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = GlassColors.dim,
                     )
                 }
@@ -522,8 +561,10 @@ private fun MeterCard(state: FindItState, vm: FindItViewModel) {
             Text(
                 when {
                     !state.running -> state.stopReason ?: "Stopped."
+                    !heardOnce && state.deviceKey != null -> "Listening for this one device. Bring the phone to where you suspect it; " +
+                        "a device that stopped advertising, or is out of range, is not heard."
                     !heardOnce -> "Listening. A tag advertises every one to two seconds; bring the phone to where you suspect it."
-                    !state.fresh -> "No signal for a few seconds: the tag moved out of range or paused."
+                    !state.fresh -> "No signal for a few seconds: it moved out of range or paused."
                     else -> "${proximity!!.label.replaceFirstChar { it.uppercase() }} (${proximity.hint}) · getting ${state.trend.label}" +
                         (state.closest?.let { " · best so far $it dBm" } ?: "")
                 },
@@ -550,7 +591,7 @@ private fun OthersCard(state: FindItState, vm: FindItViewModel) {
     if (state.others.isEmpty()) return
     GlassPanel(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Other ${state.type.label} identities heard", style = MaterialTheme.typography.titleSmall)
+            Text("Other ${state.label} identities heard", style = MaterialTheme.typography.titleSmall)
             state.others.forEach { o ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(o.key, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = line, modifier = Modifier.weight(0.35f))

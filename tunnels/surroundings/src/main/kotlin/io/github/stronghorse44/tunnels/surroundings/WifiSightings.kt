@@ -3,6 +3,7 @@ package io.github.stronghorse44.tunnels.surroundings
 import android.content.Context
 import android.util.Log
 import io.github.stronghorse44.tunnels.ble.ApSeen
+import io.github.stronghorse44.tunnels.ble.DeviceHints
 import io.github.stronghorse44.tunnels.ble.ManyNames
 import io.github.stronghorse44.tunnels.ble.NameCluster
 import io.github.stronghorse44.tunnels.ble.SurroundingsKeys
@@ -28,12 +29,15 @@ object WifiSightings {
     private const val STORE_TIMEOUT_MS = 20_000L
     private const val RETENTION_MS = 30L * SurroundingsKeys.DAY_MS
 
-    /** This scan as a record of keyed ids and names, one entry per access point; null when nothing fresh was heard. */
+    /**
+     * This scan as a record of keyed ids, names and name hints ([DeviceHints]), one entry per access point; null when
+     * nothing fresh was heard.
+     */
     fun recordOf(session: String, at: Long, place: Long?, fresh: List<WifiNetwork>): WifiScanRecord? {
         if (fresh.isEmpty()) return null
         val unique = fresh.distinctBy { it.bssid.lowercase() }
         val keys = keyed(unique.map { AP_INPUT + it.bssid.lowercase() }) ?: return null
-        return WifiScanRecord(session, at, place, unique.zip(keys) { n, k -> ApSeen(k, n.subject) })
+        return WifiScanRecord(session, at, place, unique.zip(keys) { n, k -> ApSeen(k, n.subject, DeviceHints.forName(n.subject)?.id) })
     }
 
     /** The devices in [fresh] that broadcast several names, each under the keyed id of its address prefix. */

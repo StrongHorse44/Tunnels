@@ -145,6 +145,11 @@ Device checks to make on the Pixel 10 (the Device checks screen walks through mo
   events only); decide after a few weeks of manual scans show how often the notice appears. Verify on device which
   screen `ACTION_NETWORK_OPERATOR_SETTINGS` opens on GrapheneOS (expected: "Preferred network type", "Allow 2G"), and
   that `allCellInfo` with fine location returns the registered cell's tracking area, cell id, PCI and channel.
+- Surroundings Bluetooth over time (2026-10-11): verify on the Pixel 10 that `BluetoothDevice.getAddressType` reports public and
+  random addresses to an app with only Bluetooth scan (Android 14 falls back to the address's top bits), how many fixed-address
+  devices a scan at home and in town logs, that the monitor's screen-on passes log and its screen-off passes stay trackers-only,
+  and that find-it's device mode keeps up (each new address is hashed once in the keystore). Hint catalog: names and the GoPro
+  company id only; confirm on devices before adding camera apps' setup-network prefixes or Wi-Fi vendor prefixes.
 - Surroundings Wi-Fi over time (2026-10-10): verify on the Pixel 10 that the monitor's scan, asked for before its Bluetooth
   window, comes back fresh (results heard within 3 minutes count; older cached ones are left out), how many access points a
   day at home adds, and that a real move (home to shop) is told from a wandering fix at home. The monitor records Wi-Fi rows

@@ -31,6 +31,16 @@ object TrackerActions {
         }
     }
 
+    /** Opens find-it mode for one fixed-address Bluetooth device ([BtSightings]), matched by its keyed id. */
+    fun findDevice(context: Context, key: String): FindingAction = FindingAction.Perform(LABEL_FIND_IT) {
+        try {
+            context.startActivity(FindItActivity.deviceIntent(context, key).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            "Find-it mode follows the signal: it gets warmer as you close in."
+        } catch (e: Exception) {
+            "Could not open find-it mode: ${e.javaClass.simpleName}"
+        }
+    }
+
     /**
      * Android's own Unknown tracker alerts live in Safety Center (Settings → Safety & emergency) and run
      * through Google Play services. Resolution order, each verified at run time: Safety Center when

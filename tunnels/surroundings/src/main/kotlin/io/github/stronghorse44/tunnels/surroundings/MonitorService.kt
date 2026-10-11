@@ -9,7 +9,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import android.os.PowerManager
 import android.util.Log
+import io.github.stronghorse44.tunnels.ble.BtFollowing
 import io.github.stronghorse44.tunnels.ble.CellSummary
 import io.github.stronghorse44.tunnels.ble.FollowingHeuristic
 import io.github.stronghorse44.tunnels.ble.FollowingLevel
@@ -72,7 +74,9 @@ data class MonitorState(
  *
  * Its BLE windows carry the tracker catalog's hardware filters: an unfiltered scan is suspended by the
  * Bluetooth stack while the screen is off, which is exactly when a monitor in a pocket has to listen.
- * The monitor only needs trackers, so the filters cost nothing it records.
+ * While the screen is on, at most every [BtFollowing.MONITOR_INTERVAL_MS], a window runs unfiltered
+ * instead and logs the fixed-address devices it heard for Bluetooth over time ([BtSightings]); trackers
+ * are matched in it as in any other window (RJ, 2026-10-11).
  */
 class MonitorService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -83,6 +87,7 @@ class MonitorService : Service() {
     private val keys = HashMap<String, TrackerState>()
     private val types = HashSet<String>()
     private var lastWifiCellAt = 0L
+    private var lastBtLogAt = 0L
     private var stopping = false
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -112,6 +117,7 @@ class MonitorService : Service() {
         keyRecords.clear()
         types.clear()
         lastWifiCellAt = 0L
+        lastBtLogAt = 0L
         _state.value = initial
         loop = scope.launch {
             try {
@@ -125,6 +131,8 @@ class MonitorService : Service() {
                     }
                     val session = "monitor-$now"
                     val wifiDue = now - lastWifiCellAt >= WIFI_CELL_INTERVAL_MS
+                    // A screen-on pass that is due listens to everything; the rest keep the tracker filters.
+                    val btLogDue = now - lastBtLogAt >= BtFollowing.MONITOR_INTERVAL_MS && screenOn()
                     // Asked for before the window, so the results read after it are fresh enough to count as this scan's.
                     if (wifiDue) withContext(Dispatchers.IO) { WifiProbe.requestScan(this@MonitorService) }
                     // Probes are binder calls and waits; keep them off the main thread the service lives on. The place
@@ -133,7 +141,7 @@ class MonitorService : Service() {
                         coroutineScope {
                             val place = async { SurroundingsTunnel.placeOf(this@MonitorService, BLE_WINDOW_MS) }
                             val window = withTimeoutOrNull(BLE_WINDOW_MS + GRACE_MS) {
-                                BleWindow.scan(this@MonitorService, session, BLE_WINDOW_MS, filters = TrackerSignatures.scanFilters)
+                                BleWindow.scan(this@MonitorService, session, BLE_WINDOW_MS, filters = if (btLogDue) null else TrackerSignatures.scanFilters)
                             }
                             val at = place.await().place
                             window?.copy(sightings = window.sightings.map { it.copy(place = at) }) to at
@@ -149,6 +157,13 @@ class MonitorService : Service() {
                             // Access points over time: one row of keyed ids and names, judged at the next manual scan.
                             wifi?.let { WifiSightings.recordOf(session, now, placeNumber, it.fresh) }?.let { WifiSightings.record(this@MonitorService, it) }
                             cell = runCatching { withTimeoutOrNull(CELL_TIMEOUT_MS) { CellProbe.read(this@MonitorService) }?.cell }.getOrNull()
+                        }
+                    }
+                    if (ble != null && ble.unfiltered && ble.available == SurroundingsKeys.AVAILABLE_YES) {
+                        lastBtLogAt = now
+                        // Bluetooth over time: one row of keyed ids, names and hints, judged at the next manual scan.
+                        withContext(Dispatchers.IO) {
+                            BtSightings.recordOf(session, now, placeNumber, ble.fixed)?.let { BtSightings.record(this@MonitorService, it) }
                         }
                     }
                     if (ble != null) {
@@ -188,6 +203,9 @@ class MonitorService : Service() {
             }
         }
     }
+
+    /** Whether the screen is on: only then does Android let an unfiltered Bluetooth scan run. */
+    private fun screenOn(): Boolean = runCatching { getSystemService(PowerManager::class.java)?.isInteractive }.getOrNull() ?: false
 
     /** Promotes the service; the location type needs its permissions, so it falls back to connected-device only. */
     private fun foreground(state: MonitorState): Boolean {

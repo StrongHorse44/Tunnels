@@ -2,8 +2,11 @@ package io.github.stronghorse44.tunnels.ble
 
 import io.github.stronghorse44.tunnels.model.Observation
 
-/** One access point in one Wi-Fi scan: its keyed id and the name it broadcast. */
-data class ApSeen(val key: String, val name: String)
+/**
+ * One access point in one Wi-Fi scan: its keyed id, the name it broadcast and, when that name matched the catalog, the
+ * id of the hint ([DeviceHints]).
+ */
+data class ApSeen(val key: String, val name: String, val hint: String? = null)
 
 /**
  * One Wi-Fi scan: the unit the Wi-Fi stream ([SurroundingsKeys.WIFI_LEDGER]) keeps for 30 days, one row per scan.
@@ -13,11 +16,14 @@ data class ApSeen(val key: String, val name: String)
  * number for the scan ([PlaceTracking]), or null when the scan had no fix.
  */
 data class WifiScanRecord(val session: String, val at: Long, val place: Long?, val aps: List<ApSeen>) {
-    /** `at=…;place=…;aps=<key>~<name>,…` with `%`, `,`, `~`, `;`, `=` and control characters in names %-escaped. */
+    /**
+     * `at=…;place=…;aps=<key>~<name>[~<hint>],…` with `%`, `,`, `~`, `;`, `=` and control characters in names
+     * %-escaped. Rows written before hints existed have no third part and read back unchanged.
+     */
     fun encode(): String = buildString {
         append("at=").append(at)
         append(";place=").append(place?.toString().orEmpty())
-        append(";aps=").append(aps.joinToString(",") { "${it.key}~${escape(it.name)}" })
+        append(";aps=").append(aps.joinToString(",") { entry(it.key, it.name, it.hint) })
     }
 
     companion object {
@@ -32,14 +38,26 @@ data class WifiScanRecord(val session: String, val at: Long, val place: Long?, v
             }.toMap()
             val at = fields["at"]?.toLongOrNull() ?: return null
             val place = fields["place"]?.takeIf { it.isNotEmpty() }?.toLongOrNull()
-            val aps = fields["aps"].orEmpty().split(',').filter { it.isNotEmpty() }.mapNotNull { entry ->
+            val aps = entries(fields["aps"]).map { (key, name, hint) -> ApSeen(key, name, hint) }
+            return WifiScanRecord(session, at, place, aps)
+        }
+
+        /** One `<key>~<name>[~<hint>]` entry; the hint goes only when it has the catalog's id shape. */
+        internal fun entry(key: String, name: String, hint: String?): String =
+            "$key~${escape(name)}" + (hint?.takeIf { DeviceHints.ID.matches(it) }?.let { "~$it" } ?: "")
+
+        /** The entries of a comma list; a malformed key or escape drops that entry, a malformed hint only the hint. */
+        internal fun entries(list: String?): List<Triple<String, String, String?>> =
+            list.orEmpty().split(',').filter { it.isNotEmpty() }.mapNotNull { entry ->
                 val tilde = entry.indexOf('~')
                 if (tilde <= 0) return@mapNotNull null
                 val key = entry.substring(0, tilde).takeIf { KEY.matches(it) } ?: return@mapNotNull null
-                ApSeen(key, unescape(entry.substring(tilde + 1)) ?: return@mapNotNull null)
+                val rest = entry.substring(tilde + 1)
+                val second = rest.indexOf('~')
+                val name = unescape(if (second < 0) rest else rest.substring(0, second)) ?: return@mapNotNull null
+                val hint = if (second < 0) null else rest.substring(second + 1).takeIf { DeviceHints.ID.matches(it) }
+                Triple(key, name, hint)
             }
-            return WifiScanRecord(session, at, place, aps)
-        }
 
         private const val SPECIAL = "%,~;="
 
@@ -71,24 +89,122 @@ data class WifiScanRecord(val session: String, val at: Long, val place: Long?, v
     }
 }
 
+/** One keyed thing, a Wi-Fi access point or a Bluetooth device, across the scans of the last 30 days. */
+interface OverTimeItem {
+    val key: String
+    /** The name in its most recent scan ("" when it advertised none). */
+    val name: String
+    /** Distinct names it broadcast under this id. */
+    val names: Int
+    val firstSeen: Long
+    val lastSeen: Long
+    /** Scans it was in. */
+    val sessions: Int
+    /** Distinct place numbers it was seen at. */
+    val places: Int
+    /** Real moves ([WifiFollowing.realMoves]) it was seen on both sides of. */
+    val moves: Int
+    val lastSession: String
+    /** The hint id ([DeviceHints]) of its most recent scan, or null. */
+    val hint: String?
+    val spanMinutes: Long get() = (lastSeen - firstSeen) / 60_000L
+}
+
 /** Everything known about one access point (one keyed id) across the scans of the last 30 days. */
 data class AccessPointSighting(
-    val key: String,
-    /** The name in its most recent scan. */
-    val name: String,
-    /** Distinct names it broadcast under this id. */
-    val names: Int,
-    val firstSeen: Long,
-    val lastSeen: Long,
-    /** Scans it was in. */
-    val sessions: Int,
-    /** Distinct place numbers it was seen at. */
-    val places: Int,
-    /** Real moves ([WifiFollowing.realMoves]) it was seen on both sides of. */
-    val moves: Int,
-    val lastSession: String,
-) {
-    val spanMinutes: Long get() = (lastSeen - firstSeen) / 60_000L
+    override val key: String,
+    override val name: String,
+    override val names: Int,
+    override val firstSeen: Long,
+    override val lastSeen: Long,
+    override val sessions: Int,
+    override val places: Int,
+    override val moves: Int,
+    override val lastSession: String,
+    override val hint: String? = null,
+) : OverTimeItem
+
+/**
+ * The fold shared by Wi-Fi access points and Bluetooth devices: keyed ids heard in scans, each scan with its time and
+ * place number. Plain JVM.
+ */
+internal object OverTime {
+    data class Heard(val key: String, val name: String, val hint: String?)
+
+    data class Scan(val session: String, val at: Long, val place: Long?, val heard: List<Heard>)
+
+    data class Folded(
+        val key: String,
+        val name: String,
+        val names: Int,
+        val firstSeen: Long,
+        val lastSeen: Long,
+        val sessions: Int,
+        val places: Int,
+        val moves: Int,
+        val lastSession: String,
+        val hint: String?,
+    )
+
+    /** The keys heard at each place, over every scan that knew its place and heard something. */
+    fun placeKeys(scans: Collection<Scan>): Map<Long, Set<String>> {
+        val byPlace = HashMap<Long, MutableSet<String>>()
+        for (r in scans) {
+            val p = r.place ?: continue
+            if (r.heard.isEmpty()) continue
+            byPlace.getOrPut(p) { HashSet() } += r.heard.map { it.key }
+        }
+        return byPlace
+    }
+
+    /**
+     * The places p for which the step p → p + 1 was a real move: both places have data, and at most
+     * [WifiFollowing.MAX_SHARED_FRACTION] of the larger side's keys were also heard at the other.
+     */
+    fun realMoves(byPlace: Map<Long, Set<String>>): Set<Long> = byPlace.keys.filter { p ->
+        val a = byPlace[p] ?: return@filter false
+        val b = byPlace[p + 1] ?: return@filter false
+        val shared = a.count { it in b }
+        shared <= WifiFollowing.MAX_SHARED_FRACTION * maxOf(a.size, b.size)
+    }.toSet()
+
+    /** One entry per key, most recently seen first; [moves] are the real moves to count against. */
+    fun fold(scans: Collection<Scan>, moves: Set<Long>): List<Folded> {
+        data class Fold(var name: String, var hint: String?, var nameAt: Long, val names: MutableSet<String>, var first: Long, var last: Long, var lastSession: String, val sessions: MutableSet<String>, val places: MutableSet<Long>)
+        val folds = HashMap<String, Fold>()
+        for (r in scans) {
+            for (h in r.heard.distinctBy { it.key }) {
+                val f = folds.getOrPut(h.key) { Fold(h.name, h.hint, r.at, HashSet(), r.at, r.at, r.session, HashSet(), HashSet()) }
+                f.names += h.name
+                f.sessions += r.session
+                r.place?.let { f.places += it }
+                if (r.at < f.first) f.first = r.at
+                if (r.at >= f.last) {
+                    f.last = r.at
+                    f.lastSession = r.session
+                }
+                if (r.at >= f.nameAt) {
+                    f.name = h.name
+                    f.hint = h.hint
+                    f.nameAt = r.at
+                }
+            }
+        }
+        return folds.map { (key, f) ->
+            Folded(
+                key = key,
+                name = f.name,
+                names = f.names.size,
+                firstSeen = f.first,
+                lastSeen = f.last,
+                sessions = f.sessions.size,
+                places = f.places.size,
+                moves = f.places.count { p -> p in moves && (p + 1) in f.places },
+                lastSession = f.lastSession,
+                hint = f.hint,
+            )
+        }.sortedByDescending { it.lastSeen }
+    }
 }
 
 /**
@@ -137,74 +253,35 @@ object WifiFollowing {
      * The places p for which the step p → p + 1 was a real move: both places have Wi-Fi data, and at most
      * [MAX_SHARED_FRACTION] of the larger side's access points were also seen at the other.
      */
-    fun realMoves(records: Collection<WifiScanRecord>): Set<Long> {
-        val byPlace = HashMap<Long, MutableSet<String>>()
-        for (r in records) {
-            val p = r.place ?: continue
-            if (r.aps.isEmpty()) continue
-            byPlace.getOrPut(p) { HashSet() } += r.aps.map { it.key }
-        }
-        return byPlace.keys.filter { p ->
-            val a = byPlace[p] ?: return@filter false
-            val b = byPlace[p + 1] ?: return@filter false
-            val shared = a.count { it in b }
-            shared <= MAX_SHARED_FRACTION * maxOf(a.size, b.size)
-        }.toSet()
-    }
+    fun realMoves(records: Collection<WifiScanRecord>): Set<Long> = OverTime.realMoves(OverTime.placeKeys(records.map(::scanOf)))
+
+    internal fun scanOf(r: WifiScanRecord): OverTime.Scan = OverTime.Scan(r.session, r.at, r.place, r.aps.map { OverTime.Heard(it.key, it.name, it.hint) })
 
     /** Folds the scans into one entry per access point, most recently seen first. */
     fun aggregate(records: Collection<WifiScanRecord>): List<AccessPointSighting> {
-        val moves = realMoves(records)
-        data class Fold(var name: String, var nameAt: Long, val names: MutableSet<String>, var first: Long, var last: Long, var lastSession: String, val sessions: MutableSet<String>, val places: MutableSet<Long>)
-        val folds = HashMap<String, Fold>()
-        for (r in records) {
-            for (ap in r.aps.distinctBy { it.key }) {
-                val f = folds.getOrPut(ap.key) { Fold(ap.name, r.at, HashSet(), r.at, r.at, r.session, HashSet(), HashSet()) }
-                f.names += ap.name
-                f.sessions += r.session
-                r.place?.let { f.places += it }
-                if (r.at < f.first) f.first = r.at
-                if (r.at >= f.last) {
-                    f.last = r.at
-                    f.lastSession = r.session
-                }
-                if (r.at >= f.nameAt) {
-                    f.name = ap.name
-                    f.nameAt = r.at
-                }
-            }
+        val scans = records.map(::scanOf)
+        return OverTime.fold(scans, OverTime.realMoves(OverTime.placeKeys(scans))).map { f ->
+            AccessPointSighting(f.key, f.name, f.names, f.firstSeen, f.lastSeen, f.sessions, f.places, f.moves, f.lastSession, f.hint)
         }
-        return folds.map { (key, f) ->
-            AccessPointSighting(
-                key = key,
-                name = f.name,
-                names = f.names.size,
-                firstSeen = f.first,
-                lastSeen = f.last,
-                sessions = f.sessions.size,
-                places = f.places.size,
-                moves = f.places.count { p -> p in moves && (p + 1) in f.places },
-                lastSession = f.lastSession,
-            )
-        }.sortedByDescending { it.lastSeen }
     }
 
     fun isRecent(lastSeen: Long, now: Long): Boolean = now - lastSeen <= RECENT_DAYS * SurroundingsKeys.DAY_MS
 
-    /** How one access point stands against [threshold]; nothing for one not seen this week. */
-    fun level(ap: AccessPointSighting, threshold: Int, now: Long): Level {
-        if (!isRecent(ap.lastSeen, now)) return Level.NONE
-        val enough = ap.sessions >= threshold && ap.spanMinutes >= MIN_SPAN_MINUTES
+    /** How one access point or Bluetooth device stands against [threshold]; nothing for one not seen this week. */
+    fun level(item: OverTimeItem, threshold: Int, now: Long): Level {
+        if (!isRecent(item.lastSeen, now)) return Level.NONE
+        val enough = item.sessions >= threshold && item.spanMinutes >= MIN_SPAN_MINUTES
         return when {
-            enough && ap.moves >= 1 -> Level.FOLLOWING
+            enough && item.moves >= 1 -> Level.FOLLOWING
             enough -> Level.REPEATED
             else -> Level.NONE
         }
     }
 
-    /** Listing order: flagged first (following, then repeated), then the most scans, then the most recent. */
-    fun order(threshold: Int, now: Long): Comparator<AccessPointSighting> =
-        compareByDescending<AccessPointSighting> { level(it, threshold, now).ordinal }
+    /** Listing order: flagged first (following, then repeated), then hinted, then the most scans, then the most recent. */
+    fun order(threshold: Int, now: Long): Comparator<OverTimeItem> =
+        compareByDescending<OverTimeItem> { level(it, threshold, now).ordinal }
+            .thenByDescending { it.hint != null }
             .thenByDescending { it.moves }
             .thenByDescending { it.sessions }
             .thenByDescending { it.lastSeen }
@@ -276,8 +353,9 @@ object ManyNames {
     }
 }
 
-/** What the screen shows of Wi-Fi over time, read back from a scan's observations. Plain Kotlin. */
+/** What the screen shows of Wi-Fi (and Bluetooth) over time, read back from a scan's observations. Plain Kotlin. */
 object WifiOverTime {
+    /** One access point or Bluetooth device as listed. */
     data class ApFacts(
         val subject: String,
         val name: String,
@@ -290,7 +368,11 @@ object WifiOverTime {
         val thisScan: Boolean,
         val level: WifiFollowing.Level,
         val muted: Boolean,
+        val hint: Hint? = null,
     ) {
+        /** Flagged for the list: past the threshold, or hinted and in range now. */
+        val flagged: Boolean get() = !muted && (level != WifiFollowing.Level.NONE || (hint != null && thisScan))
+
         /** "12 scans over 9 hours · 2 places · 1 move". */
         val counts: String
             get() = listOfNotNull(
@@ -303,13 +385,14 @@ object WifiOverTime {
 
     data class DeviceFacts(val subject: String, val names: Int, val open: Int, val sample: String, val level: ManyNames.Level, val muted: Boolean)
 
-    data class Summary(val tracked: Int, val repeated: Int, val following: Int, val threshold: Int, val unlisted: Int)
+    data class Summary(val tracked: Int, val repeated: Int, val following: Int, val threshold: Int, val unlisted: Int, val hinted: Int = 0)
 
     private fun facts(observations: List<Observation>, subject: String): Map<String, String> =
         observations.filter { it.subject == subject }.associate { it.key to it.value }
 
-    fun summary(observations: List<Observation>): Summary? {
-        val f = facts(observations, SurroundingsKeys.WIFI_SUMMARY)
+    /** The counts on [subject]: [SurroundingsKeys.WIFI_SUMMARY] for Wi-Fi, [SurroundingsKeys.BT_SUMMARY] for Bluetooth. */
+    fun summary(observations: List<Observation>, subject: String = SurroundingsKeys.WIFI_SUMMARY): Summary? {
+        val f = facts(observations, subject)
         val tracked = f[SurroundingsKeys.AP_TRACKED]?.toIntOrNull() ?: return null
         return Summary(
             tracked = tracked,
@@ -317,16 +400,24 @@ object WifiOverTime {
             following = f[SurroundingsKeys.AP_FOLLOWING]?.toIntOrNull() ?: 0,
             threshold = f[SurroundingsKeys.AP_THRESHOLD]?.toIntOrNull() ?: WifiFollowing.DEFAULT_THRESHOLD,
             unlisted = f[SurroundingsKeys.AP_UNLISTED]?.toIntOrNull() ?: 0,
+            hinted = f[SurroundingsKeys.AP_HINTED]?.toIntOrNull() ?: 0,
         )
     }
 
-    /** Listed access points: flagged and unmuted first (following, then repeated), then muted, then the rest by scans. */
+    /** Listed access points: flagged and unmuted first (following, then repeated, then hinted), then the rest, muted last. */
     fun accessPoints(observations: List<Observation>): List<ApFacts> =
-        observations.map { it.subject }.distinct().filter { SurroundingsKeys.parseApSubject(it) != null }.map { subject ->
+        items(observations, WifiHeuristics.HIDDEN) { SurroundingsKeys.parseApSubject(it) }
+
+    /** Listed Bluetooth devices, in the same order; an unnamed one reads "" (the screen names it by its id). */
+    fun bluetoothDevices(observations: List<Observation>): List<ApFacts> =
+        items(observations, "") { SurroundingsKeys.parseBtDeviceSubject(it) }
+
+    private fun items(observations: List<Observation>, noName: String, parse: (String) -> String?): List<ApFacts> =
+        observations.map { it.subject }.distinct().filter { parse(it) != null }.map { subject ->
             val f = facts(observations, subject)
             ApFacts(
                 subject = subject,
-                name = f[SurroundingsKeys.AP_NAME] ?: WifiHeuristics.HIDDEN,
+                name = f[SurroundingsKeys.AP_NAME] ?: noName,
                 names = f[SurroundingsKeys.AP_NAMES]?.toIntOrNull() ?: 1,
                 sessions = f[SurroundingsKeys.AP_SESSIONS]?.toIntOrNull() ?: 0,
                 spanMinutes = f[SurroundingsKeys.AP_SPAN]?.toLongOrNull() ?: 0L,
@@ -336,10 +427,12 @@ object WifiOverTime {
                 thisScan = f[SurroundingsKeys.AP_THIS_SCAN] == "true",
                 level = WifiFollowing.Level.bySlug(f[SurroundingsKeys.AP_LEVEL]),
                 muted = f[SurroundingsKeys.MUTED] == "true",
+                hint = DeviceHints.byId(f[SurroundingsKeys.AP_HINT]),
             )
         }.sortedWith(
-            compareBy<ApFacts> { if (it.level != WifiFollowing.Level.NONE && !it.muted) 0 else if (it.muted) 2 else 1 }
+            compareBy<ApFacts> { if (it.flagged) 0 else if (it.muted) 2 else 1 }
                 .thenByDescending { it.level.ordinal }
+                .thenByDescending { it.hint != null }
                 .thenByDescending { it.sessions }
                 .thenBy { it.name },
         )
@@ -357,7 +450,10 @@ object WifiOverTime {
             )
         }.sortedByDescending { it.level.ordinal }
 
-    /** Subjects the "Mute all repeated" button covers: unmuted access points at [WifiFollowing.Level.REPEATED] only. */
+    /**
+     * Subjects the "Mute all repeated" button covers: unmuted items at [WifiFollowing.Level.REPEATED] without a hint. A
+     * hinted one (a possible camera or bug) is muted one at a time, after a look.
+     */
     fun muteAllCandidates(aps: List<ApFacts>): List<String> =
-        aps.filter { it.level == WifiFollowing.Level.REPEATED && !it.muted }.map { it.subject }
+        aps.filter { it.level == WifiFollowing.Level.REPEATED && !it.muted && it.hint == null }.map { it.subject }
 }

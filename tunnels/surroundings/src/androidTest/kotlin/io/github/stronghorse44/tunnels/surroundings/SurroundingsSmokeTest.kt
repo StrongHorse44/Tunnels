@@ -351,6 +351,12 @@ class SurroundingsSmokeTest {
             assertTrue(subject, m[SurroundingsKeys.WIFI_CURRENT] in setOf("true", "false"))
         }
 
+        // Bluetooth over time always says whether this scan logged devices, and counts what it keeps.
+        val bt = obs.filter { it.subject == SurroundingsKeys.BT_SUMMARY }.associate { it.key to it.value }
+        assertTrue(bt[SurroundingsKeys.BT_LOGGED], bt[SurroundingsKeys.BT_LOGGED] in setOf("true", "false"))
+        assertTrue(bt[SurroundingsKeys.AP_TRACKED]!!.toInt() >= 0)
+        assertTrue(bt[SurroundingsKeys.BT_ROTATING]!!.toInt() >= 0)
+
         val cell = obs.filter { it.subject == SurroundingsKeys.CELL_SUMMARY }.associate { it.key to it.value }
         assertTrue(cell[SurroundingsKeys.CELL_AVAILABLE], cell[SurroundingsKeys.CELL_AVAILABLE] in availability)
         assertTrue(cell[SurroundingsKeys.CELL_DOWNGRADES_RECORDED]!!.toInt() >= 0)

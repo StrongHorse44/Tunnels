@@ -68,6 +68,16 @@
 > changed too, so a wandering fix at home is not a move) is a warning; one device broadcasting 5+ names with 3+ open is a
 > warning (8+ names a notice). Each has a 30-day mute and "Mute all" for the notices. Android shows apps only access points:
 > a phone or camera that only joins a network is invisible to it.
+> **Bluetooth over time, camera and bug hints (2026-10-11):** RJ asked whether listening devices would be caught. Surroundings
+> now keeps fixed-address Bluetooth devices (speakers, TVs, cameras, gadgets; never a tracker, never a changing address, which
+> phones, earbuds and watches use) the way it keeps Wi-Fi access points: one row per scan that listened to every advertiser
+> (manual scans, and the monitor's passes while the screen is on, at most every ten minutes, because Android pauses an unfiltered
+> scan with the screen off) in its own events stream, each device as a keyed hash with its advertised name and hint id, 30 days
+> (RJ's third exception to rule 3). Same threshold and levels as Wi-Fi. A small catalog of camera, microphone and spy words in
+> names ("cam", "camera", "recorder", "spy", "hidden"...) and camera makers' Bluetooth company ids (GoPro) gives hints: a hinted
+> device or access point in range now is a notice at once, a hinted one that keeps turning up is a warning; "Mute all" leaves
+> hinted ones out. Bluetooth findings offer Find it (find-it mode follows one device by its keyed id). A card in the tunnel says
+> plainly what no phone can hear: SIM-card bugs, analog transmitters and recorders that send nothing.
 > **Address sweep (2026-10-10):** Home network can sweep every address of the confirmed network around the phone (the /24, up to
 > 254) for devices that announce nothing: a TCP connection to a few common ports that is accepted or refused means a device is
 > there. The router (the gateway only) is then asked for each device's name by reverse DNS, which often returns the name the
@@ -123,7 +133,7 @@ Design language: geological cross-section. Home screen is a stack of strata, sur
 ## Principles (hard rules)
 1. Offline by default. Phase 1 declares no INTERNET permission. Later, the GrapheneOS Network toggle stays off except during a session.
 2. Nothing leaves the device. No analytics, crash reporting, cloud sync, or SDKs that phone home. Snapshot exports are manual, encrypted files.
-3. Store summaries, not raw data. "App X contacted 14 domains today," not packet captures. "Tracker seen at 3 places," not a GPS trail. Exception (Q6, OQ74): the cell logbook's keyed hashed sets per place, with a best-radio-generation digit and a key fingerprint (CLAUDE.md rule 3). Second exception (RJ, 2026-10-10): Surroundings' Wi-Fi scans for 30 days, each access point as a keyed hash with its broadcast name (CLAUDE.md rule 3).
+3. Store summaries, not raw data. "App X contacted 14 domains today," not packet captures. "Tracker seen at 3 places," not a GPS trail. Exception (Q6, OQ74): the cell logbook's keyed hashed sets per place, with a best-radio-generation digit and a key fingerprint (CLAUDE.md rule 3). Second exception (RJ, 2026-10-10): Surroundings' Wi-Fi scans for 30 days, each access point as a keyed hash with its broadcast name (CLAUDE.md rule 3). Third exception (RJ, 2026-10-11): Surroundings' Bluetooth scans that listened to every advertiser, for 30 days, each fixed-address device as a keyed hash with its advertised name and hint id (CLAUDE.md rule 3).
 4. Short retention. Events expire after 30 days. Keep the last 12 snapshots plus pinned ones. Exception (Q6, OQ74): the cell logbook's hashed sets, digit and fingerprint last until cleared, capped in code.
 5. Encrypted at rest. SQLCipher with key wrapped by Android Keystore (StrongBox when available). Optional app lock via device credentials.
 6. Opt-in per tunnel. Fresh install asks for nothing. Permissions requested only when opening the tunnel that needs them, with a one-line reason.
