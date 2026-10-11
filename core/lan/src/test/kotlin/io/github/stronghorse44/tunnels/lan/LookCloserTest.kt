@@ -163,6 +163,8 @@ class LookCloserTest {
         assertFalse(LookCloser.Findings(open = listOf(80), refused = all - 80, ttl = 64).quiet)
         assertFalse(LookCloser.Findings(refused = all).quiet)
         assertTrue(LanGuides.QUIET_WHY.contains("e-readers") && LanGuides.QUIET_GUESS.contains("phone"))
+        // RJ's 192.168.1.183 turned out to be a Chromebook server (2026-10-11): ChromeOS answers exactly this way.
+        assertTrue(LanGuides.QUIET_GUESS.contains("Chromebook") && LanGuides.QUIET_WHY.contains("forward their ports"))
     }
 
     @Test
