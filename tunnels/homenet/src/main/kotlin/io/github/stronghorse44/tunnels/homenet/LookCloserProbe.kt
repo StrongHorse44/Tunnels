@@ -46,6 +46,40 @@ import javax.net.ssl.X509TrustManager
 import javax.security.auth.x500.X500Principal
 import kotlin.random.Random
 
+/**
+ * One UDP question to [target]:[port] on a socket bound to the confirmed network, waiting [timeoutMs] for the reply;
+ * [build] gives the packet and its parser for a random id. Null for no reply, an unreadable one or a lost network.
+ */
+internal fun <T> askUdp(guard: BindGuard, timeoutMs: Int, target: InetAddress, port: Int, build: (Int) -> Pair<ByteArray, (ByteArray, Int) -> T?>): T? = try {
+    val id = Random.nextInt(1, 0xFFFF)
+    val (packet, parse) = build(id)
+    if (packet.isEmpty()) {
+        null
+    } else {
+        DatagramSocket().use { socket ->
+            if (!guard.bindUdp(socket)) return null
+            socket.soTimeout = timeoutMs
+            socket.send(DatagramPacket(packet, packet.size, InetSocketAddress(target, port)))
+            val buffer = ByteArray(1500)
+            val reply = DatagramPacket(buffer, buffer.size)
+            socket.receive(reply)
+            parse(reply.data, reply.length)
+        }
+    }
+} catch (_: Exception) {
+    null
+}
+
+/** The device's own answer to a Windows name query (NetBIOS, port 137): its names, or null. */
+internal fun askNetBios(guard: BindGuard, timeoutMs: Int, address: InetAddress): List<NetBios.Name>? =
+    askUdp(guard, timeoutMs, address, NetBios.PORT) { id -> NetBios.query(id) to { b: ByteArray, n: Int -> NetBios.parse(id, b, n) } }
+
+/** The device's own answer to an mDNS question for its address's name, asked of it directly (port 5353): the name, or null. */
+internal fun askMdnsName(guard: BindGuard, timeoutMs: Int, address: InetAddress, ip: String): String? =
+    askUdp(guard, timeoutMs, address, LookCloserProbe.MDNS_PORT) { id ->
+        (ReverseDns.query(ip, id) ?: ByteArray(0)) to { b: ByteArray, n: Int -> ReverseDns.parse(id, b, n) }
+    }?.let(ReverseDns::deviceName)
+
 /** One look's outcome: the live findings, or why nothing was sent. */
 data class CloserOutcome(val findings: LookCloser.Findings?, val error: String? = null)
 
@@ -93,14 +127,12 @@ class LookCloserProbe(private val context: Context, private val gate: NetworkGat
         }
 
         onStep("asking for its names")
-        val netbios = withTimeoutOrNull(NAME_BUDGET_MS) { udp(guard, address, NetBios.PORT) { id -> NetBios.query(id) to { b: ByteArray, n: Int -> NetBios.parse(id, b, n) } } }
-        val mdns = withTimeoutOrNull(NAME_BUDGET_MS) {
-            udp(guard, address, MDNS_PORT) { id -> (ReverseDns.query(ip, id) ?: ByteArray(0)) to { b: ByteArray, n: Int -> ReverseDns.parse(id, b, n) } }
-        }?.let(ReverseDns::deviceName)
+        val netbios = withTimeoutOrNull(NAME_BUDGET_MS) { askNetBios(guard, UDP_TIMEOUT_MS, address) }
+        val mdns = withTimeoutOrNull(NAME_BUDGET_MS) { askMdnsName(guard, UDP_TIMEOUT_MS, address, ip) }
         val gateway = state.gateway?.takeIf { LanScope.accepts(it, prefixes, own) }
         val router = gateway?.let { gw ->
             withTimeoutOrNull(NAME_BUDGET_MS) {
-                udp(guard, gw, DNS_PORT) { id -> (ReverseDns.query(ip, id) ?: ByteArray(0)) to { b: ByteArray, n: Int -> ReverseDns.parse(id, b, n) } }
+                askUdp(guard, UDP_TIMEOUT_MS, gw, DNS_PORT) { id -> (ReverseDns.query(ip, id) ?: ByteArray(0)) to { b: ByteArray, n: Int -> ReverseDns.parse(id, b, n) } }
             }?.let(ReverseDns::deviceName)
         }
 
@@ -257,27 +289,6 @@ class LookCloserProbe(private val context: Context, private val gate: NetworkGat
             // A timeout ends the read with what arrived.
         }
         return out.toByteArray()
-    }
-
-    /** One UDP question to [target]:[port], bound to the network; [build] gives the packet and its parser for an id. */
-    private fun <T> udp(guard: BindGuard, target: InetAddress, port: Int, build: (Int) -> Pair<ByteArray, (ByteArray, Int) -> T?>): T? = try {
-        val id = Random.nextInt(1, 0xFFFF)
-        val (packet, parse) = build(id)
-        if (packet.isEmpty()) {
-            null
-        } else {
-            DatagramSocket().use { socket ->
-                if (!guard.bindUdp(socket)) return null
-                socket.soTimeout = UDP_TIMEOUT_MS
-                socket.send(DatagramPacket(packet, packet.size, InetSocketAddress(target, port)))
-                val buffer = ByteArray(1500)
-                val reply = DatagramPacket(buffer, buffer.size)
-                socket.receive(reply)
-                parse(reply.data, reply.length)
-            }
-        }
-    } catch (_: Exception) {
-        null
     }
 
     /**

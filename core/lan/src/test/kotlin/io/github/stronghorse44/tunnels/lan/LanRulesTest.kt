@@ -254,7 +254,7 @@ class LanRulesTest {
         val withNew = host("192.168.1.20", name = "DiskStation", kind = HostKind.NAS) + host("192.168.1.77", name = "shellyplug", kind = HostKind.IOT) +
             router() + summary(hosts = 2)
         assertTrue(evaluate(withNew, base).of(LanRules.NEW_HOST).isEmpty())
-        assertEquals(6, LanRules.all.size)
+        assertEquals(7, LanRules.all.size)
         // The kind and its guide stay so a finding an older build stored still gets its actions.
         assertEquals("NEW_HOST", LanRules.NEW_HOST)
         assertEquals(LanGuides.fix(LanRules.UNKNOWN_DEVICE), LanGuides.fix(LanRules.NEW_HOST))

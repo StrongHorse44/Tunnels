@@ -18,6 +18,10 @@ import java.util.Locale
  *  - `h`: the name the router gave for the host's address ([ReverseDns.deviceName]), normalised like an mDNS name, at most
  *    1. Last, so a device already on the list keeps its primary token; for a host that announced nothing (found by the
  *    sweep, [LanSweep]) it is the only token, and makes it one that can be added to the list.
+ *  - `c`: a name the device gave when asked directly ([LanHostRecord.directNames]: its Windows name or its own mDNS
+ *    answer), normalised like an mDNS name, at most 2. Asked only of devices the user looked closer at (RJ, 2026-10-11),
+ *    so a device that announces nothing and that the router does not name can still go on the list. Last of all, so it
+ *    never moves a primary token that was there before.
  *
  * A host with no token has no identity: the census judges it unknown. Plain JVM, unit-tested.
  */
@@ -26,17 +30,18 @@ object DeviceIdentity {
     const val MAX_TOKENS = 6
     const val MAX_UUID_TOKENS = 2
     const val MAX_NAME_TOKENS = 4
+    const val MAX_DIRECT_TOKENS = 2
     private const val HEX_LENGTH = 16
 
-    /** `u`, `n`, `s` or `h`, then 16 lowercase hex digits. */
-    val TOKEN = Regex("[unsh][0-9a-f]{$HEX_LENGTH}")
+    /** `u`, `n`, `s`, `h` or `c`, then 16 lowercase hex digits. */
+    val TOKEN = Regex("[unshc][0-9a-f]{$HEX_LENGTH}")
 
     private val conflictSuffix = Regex("\\s\\(\\d{1,3}\\)$")
     private val whitespace = Regex("\\s+")
 
     fun isToken(text: String): Boolean = TOKEN.matches(text)
 
-    /** One token: [type] ("u", "n", "s" or "h") plus 16 hex chars of the salted hash of [value] on the network [networkHash]. */
+    /** One token: [type] ("u", "n", "s", "h" or "c") plus 16 hex chars of the salted hash of [value] on the network [networkHash]. */
     fun token(networkHash: String, type: String, value: String): String =
         type + NetworkFingerprint.sha256Hex("$DOMAIN\n$networkHash\n$type\n$value").take(HEX_LENGTH)
 
@@ -77,6 +82,8 @@ object DeviceIdentity {
             shape(kind, vendor, record.models.toList(), services)?.let { out += token(networkHash, "s", it) }
         }
         record.routerName?.let(::normalizeName)?.let { out += token(networkHash, "h", it) }
+        record.directNames.toList().mapNotNull(::normalizeName).distinct().sorted().take(MAX_DIRECT_TOKENS)
+            .forEach { out += token(networkHash, "c", it) }
         return out.take(MAX_TOKENS)
     }
 

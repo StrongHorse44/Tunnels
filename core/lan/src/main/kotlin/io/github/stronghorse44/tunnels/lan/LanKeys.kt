@@ -42,6 +42,13 @@ object LanKeys {
      * maker, a few words it says about itself, open ports, names and system hint. Absent when it was never looked at.
      */
     const val HOST_CLOSER = "host:closer"
+    /** The name the user gave the device on this network ([Labels]); absent when it has none. */
+    const val HOST_LABEL = "host:label"
+    /**
+     * News about a device the user watches ([Watch.observation]): the day and "back" or what changed since the last scan.
+     * Present only on the scan that noticed it.
+     */
+    const val HOST_WATCH_EVENT = "host:watchEvent"
 
     const val ROUTER_IP = "router:ip"
     /** "true", "false" or "unknown": the gateway advertises a WAN(IP|PPP)Connection UPnP service. */

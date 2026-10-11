@@ -22,6 +22,13 @@ object LanGuides {
         LanRules.UNKNOWN_DEVICE, LanRules.NEW_HOST ->
             "If you do not recognise this device, open your router's admin page and check its client list. " +
                 "Change the Wi-Fi password and reconnect only the devices you know; turn off WPS."
+        LanRules.WATCHED_BACK ->
+            "If you expected it, there is nothing to do. If not, open your router's admin page and check its client list " +
+                "for when it connected, or tap Stop watching if you no longer need to know."
+        LanRules.WATCHED_CHANGED ->
+            "A newly opened port is a new way in: open the device's detail in Home network and Look closer to see what it " +
+                "says, then update its firmware or switch the service off in its app. A new name can mean a reset or a " +
+                "different device on the same address."
         LanRules.CENSUS_NOT_SET_UP ->
             "Check each device in the list. If you know them all, tap These are all mine; " +
                 "if one is a stranger, check your router's client list first."
@@ -53,10 +60,22 @@ object LanGuides {
     const val WIFI_SETTINGS_LABEL = "Wi-Fi settings"
     const val MINE_LABEL = "Mine: add to this network's list"
     const val ALL_MINE_LABEL = "These are all mine"
+    const val STOP_WATCHING_LABEL = "Stop watching"
+
+    /** What a device's notes (its name, how often it is here, Watch) are and where they stay, said in its detail. */
+    const val NOTES_KEEP =
+        "Your names, these counts and the watch list stay on this phone, in Tunnels' encrypted store, for this network only. " +
+            "Counts of a device not seen for 30 days are forgotten."
+
+    /** Why a device with no identity is noted by its address, said in its detail. */
+    const val BY_ADDRESS =
+        "This device gave nothing to recognise it by, so its name and watch follow its address: if the router gives the " +
+            "address to another such device, they go with it. Look closer: if it answers with its own name, Tunnels asks " +
+            "it again at each scan, and it can then go on your list and keep its notes wherever it moves."
 
     /** Router-level kinds get an "Open router admin" action. */
     fun isRouterKind(kind: String) = kind == LanRules.UPNP_IGD_ENABLED || kind == LanRules.DNS_HIJACK
 
     /** A stranger on the network is checked against the router's client list, so that finding opens the router admin page too. */
-    fun wantsRouterAdmin(kind: String) = isRouterKind(kind) || kind == LanRules.UNKNOWN_DEVICE
+    fun wantsRouterAdmin(kind: String) = isRouterKind(kind) || kind == LanRules.UNKNOWN_DEVICE || kind == LanRules.WATCHED_BACK
 }

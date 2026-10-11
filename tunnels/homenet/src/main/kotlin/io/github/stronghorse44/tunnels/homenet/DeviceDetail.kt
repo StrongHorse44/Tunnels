@@ -2,6 +2,7 @@ package io.github.stronghorse44.tunnels.homenet
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
@@ -11,6 +12,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -19,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -26,7 +30,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.stronghorse44.tunnels.common.GlassColors
 import io.github.stronghorse44.tunnels.common.StatusColors
+import io.github.stronghorse44.tunnels.lan.DeviceCensus
 import io.github.stronghorse44.tunnels.lan.HostKind
+import io.github.stronghorse44.tunnels.lan.Labels
 import io.github.stronghorse44.tunnels.lan.LanGuides
 import io.github.stronghorse44.tunnels.lan.LanHost
 import io.github.stronghorse44.tunnels.lan.LanSweep
@@ -34,7 +40,11 @@ import io.github.stronghorse44.tunnels.lan.LookCloser
 import io.github.stronghorse44.tunnels.lan.PortCatalog
 import io.github.stronghorse44.tunnels.lan.PortClues
 import io.github.stronghorse44.tunnels.lan.Greetings
+import io.github.stronghorse44.tunnels.lan.Presence
+import io.github.stronghorse44.tunnels.lan.Watch
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 
@@ -55,10 +65,19 @@ internal fun kindWords(kind: HostKind): String = when (kind) {
 /**
  * One device's detail (RJ, 2026-10-11): what the scan saw, what an earlier look found, and "Look closer", which asks this
  * device directly ([LookCloserProbe]) and shows what it says about itself. Also opens its web page or the router's, and
- * says how to track down a device Tunnels cannot name.
+ * says how to track down a device Tunnels cannot name. Its notes come first: the name the user gives it, how often it is
+ * here, Watch and Mine. [notes] is null while they are read or when the store cannot be; [onNotesChanged] re-reads them.
  */
 @Composable
-internal fun DeviceDetailDialog(host: LanHost, tunnel: HomeNetworkTunnel?, scanning: Boolean, onDismiss: () -> Unit) {
+internal fun DeviceDetailDialog(
+    host: LanHost,
+    tunnel: HomeNetworkTunnel?,
+    scanning: Boolean,
+    isGateway: Boolean,
+    notes: NotesView?,
+    onNotesChanged: () -> Unit,
+    onDismiss: () -> Unit,
+) {
     val scope = rememberCoroutineScope()
     var running by remember(host.ip) { mutableStateOf(false) }
     var step by remember(host.ip) { mutableStateOf<String?>(null) }
@@ -66,6 +85,9 @@ internal fun DeviceDetailDialog(host: LanHost, tunnel: HomeNetworkTunnel?, scann
     var error by remember(host.ip) { mutableStateOf<String?>(null) }
     var showSteps by remember(host.ip) { mutableStateOf(false) }
     var note by remember(host.ip) { mutableStateOf<String?>(null) }
+    var notesNote by remember(host.ip) { mutableStateOf<String?>(null) }
+    var draft by remember(host.ip) { mutableStateOf(host.label.orEmpty()) }
+    var saving by remember(host.ip) { mutableStateOf(false) }
 
     val open = (findings?.open ?: host.openPorts).toSet()
     val webPort = LookCloserProbe.HTTP_PORTS.firstOrNull { it in open }
@@ -78,6 +100,77 @@ internal fun DeviceDetailDialog(host: LanHost, tunnel: HomeNetworkTunnel?, scann
         text = {
             Column(Modifier.fillMaxWidth().heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Fact(listOfNotNull(kindWords(host.kind), host.vendor ?: host.closer?.vendor, host.ip).distinct().joinToString(" · "))
+
+                Section("Your notes")
+                if (tunnel == null || notes == null) {
+                    Line("Your notes for this network cannot be read right now.")
+                } else {
+                    OutlinedTextField(
+                        value = draft,
+                        onValueChange = { draft = it.take(Labels.MAX_LENGTH) },
+                        label = { Text("Your name for it") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    TextButton(
+                        onClick = {
+                            saving = true
+                            scope.launch {
+                                notesNote = tunnel.notes.setLabel(notes.tag, host.noteKey, draft)
+                                saving = false
+                                onNotesChanged()
+                            }
+                        },
+                        enabled = !saving && Labels.clean(draft) != host.label,
+                    ) { Text(if (Labels.clean(draft) == null && host.label != null) "Remove the name" else "Save the name") }
+
+                    val entry = notes.entry(host)
+                    Line(
+                        if (entry == null) "Counted from your next scan: how often it is here, never when."
+                        else Presence.words(entry, notes.book) + " · " + Presence.pattern(entry, notes.book, NotesView.today()).words,
+                    )
+
+                    val watched = notes.isWatched(host)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Watch this device", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "Your next scans say when it comes back, opens or closes a port, or changes its name.",
+                                style = MaterialTheme.typography.labelSmall, color = GlassColors.dim,
+                            )
+                        }
+                        Switch(
+                            checked = watched,
+                            enabled = !saving,
+                            onCheckedChange = { on ->
+                                saving = true
+                                scope.launch {
+                                    notesNote = tunnel.notes.setWatched(notes.tag, host.noteKey, on, Watch.Now(host.openPorts, host.name))
+                                    saving = false
+                                    onNotesChanged()
+                                }
+                            },
+                        )
+                    }
+
+                    val primary = host.primaryId
+                    when {
+                        host.listed == true -> Line("On your list for this network.")
+                        host.listed == false && primary != null -> OutlinedButton(
+                            onClick = {
+                                saving = true
+                                scope.launch {
+                                    notesNote = withContext(Dispatchers.IO) { tunnel.census.ack(DeviceCensus.subject(host.censusTitle, primary)) }
+                                    saving = false
+                                }
+                            },
+                            enabled = !saving,
+                        ) { Text(LanGuides.MINE_LABEL) }
+                    }
+                    notesNote?.let { Line(it) }
+                    if (primary == null && !isGateway) Text(LanGuides.BY_ADDRESS, style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)
+                    Text(LanGuides.NOTES_KEEP, style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)
+                }
 
                 Section("What the scan saw")
                 LanSweep.describeAnswer(host.sweepAnswer)?.let { Line(it) }

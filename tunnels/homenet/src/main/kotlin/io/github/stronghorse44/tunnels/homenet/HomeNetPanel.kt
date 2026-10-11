@@ -64,7 +64,7 @@ private val line = LineColors.of(MetroLine.NETWORK)
 
 /** Own-network confirmation, scan stages, the router card, the device census and the host list grouped by kind. */
 @Composable
-fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: NetworkGate, census: CensusStore) {
+fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: NetworkGate, census: CensusStore, notes: DeviceNotesStore) {
     var generation by remember { mutableIntStateOf(0) }
     LifecycleResumeEffect(Unit) { generation++; onPauseOrDispose { } }
     val wifi = remember(generation, state.scan.running) { runCatching { gate.current() }.getOrDefault(WifiState.OFFLINE) }
@@ -80,7 +80,17 @@ fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: N
     // The opt-in sweep's switch, read from the encrypted store. null = still reading.
     var sweepOn by remember(generation) { mutableStateOf<Boolean?>(null) }
     LaunchedEffect(generation) { sweepOn = SweepSetting.isOn(context) }
-    val summary = remember(state.observations) { LanSummary.from(state.observations) }
+    val scanned = remember(state.observations) { LanSummary.from(state.observations) }
+    // The device notes (names, counts, watch list), read again after each scan and each change made in a device's detail.
+    var notesGeneration by remember { mutableIntStateOf(0) }
+    var notesView by remember { mutableStateOf<NotesView?>(null) }
+    LaunchedEffect(scanned.networkTag, notesGeneration, state.observations) {
+        notesView = scanned.networkTag?.let { notes.view(it) }
+    }
+    // A name given since the scan shows at once; one removed since goes at once too.
+    val summary = remember(scanned, notesView) {
+        notesView?.takeIf { it.tag == scanned.networkTag }?.let { v -> scanned.copy(hosts = scanned.hosts.map { it.copy(label = v.label(it)) }) } ?: scanned
+    }
     var censusNote by remember { mutableStateOf<String?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
     // The device whose detail is open; its row is looked up again in each scan's list by address.
@@ -116,6 +126,8 @@ fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: N
                         val saved = withContext(Dispatchers.IO) { gate.forget(fp) }
                         // A forgotten network's list goes with it: a reset also unpins its census snapshot.
                         if (saved) withContext(Dispatchers.IO) { census.reset(fp.prefixTag) }
+                        // So do its device notes.
+                        if (saved) notes.forget(fp.prefixTag)
                         // If the list could not be changed the network may still be confirmed: read it again rather than guess.
                         confirmed = withContext(Dispatchers.IO) { gate.isConfirmed(fp) }
                         saveFailed = !saved
@@ -159,11 +171,14 @@ fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: N
                     onReset = { confirmReset = true },
                 )
             }
-            HostsCard(summary, onMine = { host -> actions.perform(mine(census, host)) }, onOpen = { detailIp = it.ip })
+            HostsCard(summary, notesView, onMine = { host -> actions.perform(mine(census, host)) }, onOpen = { detailIp = it.ip })
         }
     }
     summary.hosts.firstOrNull { it.ip == detailIp }?.let { host ->
-        DeviceDetailDialog(host, state.module as? HomeNetworkTunnel, scanning = state.scan.running, onDismiss = { detailIp = null })
+        DeviceDetailDialog(
+            host, state.module as? HomeNetworkTunnel, scanning = state.scan.running, isGateway = host.ip == summary.router?.ip,
+            notes = notesView?.takeIf { it.tag == tag }, onNotesChanged = { notesGeneration++ }, onDismiss = { detailIp = null },
+        )
     }
     if (confirmReset && tag != null) {
         AlertDialog(
@@ -453,7 +468,7 @@ private fun CensusCard(summary: LanSummary, scanning: Boolean, note: String?, on
 }
 
 @Composable
-private fun HostsCard(summary: LanSummary, onMine: (LanHost) -> Unit, onOpen: (LanHost) -> Unit) {
+private fun HostsCard(summary: LanSummary, notes: NotesView?, onMine: (LanHost) -> Unit, onOpen: (LanHost) -> Unit) {
     GlassPanel(Modifier.fillMaxWidth(), tint = line) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Devices", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -476,14 +491,14 @@ private fun HostsCard(summary: LanSummary, onMine: (LanHost) -> Unit, onOpen: (L
             summary.hostsByKind().forEach { (kind, hosts) ->
                 Spacer(Modifier.height(2.dp))
                 Text("${kind.title} · ${hosts.size}", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = GlassColors.dim)
-                hosts.forEach { HostRow(it, onMine, onOpen) }
+                hosts.forEach { HostRow(it, notes?.takeIf { n -> n.tag == summary.networkTag }, onMine, onOpen) }
             }
         }
     }
 }
 
 @Composable
-private fun HostRow(host: LanHost, onMine: (LanHost) -> Unit, onOpen: (LanHost) -> Unit) {
+private fun HostRow(host: LanHost, notes: NotesView?, onMine: (LanHost) -> Unit, onOpen: (LanHost) -> Unit) {
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color.White.copy(alpha = 0.04f)).clickable { onOpen(host) }
             .padding(horizontal = 10.dp, vertical = 8.dp),
@@ -504,6 +519,8 @@ private fun HostRow(host: LanHost, onMine: (LanHost) -> Unit, onOpen: (LanHost) 
             if (host.upnp) add("upnp")
             if (host.swept) add("found by sweep")
             host.closer?.let { add("looked closer") }
+            notes?.pattern(host)?.let { add(it.words) }
+            if (notes?.isWatched(host) == true) add("watched")
         }
         if (details.isNotEmpty()) {
             Text(details.joinToString(" · "), fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = GlassColors.dim)

@@ -8,6 +8,7 @@ import android.provider.Settings
 import androidx.compose.runtime.Composable
 import io.github.stronghorse44.tunnels.lan.DeviceCensus
 import io.github.stronghorse44.tunnels.lan.DeviceIdentity
+import io.github.stronghorse44.tunnels.lan.DeviceKeys
 import io.github.stronghorse44.tunnels.lan.HostEvidence
 import io.github.stronghorse44.tunnels.lan.HostKinds
 import io.github.stronghorse44.tunnels.lan.LanGuides
@@ -20,6 +21,7 @@ import io.github.stronghorse44.tunnels.lan.PortCatalog
 import io.github.stronghorse44.tunnels.lan.ResolverScope
 import io.github.stronghorse44.tunnels.lan.Ssdp
 import io.github.stronghorse44.tunnels.lan.VendorHints
+import io.github.stronghorse44.tunnels.lan.Watch
 import io.github.stronghorse44.tunnels.model.FindingAction
 import io.github.stronghorse44.tunnels.model.FindingDraft
 import io.github.stronghorse44.tunnels.model.FindingRule
@@ -36,6 +38,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.time.LocalDate
 
 /**
  * Home network: which devices are on the Wi-Fi the user confirmed as theirs, which doors they leave
@@ -62,6 +65,9 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
     /** "Look closer" on one device, run from its detail on the screen. */
     val closer = LookCloserProbe(context, gate)
 
+    /** The user's names, the presence counts and the watch list, per network. */
+    val notes = DeviceNotesStore(context)
+
     /** Gateway of the last allowed scan, for the "Open router admin" action. */
     @Volatile private var lastGateway: String? = null
 
@@ -80,7 +86,11 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
         }
         val allowed = decision as GateDecision.Allowed
         val sweep = SweepSetting.isOn(context)
-        val result = scanner.scan(allowed.state, progress, sweep)
+        val tag = allowed.fingerprint.prefixTag
+        val looks = readLooks(tag)
+        // Devices the user looked closer at that answered with a name are asked for it again, and only those.
+        val askNames = looks.filterValues { it.names.isNotEmpty() }.keys
+        val result = scanner.scan(allowed.state, progress, sweep, askNames)
         if (!result.scanned) {
             // Nothing was sent (no confirmed prefix to stay inside): not a scan, so no snapshot with zero hosts
             // that would reset the new-device baseline.
@@ -94,8 +104,8 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
         // The table holds at most MAX_HOSTS hosts besides the gateway, which is reserved outside that cap.
         val hosts = result.hosts.values.sortedBy { LanSummary.ipSortKey(it.ip) }.take(LanScanner.MAX_HOSTS + 1)
         val networkHash = allowed.fingerprint.hash
-        val looks = readLooks(allowed.fingerprint.prefixTag)
         val hostIds = HashMap<String, List<String>>()
+        val hostNames = HashMap<String, String>()
         var risky = 0
         for (host in hosts) {
             try {
@@ -112,11 +122,15 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
                 val name = DeviceIdentity.canonicalName(host.names.toList())
                     ?: (if (host.ip == gateway) result.router.description?.label else null)
                     ?: host.routerName
+                    ?: DeviceIdentity.canonicalName(host.directNames.toList())
                 val services = (host.mdnsTypes.map(MdnsTypes::shortName) + host.ssdpTypes.map(Ssdp::shortType)).distinct().take(12)
                 val open = host.openPorts.toList()
                 val riskyPorts = PortCatalog.riskyOf(open)
                 if (riskyPorts.isNotEmpty()) risky++
-                name?.let { add(host.ip, LanKeys.HOST_NAME, it) }
+                name?.let {
+                    add(host.ip, LanKeys.HOST_NAME, it)
+                    hostNames[host.ip] = it
+                }
                 add(host.ip, LanKeys.HOST_KIND, kind.label)
                 add(host.ip, LanKeys.HOST_SERVICES, LanKeys.list(services))
                 add(host.ip, LanKeys.HOST_OPEN_PORTS, LanKeys.portList(open))
@@ -143,6 +157,17 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
             }
         }
 
+        // The device notes: names the user gave, presence counts, and news about watched devices. Settings rows in the
+        // encrypted store; a store that cannot be read gives none and the scan goes on.
+        val noteHosts = hosts.map { DeviceKeys.Host(hostIds[it.ip].orEmpty(), it.ip) }
+        val today = LocalDate.now().toEpochDay()
+        val seen = hosts.zip(noteHosts).associate { (host, h) -> h.key to Watch.Now(host.openPorts.toList().sorted(), hostNames[host.ip]) }
+        val scanNotes = notes.afterScan(tag, noteHosts, today, seen, portsComplete = "ports" !in result.partial)
+        for (h in noteHosts) {
+            scanNotes.labels[h.key]?.let { add(h.ip, LanKeys.HOST_LABEL, it) }
+            scanNotes.events[h.key]?.let { add(h.ip, LanKeys.HOST_WATCH_EVENT, Watch.observation(today, it)) }
+        }
+
         val router = result.router
         if (gateway != null) {
             add(LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_IP, gateway)
@@ -157,7 +182,7 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
         }
 
         add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_GATE, LanKeys.GATE_CONFIRMED)
-        add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_NETWORK, allowed.fingerprint.prefixTag)
+        add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_NETWORK, tag)
         add(LanKeys.SUBJECT_SUMMARY, LanKeys.HOSTS_TOTAL, result.hosts.size.toString())
         add(LanKeys.SUBJECT_SUMMARY, LanKeys.HOSTS_RISKY, risky.toString())
         add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_DURATION, ((System.nanoTime() - started) / 1_000_000_000L).toString())
@@ -171,7 +196,7 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
 
         // The census step: only bookkeeping on the replies already received, plus reads and writes in the encrypted
         // store. A store that cannot be read gives "unavailable" and no list, so nothing is judged (never "all known").
-        val list = readCensus(allowed.fingerprint.prefixTag)
+        val list = readCensus(tag)
         if (list == null) {
             add(LanKeys.SUBJECT_SUMMARY, LanKeys.CENSUS_STATE, DeviceCensus.STATE_UNAVAILABLE)
         } else {
@@ -238,6 +263,10 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
                 DeviceCensus.parseTag(draft.subject)?.let { tag ->
                     actions += FindingAction.Perform(LanGuides.ALL_MINE_LABEL) { withContext(Dispatchers.IO) { census.setup(tag) } }
                 }
+            LanRules.WATCHED_BACK, LanRules.WATCHED_CHANGED ->
+                LanRules.watchKeyOf(draft.subject)?.let { key ->
+                    actions += FindingAction.Perform(LanGuides.STOP_WATCHING_LABEL) { notes.unwatch(key) }
+                }
         }
         actions += FindingAction.Perform(LanGuides.FIX_LABEL) { LanGuides.fix(draft.kind, ports) }
         if (LanGuides.wantsRouterAdmin(draft.kind)) {
@@ -274,7 +303,7 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
 
     @Composable
     override fun Content(state: TunnelScreenState, actions: TunnelScreenActions) {
-        HomeNetPanel(state, actions, gate, census)
+        HomeNetPanel(state, actions, gate, census, notes)
     }
 
     companion object {

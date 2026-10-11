@@ -20,6 +20,11 @@ class LanHostRecord(val ip: String) {
     @Volatile var swept: Boolean = false
     /** The name the router gave for this address ([ReverseDns.deviceName]); null when it gave none or was not asked. */
     @Volatile var routerName: String? = null
+    /**
+     * Names the host gave when asked directly (its Windows name, its own mDNS answer), at most [MAX_DIRECT_NAMES]. Asked
+     * only of hosts the user looked closer at; empty otherwise.
+     */
+    val directNames: MutableSet<String> = Collections.synchronizedSet(LinkedHashSet())
     /** The port and answer that made the sweep find this host ([LanSweep.answer]): "80/refused", "62078/open". */
     @Volatile var sweepAnswer: String? = null
     val upnp: Boolean get() = ssdpTypes.isNotEmpty() || ssdpLocations.isNotEmpty() || ssdpServer != null
@@ -42,6 +47,7 @@ class LanHostRecord(val ip: String) {
 
     companion object {
         const val MAX_UUIDS = 2
+        const val MAX_DIRECT_NAMES = 2
     }
 }
 
