@@ -260,7 +260,7 @@ private fun FindingsView(f: LookCloser.Findings) {
     Section("Names")
     if (names.isEmpty()) Line("It gave no name.") else names.forEach { Line(it) }
     Section("System")
-    Line(f.os?.let { "Its ping reply (TTL ${f.ttl}) is typical of $it.words." } ?: "It did not answer a ping, or Android did not report the reply's TTL.")
+    Line(f.os?.let { "Its ping reply (TTL ${f.ttl}) is typical of ${it.words}." } ?: "It did not answer a ping, or Android did not report the reply's TTL.")
     Section("Doors")
     if (f.open.isEmpty()) Line("None of the ${PortCatalog.closer.size} ports tried was open.") else f.open.forEach { p -> Line(portLine(p), warn = p in PortCatalog.risky) }
     if (f.refused.isNotEmpty()) Line("${f.refused.size} more refused: something is there, without those services.")
