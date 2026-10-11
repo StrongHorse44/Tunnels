@@ -99,6 +99,16 @@
 > nothing to recognise it by. A device the user looked closer at that answered with a name is asked for it again at each
 > scan (a NetBIOS query and a direct mDNS question, one packet each, to that device only); the answer becomes a census token
 > (`c`), so it can go on the list with Mine, and notes kept under its address move to it.
+> **Ports opened to the internet (2026-10-11):** the third of the three. When the router offers UPnP port mapping, each scan
+> asks it (the gateway only, at the control address its own description gives) for its list of openings, one entry per
+> question, at most 64 (RJ: every scan). Each enabled opening is a state finding naming the device and port: a warning for
+> remote logins, file sharing, Android debug and camera or recorder protocols, or any opening to a camera; a notice
+> otherwise (RJ: all, risky louder). Its actions are **Close it**, which asks the router over UPnP to remove that one
+> opening (a second tap within a minute confirms in the inbox; the router card asks in a dialog), the steps to remove it
+> and switch UPnP off, and the router admin page (RJ: both). It is the first time Tunnels changes something on the
+> router; it sends only to the gateway's own service from the last scan of the network the phone is on, for an opening
+> that scan listed. Risky doors Look closer found among the ports only it tries (ADB 5555, telnet 2323, DVR 34567) now
+> raise the same risky-service warning, for as long as the look is kept (RJ: yes, as warnings).
 > **Address sweep (2026-10-10):** Home network can sweep every address of the confirmed network around the phone (the /24, up to
 > 254) for devices that announce nothing: a TCP connection to a few common ports that is accepted or refused means a device is
 > there. The router (the gateway only) is then asked for each device's name by reverse DNS, which often returns the name the

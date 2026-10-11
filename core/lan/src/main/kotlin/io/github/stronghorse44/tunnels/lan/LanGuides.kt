@@ -6,9 +6,14 @@ object LanGuides {
         LanRules.RISKY_SERVICE -> {
             val names = riskyPorts.mapNotNull { PortCatalog.byPort(it)?.service }.distinct()
             val what = if (names.isEmpty()) "the login and file-sharing services" else names.joinToString(", ")
+            val adb = if (5555 in riskyPorts) " For Android debug: on the TV box or phone, open Settings > Developer options and turn off USB, network and wireless debugging." else ""
             "On that device, turn off $what if you do not use them, or give them a strong, unique password. " +
-                "Update its firmware. If it is a gadget you cannot configure, move it to a guest Wi-Fi so it cannot reach your other devices."
+                "Update its firmware. If it is a gadget you cannot configure, move it to a guest Wi-Fi so it cannot reach your other devices.$adb"
         }
+        LanRules.PORT_OPENED ->
+            "Close it removes the opening now, but the device can ask for it again while UPnP is on. To stop that, open your " +
+                "router's admin page, find UPnP (under Advanced, NAT, Firewall or Port forwarding), delete the opening and turn UPnP off. " +
+                "If you need it (a game console, a media server), keep it, update that device and give it a strong password."
         LanRules.CAMERA_OPEN_WEB ->
             "In the camera's app or web page: change the default password, update the firmware, and switch off web access, RTSP and UPnP if you do not need them. " +
                 "Put cameras on a separate guest or IoT Wi-Fi so a weak camera cannot reach your laptop."
@@ -61,6 +66,7 @@ object LanGuides {
     const val MINE_LABEL = "Mine: add to this network's list"
     const val ALL_MINE_LABEL = "These are all mine"
     const val STOP_WATCHING_LABEL = "Stop watching"
+    const val CLOSE_OPENING_LABEL = "Close it"
 
     /** What a device's notes (its name, how often it is here, Watch) are and where they stay, said in its detail. */
     const val NOTES_KEEP =
@@ -77,5 +83,5 @@ object LanGuides {
     fun isRouterKind(kind: String) = kind == LanRules.UPNP_IGD_ENABLED || kind == LanRules.DNS_HIJACK
 
     /** A stranger on the network is checked against the router's client list, so that finding opens the router admin page too. */
-    fun wantsRouterAdmin(kind: String) = isRouterKind(kind) || kind == LanRules.UNKNOWN_DEVICE || kind == LanRules.WATCHED_BACK
+    fun wantsRouterAdmin(kind: String) = isRouterKind(kind) || kind == LanRules.UNKNOWN_DEVICE || kind == LanRules.WATCHED_BACK || kind == LanRules.PORT_OPENED
 }

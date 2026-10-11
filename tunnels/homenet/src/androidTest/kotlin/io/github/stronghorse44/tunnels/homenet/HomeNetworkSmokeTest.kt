@@ -93,7 +93,7 @@ class HomeNetworkSmokeTest {
         // A retired NEW_HOST finding stored by an older build still gets its guide.
         for (kind in listOf(
             LanRules.UPNP_IGD_ENABLED, LanRules.NEW_HOST, LanRules.CAMERA_OPEN_WEB, LanRules.UNKNOWN_DEVICE, LanRules.CENSUS_NOT_SET_UP,
-            LanRules.WATCHED_BACK, LanRules.WATCHED_CHANGED,
+            LanRules.WATCHED_BACK, LanRules.WATCHED_CHANGED, LanRules.PORT_OPENED,
         )) {
             val actions = module.actionsFor(FindingDraft(module.id, "x", kind, Severity.INFO, "e"))
             assertTrue(kind, actions.isNotEmpty())
@@ -120,6 +120,13 @@ class HomeNetworkSmokeTest {
         assertEquals(listOf(LanGuides.STOP_WATCHING_LABEL, LanGuides.FIX_LABEL, LanGuides.ROUTER_ADMIN_LABEL, LanGuides.WIFI_SETTINGS_LABEL), back.map { it.label })
         val changed = module.actionsFor(FindingDraft(module.id, "Garage cam", LanRules.WATCHED_CHANGED, Severity.NOTICE, "e", sticky = true))
         assertEquals(listOf(LanGuides.FIX_LABEL, LanGuides.WIFI_SETTINGS_LABEL), changed.map { it.label })
+
+        // A port opened to the internet: Close it first (a second tap confirms), then the steps and the router's page.
+        val opening = module.actionsFor(
+            FindingDraft(module.id, "192.168.1.183 · TCP 8554 to the internet", LanRules.PORT_OPENED, Severity.WARN, "e"),
+        )
+        assertEquals(listOf(LanGuides.CLOSE_OPENING_LABEL, LanGuides.FIX_LABEL, LanGuides.ROUTER_ADMIN_LABEL, LanGuides.WIFI_SETTINGS_LABEL), opening.map { it.label })
+        assertTrue(opening.none { it is FindingAction.Perform && it.destructive })
     }
 
     // ---- Device census, against the real encrypted store ---------------------------------------

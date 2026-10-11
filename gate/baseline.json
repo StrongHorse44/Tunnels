@@ -1645,6 +1645,10 @@
       "note": "XMP namespace string in androidx.exifinterface (ExifInterface), not a connection"
     },
     {
+      "value": "http://schemas.xmlsoap.org",
+      "note": "core/lan PortMappings.soapRequest: the SOAP envelope and encoding namespace names in the UPnP port-mapping requests Home network sends only to the confirmed network's gateway (reading its list of ports opened to the internet during a user-started scan, and Close it after the user confirms); XML namespaces, never contacted"
+    },
+    {
       "value": "http://www.w3.org",
       "note": "SVG namespace string in androidx.compose.ui.graphics PathSvg parser, not a connection"
     },

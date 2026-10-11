@@ -10,6 +10,7 @@ import io.github.stronghorse44.tunnels.lan.DnsProbe
 import io.github.stronghorse44.tunnels.lan.DnsVerdict
 import io.github.stronghorse44.tunnels.lan.DropCounter
 import io.github.stronghorse44.tunnels.lan.HttpLite
+import io.github.stronghorse44.tunnels.lan.IgdControl
 import io.github.stronghorse44.tunnels.lan.LanAddresses
 import io.github.stronghorse44.tunnels.lan.LanKeys
 import io.github.stronghorse44.tunnels.lan.LanHostRecord
@@ -20,6 +21,8 @@ import io.github.stronghorse44.tunnels.lan.MdnsPick
 import io.github.stronghorse44.tunnels.lan.MdnsTypes
 import io.github.stronghorse44.tunnels.lan.NetBios
 import io.github.stronghorse44.tunnels.lan.PortCatalog
+import io.github.stronghorse44.tunnels.lan.PortMapping
+import io.github.stronghorse44.tunnels.lan.PortMappings
 import io.github.stronghorse44.tunnels.lan.ProbeBinder
 import io.github.stronghorse44.tunnels.lan.ResolverScope
 import io.github.stronghorse44.tunnels.lan.ReverseDns
@@ -70,6 +73,10 @@ data class RouterFacts(
     /** Where the first configured resolver lives; null when none is configured. */
     val dnsScope: ResolverScope?,
     val privateDns: Boolean?,
+    /** The ports devices opened to the internet through the router; null when the list was not read. */
+    val mappings: PortMappings.Listing? = null,
+    /** Where the router took the port-mapping questions, for Close it; null when it offers none. */
+    val igd: IgdControl? = null,
 )
 
 data class LanScanOutput(
@@ -574,16 +581,18 @@ class LanScanner(private val context: Context) {
         val dnsIsGateway = if (gateway == null || dns.isEmpty()) null else dns.any { it.hostAddress == gateway }
 
         var description: UpnpDescription? = null
+        var controls = emptyList<IgdControl>()
         var upnpIgd = LanKeys.UNKNOWN
         if (gateway != null) {
             val locations = gatewayRecord?.ssdpLocations?.toList().orEmpty()
                 .filter { HttpLite.parseUrl(it)?.host == gateway }
                 .take(3)
             for (location in locations) {
-                val d = withTimeoutOrNull(FETCH_TIMEOUT_MS) { fetchDescription(guard, location) } ?: continue
-                description = description ?: d
-                if (d.hasIgd) {
-                    description = d
+                val fetched = withTimeoutOrNull(FETCH_TIMEOUT_MS) { fetchDescription(guard, location) } ?: continue
+                description = description ?: fetched.description
+                if (fetched.description.hasIgd) {
+                    description = fetched.description
+                    controls = fetched.controls
                     break
                 }
             }
@@ -601,11 +610,57 @@ class LanScanner(private val context: Context) {
         } else {
             null
         }
-        return RouterFacts(gateway, upnpIgd, description, verdict, dnsIsGateway, scope, privateDns)
+        // The ports devices opened to the internet (RJ, 2026-10-11): asked of the gateway's own port-mapping service only,
+        // at an address the gateway's own description gave and only when that address is the gateway. Last, so a slow
+        // router costs only this list.
+        val gatewayAddress = gateway?.let { LanScope.parseLiteral(it) }?.takeIf { LanScope.accepts(it, state.prefixes, state.prefixes.map { p -> p.first }) }
+        var mappings: PortMappings.Listing? = null
+        var igd: IgdControl? = null
+        if (gatewayAddress != null) {
+            val deadline = System.nanoTime() + MAPPINGS_BUDGET_MS * 1_000_000L
+            for (control in controls.filter { HttpLite.parseUrl(it.url)?.host == gateway }) {
+                val listing = readMappings(guard, gatewayAddress, control, deadline) ?: continue
+                mappings = listing
+                igd = control
+                break
+            }
+        }
+        return RouterFacts(gateway, upnpIgd, description, verdict, dnsIsGateway, scope, privateDns, mappings, igd)
     }
 
+    /**
+     * Reads the router's port-mapping list at [control], one entry per question, until it answers that there is no
+     * entry at the next index, [PortMappings.MAX_MAPPINGS] are read or [deadline] (System.nanoTime) passes; the last two
+     * report that there may be more. Null when its first answer is neither an entry nor the end of the list (no such
+     * service, a refusal, no answer): nothing was read, which is not "none".
+     */
+    private suspend fun readMappings(guard: BindGuard, gateway: InetAddress, control: IgdControl, deadline: Long): PortMappings.Listing? = withContext(Dispatchers.IO) {
+        val target = HttpLite.parseUrl(control.url) ?: return@withContext null
+        val out = ArrayList<PortMapping>()
+        for (index in 0 until PortMappings.MAX_MAPPINGS) {
+            ensureActive()
+            if (System.nanoTime() > deadline) return@withContext if (index == 0) null else PortMappings.Listing(out, more = true)
+            if (guard.lost) return@withContext if (index == 0) null else PortMappings.Listing(out, more = false)
+            val response = httpExchange(guard, gateway, target.port, PortMappings.entryRequest(target, control.serviceType, index), FETCH_TIMEOUT_MS.toInt())
+                ?: return@withContext if (index == 0) null else PortMappings.Listing(out, more = false)
+            if (response.status == 200) {
+                PortMappings.parseEntry(response.body)?.let { out += it }
+                continue
+            }
+            return@withContext if (PortMappings.endsList(response.status, PortMappings.errorCode(response.body)) || index > 0) {
+                PortMappings.Listing(out, more = false)
+            } else {
+                null
+            }
+        }
+        PortMappings.Listing(out, more = true)
+    }
+
+    /** A UPnP description, and the port-mapping services it offers. */
+    private class Fetched(val description: UpnpDescription, val controls: List<IgdControl>)
+
     /** Fetches a UPnP description over a raw socket (plain http to the gateway only), capped at 64 KB. */
-    private suspend fun fetchDescription(guard: BindGuard, url: String): UpnpDescription? = withContext(Dispatchers.IO) {
+    private suspend fun fetchDescription(guard: BindGuard, url: String): Fetched? = withContext(Dispatchers.IO) {
         val target = HttpLite.parseUrl(url) ?: return@withContext null
         // The host was matched to the gateway's address literal already; parse it strictly, never resolve a name.
         val address = LanScope.parseLiteral(target.host) ?: return@withContext null
@@ -625,7 +680,7 @@ class LanScanner(private val context: Context) {
                 }
                 val response = HttpLite.parseResponse(buffer.toString("UTF-8")) ?: return@withContext null
                 if (response.status != 200) return@withContext null
-                Upnp.scan(response.body)
+                Fetched(Upnp.scan(response.body), PortMappings.controlsOf(response.body, url))
             }
         } catch (_: Exception) {
             null
@@ -695,7 +750,9 @@ class LanScanner(private val context: Context) {
         const val PORTS_BUDGET_MS = 25_000L
         const val FETCH_TIMEOUT_MS = 3_000L
         const val DNS_TIMEOUT_MS = 2_000L
-        const val ROUTER_BUDGET_MS = 12_000L
+        const val ROUTER_BUDGET_MS = 18_000L
+        /** Reading the router's list of openings: up to [PortMappings.MAX_MAPPINGS] small questions. */
+        const val MAPPINGS_BUDGET_MS = 6_000L
         const val NAMES_BUDGET_MS = 10_000L
         const val NAME_TIMEOUT_MS = 1_500
         const val NAME_CONCURRENCY = 8

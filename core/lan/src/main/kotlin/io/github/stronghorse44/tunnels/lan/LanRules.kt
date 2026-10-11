@@ -4,7 +4,9 @@ import io.github.stronghorse44.tunnels.engine.Rules
 import io.github.stronghorse44.tunnels.model.FindingDraft
 import io.github.stronghorse44.tunnels.model.FindingRule
 import io.github.stronghorse44.tunnels.model.Severity
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 
 /** Finding rules of the home_network tunnel. Pure functions over observations, unit-tested here. */
 object LanRules {
@@ -21,17 +23,30 @@ object LanRules {
     const val CAMERA_OPEN_WEB = "CAMERA_OPEN_WEB"
     const val WATCHED_BACK = "WATCHED_BACK"
     const val WATCHED_CHANGED = "WATCHED_CHANGED"
+    const val PORT_OPENED = "PORT_OPENED"
 
     /** Ports that make a camera reachable from a browser or video player. */
     val cameraWebPorts = setOf(80, 443, 554)
 
-    /** State WARN per host: a login or file-sharing service anyone on the Wi-Fi can try. */
+    /** Ports only Look closer tries: the scan never sees them, so a look is the only word on them. */
+    private val closerOnlyPorts = PortCatalog.closerOnly.map { it.port }.toSet()
+
+    /**
+     * State WARN per host: a login or file-sharing service anyone on the Wi-Fi can try. Besides what the scan found, the
+     * risky doors the last Look closer found among the ports only it tries (Android debug, the second telnet, the cheap
+     * recorders' protocol; RJ, 2026-10-11), for as long as the look is kept or until a new look finds them closed.
+     */
     val riskyService: FindingRule = Rules.perSubject(RISKY_SERVICE, Severity.WARN) { subject, obs ->
         if (!LanKeys.isHostSubject(subject)) return@perSubject null
-        val risky = LanKeys.ports(LanKeys.value(obs, LanKeys.HOST_RISKY))
+        val scanned = LanKeys.ports(LanKeys.value(obs, LanKeys.HOST_RISKY))
+        val look = LanKeys.value(obs, LanKeys.HOST_CLOSER)?.let(LookCloser.Summary::parse)
+        val looked = look?.openPorts.orEmpty().filter { it in closerOnlyPorts && it in PortCatalog.risky }.distinct().sorted()
+        val risky = (scanned + looked).distinct().sorted()
         if (risky.isEmpty()) return@perSubject null
         val who = LanKeys.value(obs, LanKeys.HOST_NAME)?.let { "$it accepts" } ?: "This device accepts"
-        "$who connections for ${PortCatalog.describe(risky)}. Anyone on this Wi-Fi can try to log in or read files."
+        val foundBy = if (look == null || looked.isEmpty()) "" else
+            " ${PortCatalog.describe(looked)}: found when you looked closer on ${Instant.ofEpochMilli(look.at).atZone(ZoneId.systemDefault()).toLocalDate()}."
+        "$who connections for ${PortCatalog.describe(risky)}.$foundBy Anyone on this Wi-Fi can try to log in or read files."
     }
 
     /** State WARN: a camera serves a web page or video stream to the whole network. */
@@ -42,6 +57,37 @@ object LanRules {
         if (open.isEmpty()) return@perSubject null
         val name = LanKeys.value(obs, LanKeys.HOST_NAME) ?: "This camera"
         "$name serves ${PortCatalog.describe(open)} to every device on the network. With a default or weak password, anyone here can watch it."
+    }
+
+    /**
+     * State, one per opening: a device asked the router to open a port to the internet (UPnP; RJ, 2026-10-11). WARN when
+     * it opens a risky door or reaches a camera ([PortMappings.isLoud]), NOTICE otherwise. Only enabled openings, and
+     * only on a scan the gate confirmed.
+     */
+    val portOpened: FindingRule = FindingRule { ctx ->
+        val bySubject = ctx.bySubject()
+        val summary = bySubject[LanKeys.SUBJECT_SUMMARY].orEmpty()
+        if (LanKeys.value(summary, LanKeys.SCAN_GATE) != LanKeys.GATE_CONFIRMED) return@FindingRule emptyList()
+        val mappings = PortMappings.parse(LanKeys.value(bySubject[LanKeys.SUBJECT_ROUTER].orEmpty(), LanKeys.ROUTER_PORT_MAPPINGS))
+        mappings.filter { it.enabled }.distinctBy { PortMappings.subject(it) }.map { m ->
+            val host = bySubject[m.client].orEmpty()
+            val kind = LanKeys.value(host, LanKeys.HOST_KIND)?.let(HostKind::byLabel)
+            val title = LanKeys.value(host, LanKeys.HOST_LABEL) ?: LanKeys.value(host, LanKeys.HOST_NAME) ?: LanKeys.value(host, LanKeys.HOST_VENDOR)
+            val who = if (title != null) "$title (${m.client})" else "The device at ${m.client}"
+            val label = m.description?.let { " for \"$it\"" }.orEmpty()
+            val loud = PortMappings.isLoud(m, kind)
+            val service = PortCatalog.byPort(m.internalPort)
+            val reach = when {
+                service != null && loud -> "Anyone on the internet can reach its ${service.service}: ${service.note}"
+                kind == HostKind.CAMERA -> "Anyone on the internet can reach this camera on that port."
+                else -> "Anyone on the internet can reach that port on it; if you do not know why it is open, close it."
+            }
+            val only = if (m.remoteHost.isNotEmpty()) " The router limits it to the internet address ${m.remoteHost}." else ""
+            FindingDraft(
+                ctx.tunnelId, PortMappings.subject(m), PORT_OPENED, if (loud) Severity.WARN else Severity.NOTICE,
+                "$who asked your router to open ${PortMappings.ports(m)} to the internet$label (UPnP). $reach$only",
+            )
+        }
     }
 
     /** State NOTICE on the router: UPnP IGD port mapping is on. */
@@ -183,5 +229,5 @@ object LanRules {
         subject.substringBeforeLast(SUBJECT_JOIN, "").substringAfterLast(SUBJECT_JOIN, "").takeIf(DeviceKeys::isKey)
 
     /** Every rule of the tunnel, in display order. Declared last so the rule values above exist first. */
-    val all: List<FindingRule> = listOf(dnsHijack, riskyService, cameraOpenWeb, upnpIgd, unknownDevice, watchedDevice, censusNotSetUp)
+    val all: List<FindingRule> = listOf(dnsHijack, riskyService, cameraOpenWeb, portOpened, upnpIgd, unknownDevice, watchedDevice, censusNotSetUp)
 }

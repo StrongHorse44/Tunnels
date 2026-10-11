@@ -54,6 +54,10 @@ data class RouterInfo(
     val privateDns: String,
     /** Null when the router was never port-scanned (it lay outside the confirmed network); not the same as none open. */
     val openPorts: List<Int>?,
+    /** Ports devices opened to the internet through it; null when the list was not read (not the same as none). */
+    val portMappings: List<PortMapping>? = null,
+    /** It listed more openings than were read. */
+    val portMappingsMore: Boolean = false,
 )
 
 /** Everything the home_network panel renders, derived from the latest scan's observations. */
@@ -147,6 +151,8 @@ data class LanSummary(
                     dnsLocal = LanKeys.value(r, LanKeys.ROUTER_DNS_LOCAL) ?: LanKeys.UNKNOWN,
                     privateDns = LanKeys.value(r, LanKeys.ROUTER_PRIVATE_DNS) ?: LanKeys.UNKNOWN,
                     openPorts = LanKeys.value(r, LanKeys.ROUTER_OPEN_PORTS)?.let(LanKeys::ports),
+                    portMappings = LanKeys.value(r, LanKeys.ROUTER_PORT_MAPPINGS)?.let(PortMappings::parse),
+                    portMappingsMore = LanKeys.value(r, LanKeys.ROUTER_PORT_MAPPINGS_MORE) == LanKeys.TRUE,
                 )
             }
             return LanSummary(
