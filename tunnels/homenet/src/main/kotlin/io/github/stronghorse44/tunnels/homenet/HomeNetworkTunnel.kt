@@ -18,6 +18,7 @@ import io.github.stronghorse44.tunnels.lan.LanSummary
 import io.github.stronghorse44.tunnels.lan.LookCloser
 import io.github.stronghorse44.tunnels.lan.MdnsTypes
 import io.github.stronghorse44.tunnels.lan.PortCatalog
+import io.github.stronghorse44.tunnels.lan.PortMappings
 import io.github.stronghorse44.tunnels.lan.ResolverScope
 import io.github.stronghorse44.tunnels.lan.Ssdp
 import io.github.stronghorse44.tunnels.lan.VendorHints
@@ -67,6 +68,9 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
 
     /** The user's names, the presence counts and the watch list, per network. */
     val notes = DeviceNotesStore(context)
+
+    /** Close it on a port a device opened to the internet through the router. */
+    val openings = RouterOpenings(context, gate)
 
     /** Gateway of the last allowed scan, for the "Open router admin" action. */
     @Volatile private var lastGateway: String? = null
@@ -179,6 +183,15 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
             add(LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_PRIVATE_DNS, triState(router.privateDns))
             // No record means the gateway was never probed (outside the scope, or the host cap): say nothing rather than "none".
             result.hosts[gateway]?.let { add(LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_OPEN_PORTS, LanKeys.portList(it.openPorts)) }
+            // The ports devices opened to the internet; absent when the list was not read, which is not "none".
+            router.mappings?.let { listing ->
+                add(LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_PORT_MAPPINGS, PortMappings.encode(listing.mappings))
+                if (listing.more) add(LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_PORT_MAPPINGS_MORE, LanKeys.TRUE)
+            }
+            router.igd?.let {
+                add(LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_IGD_CONTROL, it.url)
+                add(LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_IGD_SERVICE, it.serviceType)
+            }
         }
 
         add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_GATE, LanKeys.GATE_CONFIRMED)
@@ -267,6 +280,11 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
                 LanRules.watchKeyOf(draft.subject)?.let { key ->
                     actions += FindingAction.Perform(LanGuides.STOP_WATCHING_LABEL) { notes.unwatch(key) }
                 }
+            // A second tap within a minute confirms; it changes the router, never this scan, so no rescan follows.
+            LanRules.PORT_OPENED ->
+                if (PortMappings.parseSubject(draft.subject) != null) {
+                    actions += FindingAction.Perform(LanGuides.CLOSE_OPENING_LABEL) { openings.closeFromFinding(draft.subject) }
+                }
         }
         actions += FindingAction.Perform(LanGuides.FIX_LABEL) { LanGuides.fix(draft.kind, ports) }
         if (LanGuides.wantsRouterAdmin(draft.kind)) {
@@ -303,7 +321,7 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
 
     @Composable
     override fun Content(state: TunnelScreenState, actions: TunnelScreenActions) {
-        HomeNetPanel(state, actions, gate, census, notes)
+        HomeNetPanel(state, actions, gate, census, notes, openings)
     }
 
     companion object {

@@ -173,8 +173,10 @@ Device checks to make on the Pixel 10 (the Device checks screen walks through mo
   on GrapheneOS and that `Os.recvmsg` reports the reply's TTL (the system hint is "no answer" otherwise), that the TLS
   read gets the certificate from a camera or NAS with a self-signed one, and which devices at home answer the NetBIOS and
   direct mDNS questions. PR 2, device notes (presence counts, naming, Mine, Watch), is built; verify on the phone that a
-  Windows laptop's NetBIOS answer at scan time makes it one that can go on the list. PR 3 (router port mappings, risky
-  services) follows.
+  Windows laptop's NetBIOS answer at scan time makes it one that can go on the list. PR 3 (ports opened to the internet,
+  risky doors from Look closer) is built; verify on the phone that the router answers GetGenericPortMappingEntry (some
+  routers refuse it to other devices: the card then says the router did not list them) and that Close it removes an
+  opening a test app made (for example a game console's), and how soon the device asks for it again.
 - Home network census (B08): devices that announce nothing on mDNS or SSDP (most phones) were invisible; the opt-in
   address sweep (2026-10-10, `core:lan` `LanSweep` and `ReverseDns`) now finds them on the confirmed network and asks the
   router (the gateway only) for their names. Verify on the Pixel 10: how long a sweep of the home /24 takes, how many

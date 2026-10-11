@@ -51,6 +51,8 @@ import io.github.stronghorse44.tunnels.lan.LanKeys
 import io.github.stronghorse44.tunnels.lan.LanSummary
 import io.github.stronghorse44.tunnels.lan.NetworkFingerprint
 import io.github.stronghorse44.tunnels.lan.PortCatalog
+import io.github.stronghorse44.tunnels.lan.PortMapping
+import io.github.stronghorse44.tunnels.lan.PortMappings
 import io.github.stronghorse44.tunnels.lan.RouterInfo
 import io.github.stronghorse44.tunnels.model.FindingAction
 import io.github.stronghorse44.tunnels.model.MetroLine
@@ -64,7 +66,14 @@ private val line = LineColors.of(MetroLine.NETWORK)
 
 /** Own-network confirmation, scan stages, the router card, the device census and the host list grouped by kind. */
 @Composable
-fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: NetworkGate, census: CensusStore, notes: DeviceNotesStore) {
+fun HomeNetPanel(
+    state: TunnelScreenState,
+    actions: TunnelScreenActions,
+    gate: NetworkGate,
+    census: CensusStore,
+    notes: DeviceNotesStore,
+    openings: RouterOpenings,
+) {
     var generation by remember { mutableIntStateOf(0) }
     LifecycleResumeEffect(Unit) { generation++; onPauseOrDispose { } }
     val wifi = remember(generation, state.scan.running) { runCatching { gate.current() }.getOrDefault(WifiState.OFFLINE) }
@@ -92,6 +101,9 @@ fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: N
         notesView?.takeIf { it.tag == scanned.networkTag }?.let { v -> scanned.copy(hosts = scanned.hosts.map { it.copy(label = v.label(it)) }) } ?: scanned
     }
     var censusNote by remember { mutableStateOf<String?>(null) }
+    // Close it on a port opened to the internet: the opening waiting for the user's confirmation, and the router's answer.
+    var confirmClose by remember { mutableStateOf<PortMapping?>(null) }
+    var closeNote by remember { mutableStateOf<String?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
     // The device whose detail is open; its row is looked up again in each scan's list by address.
     var detailIp by remember { mutableStateOf<String?>(null) }
@@ -161,7 +173,7 @@ fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: N
             }
         }
         if (summary.scanned) {
-            summary.router?.let { RouterCard(it) }
+            summary.router?.let { RouterCard(it, summary.hosts, closeNote, scanning = state.scan.running) { m -> confirmClose = m } }
             if (summary.censusState != null) {
                 CensusCard(
                     summary = summary,
@@ -178,6 +190,31 @@ fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: N
         DeviceDetailDialog(
             host, state.module as? HomeNetworkTunnel, scanning = state.scan.running, isGateway = host.ip == summary.router?.ip,
             notes = notesView?.takeIf { it.tag == tag }, onNotesChanged = { notesGeneration++ }, onDismiss = { detailIp = null },
+        )
+    }
+    confirmClose?.let { m ->
+        val who = summary.hosts.firstOrNull { it.ip == m.client }?.let { "${it.title} (${m.client})" } ?: m.client
+        AlertDialog(
+            onDismissRequest = { confirmClose = null },
+            containerColor = MaterialTheme.colorScheme.surface,
+            title = { Text("Close this opening?") },
+            text = {
+                Text(
+                    "Tunnels asks your router to stop forwarding ${m.protocol} ${m.externalPort} from the internet to $who. " +
+                        "The device can ask for it again while UPnP is on; the router's admin page can switch UPnP off.",
+                    style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmClose = null
+                        closeNote = "Asking the router…"
+                        scope.launch { closeNote = openings.close(PortMappings.subject(m)) }
+                    },
+                ) { Text(LanGuides.CLOSE_OPENING_LABEL, color = StatusColors.blocker) }
+            },
+            dismissButton = { TextButton(onClick = { confirmClose = null }) { Text("Keep it") } },
         )
     }
     if (confirmReset && tag != null) {
@@ -340,7 +377,7 @@ private fun StageRow(scanning: Boolean, label: String) {
 }
 
 @Composable
-private fun RouterCard(router: RouterInfo) {
+private fun RouterCard(router: RouterInfo, hosts: List<LanHost>, closeNote: String?, scanning: Boolean, onClose: (PortMapping) -> Unit) {
     GlassPanel(Modifier.fillMaxWidth(), tint = line) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -405,6 +442,36 @@ private fun RouterCard(router: RouterInfo) {
                 },
                 GlassColors.text,
             )
+            // The ports devices opened to the internet through it (UPnP port mappings).
+            val mappings = router.portMappings
+            if (mappings != null || router.upnpIgd == LanKeys.TRUE) {
+                FactRow(
+                    "Opened to the internet",
+                    when {
+                        mappings == null -> "the router did not list them"
+                        mappings.isEmpty() -> "nothing"
+                        else -> "${mappings.size}${if (router.portMappingsMore) "+" else ""} by devices on your network"
+                    },
+                    when {
+                        mappings == null -> GlassColors.dim
+                        mappings.isEmpty() -> StatusColors.ok
+                        else -> StatusColors.warn
+                    },
+                )
+            }
+            mappings.orEmpty().forEach { m ->
+                val who = hosts.firstOrNull { it.ip == m.client }?.title?.takeIf { it != m.client }?.let { "$it (${m.client})" } ?: m.client
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${m.protocol} ${m.externalPort} → $who, port ${m.internalPort}" + (m.description?.let { " · \"$it\"" } ?: "") + (if (m.enabled) "" else " · switched off"),
+                        fontFamily = FontFamily.Monospace, fontSize = 11.sp,
+                        color = if (m.enabled && PortMappings.isLoud(m, hosts.firstOrNull { it.ip == m.client }?.kind)) StatusColors.warn else GlassColors.text,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (m.enabled) TextButton(onClick = { onClose(m) }, enabled = !scanning) { Text(LanGuides.CLOSE_OPENING_LABEL) }
+                }
+            }
+            closeNote?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
     }
 }

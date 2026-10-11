@@ -66,6 +66,18 @@ object LanKeys {
     const val ROUTER_OPEN_PORTS = "router:openPorts"
     /** Friendly name / manufacturer / model from the UPnP description, when fetched. */
     const val ROUTER_NAME = "router:name"
+    /**
+     * The ports devices opened to the internet through the router ([PortMappings.encode]): protocol, ports, the device's
+     * address and the label the app gave, per opening; "none" when the router listed none. Absent when the list was not
+     * read (no UPnP port mapping, or the router did not answer).
+     */
+    const val ROUTER_PORT_MAPPINGS = "router:portMappings"
+    /** "true" when the router listed more openings than [PortMappings.MAX_MAPPINGS]. Absent otherwise. */
+    const val ROUTER_PORT_MAPPINGS_MORE = "router:portMappingsMore"
+    /** Where the router takes port-mapping requests (its own address), for Close it. Absent when it offers none. */
+    const val ROUTER_IGD_CONTROL = "router:igdControl"
+    /** The UPnP service type at [ROUTER_IGD_CONTROL]. */
+    const val ROUTER_IGD_SERVICE = "router:igdService"
 
     const val HOSTS_TOTAL = "hosts:total"
     const val HOSTS_RISKY = "hosts:risky"
