@@ -1,6 +1,7 @@
 package io.github.stronghorse44.tunnels.surroundings
 
 import android.Manifest
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
@@ -10,6 +11,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.net.wifi.WifiManager
+import android.os.Build
 import android.os.ParcelUuid
 import android.os.SystemClock
 import android.telephony.CellInfo
@@ -28,6 +30,8 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import io.github.stronghorse44.tunnels.ble.Advertisement
 import io.github.stronghorse44.tunnels.ble.BleUuid
+import io.github.stronghorse44.tunnels.ble.BtAddress
+import io.github.stronghorse44.tunnels.ble.BtAddressType
 import io.github.stronghorse44.tunnels.ble.CellHeuristics
 import io.github.stronghorse44.tunnels.ble.CellSummary
 import io.github.stronghorse44.tunnels.ble.CellTech
@@ -59,13 +63,35 @@ private fun Context.locationEnabled(): Boolean =
 /**
  * What one BLE scan window produced: availability, how many distinct devices advertised, which were
  * trackers. [devicesTotal] counts every advertiser only for an unfiltered window; a filtered one sees
- * trackers alone.
+ * trackers alone. An unfiltered window ([unfiltered]) also lists the fixed-address devices that are not
+ * trackers ([fixed], with their addresses, **in memory only**: [BtSightings] turns them into keyed ids
+ * and drops them) and counts the changing addresses it heard ([rotating]).
  */
 data class BleWindowResult(
     val available: String,
     val devicesTotal: Int,
     val sightings: List<SightingRecord>,
+    val unfiltered: Boolean = false,
+    val fixed: List<HeardDevice> = emptyList(),
+    val rotating: Int = 0,
 )
+
+/** One fixed-address Bluetooth device heard in a window. The address lives in memory only, never in a row. */
+data class HeardDevice(val address: String, val name: String, val companyIds: Set<Int>, val rssi: Int)
+
+/** The address type Android reports (Android 15 and later); unknown before, or when it is refused. */
+internal fun BluetoothDevice.addressKind(): BtAddressType {
+    if (Build.VERSION.SDK_INT < 35) return BtAddressType.UNKNOWN
+    return try {
+        when (addressType) {
+            BluetoothDevice.ADDRESS_TYPE_PUBLIC -> BtAddressType.PUBLIC
+            BluetoothDevice.ADDRESS_TYPE_RANDOM -> BtAddressType.RANDOM
+            else -> BtAddressType.UNKNOWN
+        }
+    } catch (_: Exception) {
+        BtAddressType.UNKNOWN
+    }
+}
 
 /**
  * One BLE scan window. Addresses live only in memory for the length of the window: each tracker leaves
@@ -97,6 +123,8 @@ object BleWindow {
 
         val addresses = ConcurrentHashMap.newKeySet<String>()
         val hits = ConcurrentHashMap<String, SightingFold>()
+        val fixed = ConcurrentHashMap<String, HeardDevice>()
+        val rotating = ConcurrentHashMap.newKeySet<String>()
         var failure: Int? = null
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) = handle(result)
@@ -109,12 +137,30 @@ object BleWindow {
 
             private fun handle(result: ScanResult) {
                 try {
-                    val address = result.device?.address ?: return
+                    val device = result.device ?: return
+                    val address = device.address ?: return
                     addresses += address
                     val record = result.scanRecord ?: return
-                    val match = TrackerSignatures.match(record.toAdvertisement()) ?: return
-                    val key = DeviceKey.of(address, match.idSource)
-                    hits.getOrPut(key) { SightingFold(match.type) }.add(match, result.rssi)
+                    val advertisement = record.toAdvertisement()
+                    val match = TrackerSignatures.match(advertisement)
+                    if (match != null) {
+                        val key = DeviceKey.of(address, match.idSource)
+                        hits.getOrPut(key) { SightingFold(match.type) }.add(match, result.rssi)
+                        return
+                    }
+                    // Not a tracker: an unfiltered window keeps fixed addresses for Bluetooth over time, in memory.
+                    if (filters != null) return
+                    if (!BtAddress.isFixed(address, device.addressKind())) {
+                        rotating += address
+                        return
+                    }
+                    val previous = fixed[address]
+                    fixed[address] = HeardDevice(
+                        address = address,
+                        name = record.deviceName?.trim()?.takeIf { it.isNotEmpty() } ?: previous?.name.orEmpty(),
+                        companyIds = advertisement.manufacturerData.keys + previous?.companyIds.orEmpty(),
+                        rssi = maxOf(result.rssi, previous?.rssi ?: Int.MIN_VALUE),
+                    )
                 } catch (e: Exception) {
                     Log.w(TAG, "scan result skipped: ${e.javaClass.simpleName}")
                 }
@@ -156,7 +202,7 @@ object BleWindow {
         val now = System.currentTimeMillis()
         val sightings = hits.map { (key, fold) -> fold.record(session, now, key) }
         val available = if (failure != null && addresses.isEmpty()) SurroundingsKeys.AVAILABLE_FAILED else SurroundingsKeys.AVAILABLE_YES
-        return BleWindowResult(available, addresses.size, sightings)
+        return BleWindowResult(available, addresses.size, sightings, unfiltered = filters == null, fixed = fixed.values.toList(), rotating = rotating.size)
     }
 
     /** The platform ScanFilter for one spec; same semantics as [ScanFilterSpec.accepts]. Shared with find-it mode. */

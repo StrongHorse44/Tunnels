@@ -2,9 +2,11 @@ package io.github.stronghorse44.tunnels.surroundings
 
 import android.Manifest
 import android.content.Context
+import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
 import androidx.compose.runtime.Composable
+import io.github.stronghorse44.tunnels.ble.BtFollowing
 import io.github.stronghorse44.tunnels.ble.CellHeuristics
 import io.github.stronghorse44.tunnels.ble.CellJudgement
 import io.github.stronghorse44.tunnels.ble.CellSummary
@@ -37,6 +39,8 @@ import java.time.Instant
  * on. One scan is a 15-second BLE window, the cached Wi-Fi scan results and the current cell. Each
  * tracker sighting goes to the events table (30 days) under a pseudonymous key, so a tag that keeps
  * turning up across scans, and across the background monitor's windows, can be told from a passer-by.
+ * Wi-Fi access points and fixed-address Bluetooth devices are kept the same way in their own streams
+ * ([WifiSightings], [BtSightings]).
  */
 class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi {
     override val id: String = SurroundingsKeys.TUNNEL_ID
@@ -59,6 +63,7 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
         progress.report(0, STEPS, "reading history")
         val history = readEvents()
         val wifiHistory = WifiSightings.history(context, now)
+        val btHistory = BtSightings.history(context, now)
 
         progress.report(1, STEPS, "asking for a Wi-Fi scan")
         WifiProbe.requestScan(context)
@@ -87,6 +92,14 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
         wifiScan?.let { WifiSightings.record(context, it) }
         val accessPoints = WifiFollowing.aggregate(wifiHistory + listOfNotNull(wifiScan))
         val threshold = WifiSightings.threshold(context)
+
+        // This window's fixed-address devices as keyed ids, kept with the 30-day Bluetooth stream; the addresses end here.
+        // A scan run with the screen off (a background check) heard almost nothing unfiltered, so it says it logged none.
+        val screenOn = runCatching { context.getSystemService(PowerManager::class.java)?.isInteractive }.getOrNull() ?: false
+        val logged = ble.unfiltered && ble.available == SurroundingsKeys.AVAILABLE_YES && screenOn
+        val btScan = if (logged) BtSightings.recordOf(session, now, place.place, ble.fixed) else null
+        btScan?.let { BtSightings.record(context, it) }
+        val btDevices = BtFollowing.aggregate(btHistory + listOfNotNull(btScan), wifiHistory + listOfNotNull(wifiScan))
 
         progress.report(4, STEPS, "reading the cell")
         val cell = try {
@@ -119,6 +132,7 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
             SurroundingsKeys.wifiObservations(wifi.summaries, wifi.available, twinsRecorded) +
             SurroundingsKeys.apObservations(accessPoints, threshold, now, muted, currentSession = session) +
             SurroundingsKeys.clusterObservations(clusters, muted) +
+            SurroundingsKeys.btObservations(btDevices, threshold, now, logged, ble.fixed.size, ble.rotating, muted, currentSession = session) +
             SurroundingsKeys.cellObservations(cell.cell, cell.available, changed, downgrades) +
             SurroundingsKeys.logObservations(log.first, log.second)
     }
@@ -175,6 +189,11 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
             wifiMuteAction(draft.subject),
             FindingAction.OpenSettings(Settings.ACTION_WIFI_SETTINGS, "Wi-Fi settings"),
         )
+        in SurroundingsRules.btDeviceKinds -> listOfNotNull(
+            SurroundingsKeys.parseBtDeviceSubject(draft.subject)?.let { key -> TrackerActions.findDevice(context, key) },
+            wifiMuteAction(draft.subject),
+            FindingAction.OpenSettings(Settings.ACTION_BLUETOOTH_SETTINGS, "Bluetooth settings"),
+        )
         SurroundingsRules.UNFAMILIAR_TOWER -> listOfNotNull(
             FindingAction.OpenSettings(Settings.ACTION_NETWORK_OPERATOR_SETTINGS, "Mobile network settings"),
             SurroundingsKeys.parseTowerSubject(draft.subject)?.let { id -> FindingAction.Perform(LABEL_NORMAL_HERE) { CellLogStore(context).accept(id) } },
@@ -216,14 +235,17 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
         }
     }
 
-    /** Mutes one Wi-Fi access point or device for [SurroundingsKeys.MUTE_DAYS] days; it stays listed without a finding. */
+    /**
+     * Mutes one Wi-Fi access point or device, or one Bluetooth device, for [SurroundingsKeys.MUTE_DAYS] days; it stays
+     * listed without a finding.
+     */
     fun wifiMuteAction(subject: String): FindingAction = FindingAction.Perform(LABEL_MUTE_WIFI, destructive = true) { muteWifi(listOf(subject)) }
 
-    /** Mutes several access points at once (the list's "Mute all repeated"); rescans so their findings clear. */
+    /** Mutes several access points or Bluetooth devices at once (the lists' "Mute all"); rescans so their findings clear. */
     fun wifiMuteAllAction(subjects: List<String>): FindingAction =
         FindingAction.Perform("Mute all ${subjects.size}", destructive = true) { muteWifi(subjects) }
 
-    /** Cancels the mute on one access point or device; rescans so its finding can come back at once. */
+    /** Cancels the mute on one access point or device (Wi-Fi or Bluetooth); rescans so its finding can come back at once. */
     fun wifiUnmuteAction(subject: String, name: String): FindingAction = FindingAction.Perform("Unmute", destructive = true) {
         try {
             TunnelsStore.get(context).recordEvent(SurroundingsKeys.MUTE_LEDGER, SurroundingsKeys.EVENT_UNMUTE, subject, "unmuted")
@@ -234,13 +256,17 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
     }
 
     private suspend fun muteWifi(subjects: List<String>): String {
-        val valid = subjects.filter { SurroundingsKeys.parseApSubject(it) != null || SurroundingsKeys.parseDeviceSubject(it) != null }
-        if (valid.isEmpty()) return "Only a Wi-Fi access point or device can be muted here."
+        val valid = subjects.filter {
+            SurroundingsKeys.parseApSubject(it) != null || SurroundingsKeys.parseDeviceSubject(it) != null || SurroundingsKeys.parseBtDeviceSubject(it) != null
+        }
+        if (valid.isEmpty()) return "Only a Wi-Fi access point or device, or a Bluetooth device, can be muted here."
+        val bluetooth = valid.all { SurroundingsKeys.parseBtDeviceSubject(it) != null }
+        val what = if (bluetooth) "devices" else "access points"
         return try {
             val store = TunnelsStore.get(context)
             valid.forEach { store.recordEvent(SurroundingsKeys.MUTE_LEDGER, SurroundingsKeys.EVENT_MUTE, it, "muted") }
-            "Muted ${if (valid.size == 1) "it" else "${valid.size} access points"} for ${SurroundingsKeys.MUTE_DAYS} days. " +
-                "Muted access points stay in the list without a finding."
+            "Muted ${if (valid.size == 1) "it" else "${valid.size} $what"} for ${SurroundingsKeys.MUTE_DAYS} days. " +
+                "Muted $what stay in the list without a finding."
         } catch (e: Exception) {
             "Could not save the mute: ${e.javaClass.simpleName}"
         }

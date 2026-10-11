@@ -70,7 +70,10 @@ import kotlinx.coroutines.launch
 
 private val line: Color get() = LineColors.of(MetroLine.NETWORK)
 
-/** Live scan readout, the cell logbook, the background-monitor switch with its opt-in text, the tracker section with per-identity detail, Wi-Fi over time, and the guide. */
+/**
+ * Live scan readout, the cell logbook, the background-monitor switch with its opt-in text, the tracker section with
+ * per-identity detail, Wi-Fi over time, Bluetooth over time, and the guide.
+ */
 @Composable
 fun SurroundingsPanel(state: TunnelScreenState, actions: TunnelScreenActions) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -79,7 +82,9 @@ fun SurroundingsPanel(state: TunnelScreenState, actions: TunnelScreenActions) {
         MonitorCard(actions)
         TrackerSection(state, actions)
         WifiOverTimeSection(state, actions)
+        BluetoothOverTimeSection(state, actions)
         GuideCard()
+        ListeningDevicesCard()
     }
 }
 
@@ -468,6 +473,21 @@ private fun FactRow(label: String, value: String) {
     Row {
         Text(label, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = GlassColors.dim, modifier = Modifier.width(84.dp))
         Text(value, fontFamily = FontFamily.Monospace, fontSize = 11.sp, modifier = Modifier.weight(1f))
+    }
+}
+
+/** What Surroundings can and cannot hear of cameras and listening devices ([TrackerGuides.LISTENING_DEVICES]). */
+@Composable
+private fun ListeningDevicesCard() {
+    var open by remember { mutableStateOf(false) }
+    GlassPanel(Modifier.fillMaxWidth()) {
+        Column(Modifier.clickable { open = !open }.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Cameras and listening devices: what a phone can hear", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                Text(if (open) "▾" else "▸", color = GlassColors.dim)
+            }
+            if (open) TrackerGuides.LISTENING_DEVICES.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = GlassColors.dim) }
+        }
     }
 }
 

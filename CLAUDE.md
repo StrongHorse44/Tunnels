@@ -29,8 +29,14 @@ Full spec: `docs/HANDOFF.md`. Read it before starting work.
    a raw cell identity, a timestamp or an order of visits.
    Second exception, Wi-Fi sightings (RJ, 2026-10-10): Surroundings may keep, for each Wi-Fi scan
    and for the 30-day event retention, the scan's time and place number and, per access point
-   heard, a keyed hash of its address (same keystore key) with the network name it broadcast.
+   heard, a keyed hash of its address (same keystore key) with the network name it broadcast
+   and, when the name matched the camera and bug catalog, the hint's id (RJ, 2026-10-11).
    RJ chose to keep the names knowing that timestamped names amount to a coarse location trail.
+   Never an address or a coordinate.
+   Third exception, Bluetooth sightings (RJ, 2026-10-11): Surroundings may keep, on the same
+   terms, for each Bluetooth scan that listened to every advertiser, the scan's time and place
+   number and, per fixed-address device heard (never a tracker, never a changing address), a
+   keyed hash of its address (same keystore key) with the name it advertised and its hint's id.
    Never an address or a coordinate.
 4. **Short retention.** Events expire after 30 days. Keep the last 12 snapshots
    plus pinned ones. Enforce in code, not by convention. The hashed sets allowed under
