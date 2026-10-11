@@ -93,7 +93,7 @@ data class LanScanOutput(
 )
 
 /** Pins sockets to the confirmed Wi-Fi [network]; a failure throws and the [BindGuard] treats the network as gone. */
-private class NetworkBinder(private val network: Network) : ProbeBinder {
+internal class NetworkBinder(private val network: Network) : ProbeBinder {
     override fun bind(socket: Socket) = network.bindSocket(socket)
     override fun bind(socket: DatagramSocket) = network.bindSocket(socket)
 }
@@ -193,8 +193,14 @@ class LanScanner(private val context: Context) {
      * means a host is there and it gets a record (within the host cap), marked [LanHostRecord.swept]. An accepted port is
      * open and recorded as such. Returns how many hosts it found.
      */
-    private suspend fun sweepAddresses(guard: BindGuard, prefixes: List<Pair<InetAddress, Int>>, table: ScanHosts): Int = coroutineScope {
+    private suspend fun sweepAddresses(guard: BindGuard, prefixes: List<Pair<InetAddress, Int>>, table: ScanHosts): Int {
         val found = AtomicInteger()
+        // Counted after [sweepEach] returns, which its scope does only once every probe has finished.
+        sweepEach(guard, prefixes, table, found)
+        return found.get()
+    }
+
+    private suspend fun sweepEach(guard: BindGuard, prefixes: List<Pair<InetAddress, Int>>, table: ScanHosts, found: AtomicInteger) = coroutineScope {
         val inFlight = Semaphore(LanSweep.CONCURRENCY)
         for (ip in LanSweep.targets(prefixes, table.hosts.keys)) {
             if (guard.lost) break
@@ -221,6 +227,7 @@ class LanScanner(private val context: Context) {
                             if (connected) rec.openPorts += port
                             if (!rec.swept) {
                                 rec.swept = true
+                                rec.sweepAnswer = LanSweep.answer(port, connected)
                                 found.incrementAndGet()
                             }
                             return@withPermit
@@ -230,25 +237,27 @@ class LanScanner(private val context: Context) {
             }
             yield()
         }
-        found.get()
     }
 
     /** Asks [resolver] (the gateway) for the name of each host in [hosts], a few at a time; returns how many it named. */
-    private suspend fun routerNames(guard: BindGuard, resolver: InetAddress, hosts: List<LanHostRecord>): Int = coroutineScope {
+    private suspend fun routerNames(guard: BindGuard, resolver: InetAddress, hosts: List<LanHostRecord>): Int {
         val named = AtomicInteger()
-        val limit = Semaphore(NAME_CONCURRENCY)
-        for (host in hosts) {
-            launch(Dispatchers.IO) {
-                limit.withPermit {
-                    if (guard.lost) return@withPermit
-                    ReverseDns.deviceName(ptr(guard, resolver, host.ip))?.let {
-                        host.routerName = it
-                        named.incrementAndGet()
+        // Counted after the scope: it returns only once every question has been answered or timed out.
+        coroutineScope {
+            val limit = Semaphore(NAME_CONCURRENCY)
+            for (host in hosts) {
+                launch(Dispatchers.IO) {
+                    limit.withPermit {
+                        if (guard.lost) return@withPermit
+                        ReverseDns.deviceName(ptr(guard, resolver, host.ip))?.let {
+                            host.routerName = it
+                            named.incrementAndGet()
+                        }
                     }
                 }
             }
         }
-        named.get()
+        return named.get()
     }
 
     /** One PTR query for [ip] to [resolver] on the confirmed network; null for no answer, no name or a lost network. */

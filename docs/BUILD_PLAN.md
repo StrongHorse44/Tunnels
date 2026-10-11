@@ -169,6 +169,11 @@ Device checks to make on the Pixel 10 (the Device checks screen walks through mo
 - Emissions (2026-10-10): every shell command and the UWB and tethering parsers are unconfirmed on the Pixel 10; the device
   checks are in `docs/EMISSIONS.md`. Deep mode's `SCAN_ALWAYS_ENABLED` overlaps `EMISSION_SCANNING_WHILE_OFF` when a radio is
   off; decide whether Deep mode keeps it once Emissions has been used for a while.
+- Home network Look closer (2026-10-11): verify on the Pixel 10 that an app's ICMP ping socket bound to the Wi-Fi works
+  on GrapheneOS and that `Os.recvmsg` reports the reply's TTL (the system hint is "no answer" otherwise), that the TLS
+  read gets the certificate from a camera or NAS with a self-signed one, and which devices at home answer the NetBIOS and
+  direct mDNS questions. PR 2 (presence counts, naming, Mine, Watch) and PR 3 (router port mappings, risky services)
+  follow.
 - Home network census (B08): devices that announce nothing on mDNS or SSDP (most phones) were invisible; the opt-in
   address sweep (2026-10-10, `core:lan` `LanSweep` and `ReverseDns`) now finds them on the confirmed network and asks the
   router (the gateway only) for their names. Verify on the Pixel 10: how long a sweep of the home /24 takes, how many

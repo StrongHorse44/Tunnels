@@ -20,6 +20,8 @@ class LanHostRecord(val ip: String) {
     @Volatile var swept: Boolean = false
     /** The name the router gave for this address ([ReverseDns.deviceName]); null when it gave none or was not asked. */
     @Volatile var routerName: String? = null
+    /** The port and answer that made the sweep find this host ([LanSweep.answer]): "80/refused", "62078/open". */
+    @Volatile var sweepAnswer: String? = null
     val upnp: Boolean get() = ssdpTypes.isNotEmpty() || ssdpLocations.isNotEmpty() || ssdpServer != null
 
     private val uuids = TreeSet<String>()

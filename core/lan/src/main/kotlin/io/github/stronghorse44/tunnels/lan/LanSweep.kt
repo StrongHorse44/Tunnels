@@ -66,6 +66,23 @@ object LanSweep {
         return if (text.contains("ECONNREFUSED") || text.contains("Connection refused", ignoreCase = true)) Answer.PRESENT else Answer.SILENT
     }
 
+    /** How the sweep records what found a host: the port and whether it was open or refused ("80/refused"). */
+    fun answer(port: Int, open: Boolean): String = "$port/${if (open) "open" else "refused"}"
+
+    /**
+     * [answer] in words: "Port 80 (Web page (HTTP)) refused a connection: a device is there, without that service." Null for
+     * anything that is not an answer.
+     */
+    fun describeAnswer(value: String?): String? {
+        val port = value?.substringBefore('/')?.toIntOrNull() ?: return null
+        val what = PortCatalog.byPort(port)?.service?.let { "$port, $it" } ?: "$port"
+        return when (value.substringAfter('/')) {
+            "open" -> "Found when port $what accepted a connection."
+            "refused" -> "Found when port $what refused a connection: a device is there, without that service."
+            else -> null
+        }
+    }
+
     private fun toLong(address: Inet4Address): Long = address.address.fold(0L) { acc, b -> (acc shl 8) or (b.toLong() and 0xFF) }
 
     private fun fromLong(n: Long): InetAddress =

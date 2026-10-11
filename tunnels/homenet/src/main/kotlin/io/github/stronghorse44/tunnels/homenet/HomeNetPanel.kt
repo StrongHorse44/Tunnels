@@ -1,6 +1,7 @@
 package io.github.stronghorse44.tunnels.homenet
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -82,6 +83,8 @@ fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: N
     val summary = remember(state.observations) { LanSummary.from(state.observations) }
     var censusNote by remember { mutableStateOf<String?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
+    // The device whose detail is open; its row is looked up again in each scan's list by address.
+    var detailIp by remember { mutableStateOf<String?>(null) }
     val tag = summary.networkTag
 
     // A scan started here has stored its snapshot: move the census pin to the newest Home-network-only one now. (A scan
@@ -156,8 +159,11 @@ fun HomeNetPanel(state: TunnelScreenState, actions: TunnelScreenActions, gate: N
                     onReset = { confirmReset = true },
                 )
             }
-            HostsCard(summary, onMine = { host -> actions.perform(mine(census, host)) })
+            HostsCard(summary, onMine = { host -> actions.perform(mine(census, host)) }, onOpen = { detailIp = it.ip })
         }
+    }
+    summary.hosts.firstOrNull { it.ip == detailIp }?.let { host ->
+        DeviceDetailDialog(host, state.module as? HomeNetworkTunnel, scanning = state.scan.running, onDismiss = { detailIp = null })
     }
     if (confirmReset && tag != null) {
         AlertDialog(
@@ -447,7 +453,7 @@ private fun CensusCard(summary: LanSummary, scanning: Boolean, note: String?, on
 }
 
 @Composable
-private fun HostsCard(summary: LanSummary, onMine: (LanHost) -> Unit) {
+private fun HostsCard(summary: LanSummary, onMine: (LanHost) -> Unit, onOpen: (LanHost) -> Unit) {
     GlassPanel(Modifier.fillMaxWidth(), tint = line) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Devices", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -466,18 +472,22 @@ private fun HostsCard(summary: LanSummary, onMine: (LanHost) -> Unit) {
                 Text("Nothing answered. Devices that sleep or hide from discovery will not show up.", style = MaterialTheme.typography.bodyMedium)
                 return@Column
             }
+            Text("Tap a device for its detail and Look closer.", style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)
             summary.hostsByKind().forEach { (kind, hosts) ->
                 Spacer(Modifier.height(2.dp))
                 Text("${kind.title} · ${hosts.size}", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = GlassColors.dim)
-                hosts.forEach { HostRow(it, onMine) }
+                hosts.forEach { HostRow(it, onMine, onOpen) }
             }
         }
     }
 }
 
 @Composable
-private fun HostRow(host: LanHost, onMine: (LanHost) -> Unit) {
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color.White.copy(alpha = 0.04f)).padding(horizontal = 10.dp, vertical = 8.dp)) {
+private fun HostRow(host: LanHost, onMine: (LanHost) -> Unit, onOpen: (LanHost) -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color.White.copy(alpha = 0.04f)).clickable { onOpen(host) }
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(host.title, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
             if (host.riskyPorts.isNotEmpty()) {
@@ -493,6 +503,7 @@ private fun HostRow(host: LanHost, onMine: (LanHost) -> Unit) {
             if (host.services.isNotEmpty()) add(host.services.take(6).joinToString(" "))
             if (host.upnp) add("upnp")
             if (host.swept) add("found by sweep")
+            host.closer?.let { add("looked closer") }
         }
         if (details.isNotEmpty()) {
             Text(details.joinToString(" · "), fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = GlassColors.dim)
