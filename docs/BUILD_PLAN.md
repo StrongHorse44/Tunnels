@@ -177,6 +177,8 @@ Device checks to make on the Pixel 10 (the Device checks screen walks through mo
   risky doors from Look closer) is built; verify on the phone that the router answers GetGenericPortMappingEntry (some
   routers refuse it to other devices: the card then says the router did not list them) and that Close it removes an
   opening a test app made (for example a game console's), and how soon the device asks for it again.
+- Apple discovery (2026-10-11): verify on the phone that an awake iPhone, iPad and Mac show up and are named through
+  `_companion-link._tcp`, whether an Apple Watch on Wi-Fi announces it too, and that discovery still ends within its 34 s.
 - Home network census (B08): devices that announce nothing on mDNS or SSDP (most phones) were invisible; the opt-in
   address sweep (2026-10-10, `core:lan` `LanSweep` and `ReverseDns`) now finds them on the confirmed network and asks the
   router (the gateway only) for their names. Verify on the Pixel 10: how long a sweep of the home /24 takes, how many
