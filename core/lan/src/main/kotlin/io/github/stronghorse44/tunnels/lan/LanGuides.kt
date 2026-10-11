@@ -54,6 +54,17 @@ object LanGuides {
             "tells you what it was.",
     )
 
+    /** The guess Look closer makes for a quiet device ([LookCloser.Findings.quiet]). */
+    const val QUIET_GUESS = "a quiet device: a phone, tablet, e-reader, game console or cloud-only gadget"
+
+    /** Why, said under the guess. */
+    const val QUIET_WHY =
+        "It refused every door, runs no service, gave no name and announces nothing, and its ping is Unix-like. Android " +
+            "phones and tablets answer this way, and so do e-readers, game consoles, VR headsets and gadgets that only talk " +
+            "to their maker's cloud (video doorbells, robot vacuums, thermostats). Your router's device list can tell: a " +
+            "hardware address whose second character is 2, 6, A or E is a random one (a phone, tablet or watch), and it " +
+            "often shows the name the device gave when it joined."
+
     /** What "Look closer" keeps, said on the screen next to its button. */
     const val CLOSER_KEEPS =
         "Asks only this device, on this network. Tunnels keeps its kind, maker, open ports and names for 30 days; " +

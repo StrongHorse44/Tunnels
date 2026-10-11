@@ -181,7 +181,7 @@ internal fun DeviceDetailDialog(
 
                 host.closer?.takeIf { findings == null }?.let { kept ->
                     Section("Your last look, ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(kept.at))}")
-                    Line(listOfNotNull(kindWords(kept.kind), kept.vendor).joinToString(" · "))
+                    Line(if (kept.quiet) "Probably ${LanGuides.QUIET_GUESS} (a guess from how it answers)" else listOfNotNull(kindWords(kept.kind), kept.vendor).joinToString(" · "))
                     kept.says?.let { Line("It said: $it") }
                     if (kept.names.isNotEmpty()) Line("Names: ${kept.names.joinToString(", ")}")
                     kept.os?.let { Line("System: ${it.words}") }
@@ -236,7 +236,12 @@ internal fun DeviceDetailDialog(
 
 @Composable
 private fun FindingsView(f: LookCloser.Findings) {
-    Line("Probably: ${kindWords(f.kind)}" + (f.vendor?.let { ", made by $it" } ?: ""), bold = true)
+    if (f.quiet) {
+        Line("Probably ${LanGuides.QUIET_GUESS} (a guess)", bold = true)
+        Text(LanGuides.QUIET_WHY, style = MaterialTheme.typography.labelSmall, color = GlassColors.dim)
+    } else {
+        Line("Probably: ${kindWords(f.kind)}" + (f.vendor?.let { ", made by $it" } ?: ""), bold = true)
+    }
     PortClues.of(f.open).forEach { Line("It ${it.words}.") }
     val says = listOfNotNull(
         f.httpTitle?.let { "Web page: \"$it\"" },
@@ -260,7 +265,7 @@ private fun FindingsView(f: LookCloser.Findings) {
     Section("Names")
     if (names.isEmpty()) Line("It gave no name.") else names.forEach { Line(it) }
     Section("System")
-    Line(f.os?.let { "Its ping reply (TTL ${f.ttl}) is typical of $it.words." } ?: "It did not answer a ping, or Android did not report the reply's TTL.")
+    Line(f.os?.let { "Its ping reply (TTL ${f.ttl}) is typical of ${it.words}." } ?: "It did not answer a ping, or Android did not report the reply's TTL.")
     Section("Doors")
     if (f.open.isEmpty()) Line("None of the ${PortCatalog.closer.size} ports tried was open.") else f.open.forEach { p -> Line(portLine(p), warn = p in PortCatalog.risky) }
     if (f.refused.isNotEmpty()) Line("${f.refused.size} more refused: something is there, without those services.")

@@ -142,6 +142,30 @@ class LookCloserTest {
     }
 
     @Test
+    fun aDeviceThatRefusesEveryDoorQuietlyIsAQuietDeviceOfNoKind() {
+        val all = PortCatalog.closer.map { it.port }
+        // 192.168.1.183 as RJ saw it (2026-10-11): every door refused, no name, TTL 64, nothing announced.
+        val quiet = LookCloser.Findings(refused = all, ttl = 64)
+        assertTrue(quiet.quiet)
+        // A guess on the screen only: the list keeps it under "Not identified".
+        assertEquals(HostKind.UNKNOWN, quiet.kind)
+        val kept = quiet.summary(1_000L)
+        assertTrue(kept.quiet)
+        assertEquals(kept, LookCloser.Summary.parse(kept.encode()))
+        assertFalse(LookCloser.Summary.parse("at=1;kind=unknown;ports=none")!!.quiet)
+        // A few doors lost to timeouts still count; most lost does not.
+        assertTrue(LookCloser.Findings(refused = all.drop(4), ttl = 64).quiet)
+        assertFalse(LookCloser.Findings(refused = all.take(20), ttl = 64).quiet)
+        // Windows pings with 128; a name, an announcement, an open door or no ping at all rule it out.
+        assertFalse(LookCloser.Findings(refused = all, ttl = 128).quiet)
+        assertFalse(LookCloser.Findings(refused = all, ttl = 64, mdnsName = "kitchen-hub").quiet)
+        assertFalse(LookCloser.Findings(refused = all, ttl = 64, known = listOf("_googlecast._tcp")).quiet)
+        assertFalse(LookCloser.Findings(open = listOf(80), refused = all - 80, ttl = 64).quiet)
+        assertFalse(LookCloser.Findings(refused = all).quiet)
+        assertTrue(LanGuides.QUIET_WHY.contains("e-readers") && LanGuides.QUIET_GUESS.contains("phone"))
+    }
+
+    @Test
     fun theScreenUsesALookToPlaceAndNameAnUnknownDevice() {
         val kept = LookCloser.Summary(1L, HostKind.CAMERA, "Hikvision", "Web Viewer", listOf(80, 554), listOf("garage-cam"), OsHint.UNIX_LIKE)
         fun o(subject: String, key: String, value: String) = Observation(LanKeys.TUNNEL_ID, subject, key, value)
