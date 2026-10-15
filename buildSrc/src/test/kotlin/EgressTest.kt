@@ -2,6 +2,7 @@ import egressfixtures.CallsShell
 import egressfixtures.ConnectsLocalSocket
 import egressfixtures.ExecsThroughOs
 import egressfixtures.JavaSocketRef
+import egressfixtures.LooksUpByReference
 import egressfixtures.NamesAProperty
 import egressfixtures.PingsThroughOs
 import egressfixtures.ReadsOsErrors
@@ -238,10 +239,11 @@ class EgressTest {
     fun localSocketsAndMediaFromAUrlAreCaught() {
         val local = scan(ConnectsLocalSocket::class.java)
         assertEquals(setOf("android/net/LocalSocket", "android/net/LocalSocketAddress"), local.map { it.type }.toSet())
-        val media = scan(StreamsMedia::class.java).single()
-        assertEquals("android/media/MediaPlayer", media.type)
-        assertEquals("setDataSource", media.memberName)
-        assertTrue(media.location.startsWith("method go"))
+        val media = scan(StreamsMedia::class.java)
+        assertEquals(setOf("setDataSource", "create"), media.map { it.memberName }.toSet())
+        assertTrue(media.all { it.type == "android/media/MediaPlayer" && it.rule.category == Egress.Category.NETWORK })
+        assertTrue(media.single { it.memberName == "setDataSource" }.location.startsWith("method go"))
+        assertTrue(media.single { it.memberName == "create" }.location.startsWith("method open"))
         assertTrue(Egress.typeRuleFor("android/net/rtp/AudioStream") != null)
         assertTrue(Egress.memberRuleFor("android/widget/VideoView", "setVideoURI") != null)
     }
@@ -250,9 +252,15 @@ class EgressTest {
     fun methodReferencesNamedOnlyByABootstrapAreCaughtAtTheirMethod() {
         val java = scan(JavaSocketRef::class.java)
         assertTrue(java.toString(), java.any { it.type == "java/net/Socket" && it.location == "method sockets()Ljava/util/function/Supplier;" })
-        // Kotlin compiles this one to a small class of its own; the lookup sits in its apply().
-        val kotlin = scan(Class.forName("egressfixtures.LooksUpByReference\$resolver\$1"))
-        assertTrue(kotlin.toString(), kotlin.any { it.type == "java/net/InetAddress" && it.memberName == "getByName" })
+        // Depending on the Kotlin version this is an invokedynamic in resolver() or a small class of its own
+        // (LooksUpByReference${'$'}resolver${'$'}1, the lookup in its apply()): scan the class and whatever nested classes exist.
+        val outer = File(LooksUpByReference::class.java.getResource("LooksUpByReference.class")!!.toURI())
+        val classes = outer.parentFile.listFiles { f -> f.name == "LooksUpByReference.class" || f.name.startsWith("LooksUpByReference${'$'}") }!!
+        val kotlin = classes.flatMap { Egress.scan(it.readBytes()) }
+        assertTrue(kotlin.toString(), kotlin.any {
+            it.type == "java/net/InetAddress" && it.memberName == "getByName" && it.location.startsWith("method ") &&
+                it.inClass.startsWith("egressfixtures/LooksUpByReference")
+        })
     }
 
     /** A class file whose only mention of java/net/Socket is an unused CONSTANT_Class: only the pool sweep sees it. */
@@ -294,5 +302,7 @@ class EgressTest {
         assertEquals(listOf("core/nope"), Egress.unknownModuleGrants(allow, setOf("core/lan", "tunnels/convert")).map { it.module })
         refusedLine("core/lan @network", "type by type")
         refusedLine("core/emissions @shell", "type by type")
+        refusedLine("app @shell", "type by type")
+        refusedLine("app @network", "may not be granted network APIs")
     }
 }

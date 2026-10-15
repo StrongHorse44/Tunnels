@@ -88,6 +88,7 @@ object Egress {
             setOf("android/media/MediaPlayer", "android/media/MediaExtractor", "android/media/MediaMetadataRetriever", "android/widget/VideoView"),
             setOf("setDataSource", "setVideoURI", "setVideoPath"),
         ),
+        Rule.Member(Category.NETWORK, "media fetched from a URL in-process", setOf("android/media/MediaPlayer"), setOf("create")),
         Rule.Type(Category.NETWORK, "DownloadManager", classOrNested("android/app/DownloadManager")),
         Rule.Type(Category.NETWORK, "WebView", under("android/webkit/WebView")),
         Rule.Type(
@@ -207,7 +208,9 @@ object Egress {
                     if (category == Category.NETWORK && !module.startsWith("core/") && module !in Permissions.internetAllowedIn) {
                         fail("$module may not be granted network APIs; only ${Permissions.internetAllowedIn.sorted()} and core modules may")
                     }
-                    if (module.startsWith("core/") && pattern.startsWith("@")) fail("core modules are granted type by type, not $pattern")
+                    if ((module.startsWith("core/") || module == "app") && pattern.startsWith("@")) {
+                        fail("$module is granted type by type, not $pattern (category grants are for tunnel modules only)")
+                    }
                     Grant(module, pattern, i + 1, category)
                 }
                 return Allowlist(grants)

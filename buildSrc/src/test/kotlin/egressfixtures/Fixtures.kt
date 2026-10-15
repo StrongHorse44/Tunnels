@@ -87,9 +87,13 @@ class ConnectsLocalSocket {
 class StreamsMedia {
     fun go(player: android.media.MediaPlayer) = player.setDataSource("https://example.org/a.mp3")
     fun quiet(player: android.media.MediaPlayer) = player.setVolume(0f, 0f)
+    fun open(): Any? = android.media.MediaPlayer.create(Any(), "https://example.org/a.mp3")
 }
 
-/** A function reference made into a Java Function (Kotlin compiles it to a class of its own, not to a bootstrap). */
+/**
+ * A function reference made into a Java Function. Kotlin 2.0 (kotlin-dsl's) compiles it to a class of its own;
+ * newer Kotlin may compile it to an invokedynamic whose bootstrap names InetAddress.getByName.
+ */
 class LooksUpByReference {
     fun resolver(): java.util.function.Function<String, java.net.InetAddress> = java.util.function.Function(java.net.InetAddress::getByName)
 }
