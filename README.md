@@ -8,6 +8,10 @@ one lit ring per stratum with each tunnel a bead on its ring; the app grows dark
 `permissions.allow`, and `android.permission.INTERNET` is allowed in exactly four modules (Traffic, Home
 network, the updater and the breach list fetch for Linx), used only during sessions or taps you start. The built APK is audited again with `aapt2`.
 
+## Security status
+
+Tunnels is built by its owner for his own phone and published so others can read the code. It has written hard rules and a design spec ([CLAUDE.md](CLAUDE.md), [docs/HANDOFF.md](docs/HANDOFF.md)) but no separate threat-model document. Permissions are enforced per module and checked in CI, there are JVM and device tests, and every pull request gets an independent review before it merges. It has **not** had a third-party security audit. Treat it as use-at-your-own-risk software: it inspects your phone and your own network and stores summaries in an encrypted database, and it is not a password manager or a vault. Read the code before trusting a finding, and report problems through issues.
+
 ## Tunnels
 
 | Line | Tunnel | What it does |
