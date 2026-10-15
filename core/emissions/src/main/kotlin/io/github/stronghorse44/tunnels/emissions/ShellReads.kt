@@ -2,7 +2,7 @@ package io.github.stronghorse44.tunnels.emissions
 
 /**
  * The states only the shell can read, and parsers for what it prints. The UWB and tethering parsers are unconfirmed:
- * the formats come from AOSP and have not been seen on RJ's phone, so their readings are shown but raise no finding
+ * the formats come from AOSP and have not been seen on the owner's phone, so their readings are shown but raise no finding
  * until [UWB_CONFIRMED] or [TETHERING_CONFIRMED] is flipped after a device check.
  */
 object ShellReads {

@@ -9,11 +9,11 @@ enum class PostureTable(val id: String, val label: String) {
 
 /**
  * One GrapheneOS setting Tunnels judges. [confirmed] is the per-item flag: true only once the key name has been seen on
- * RJ's phone. An unconfirmed item is read and shown, but its state is unknown and it never raises a finding.
+ * the owner's phone. An unconfirmed item is read and shown, but its state is unknown and it never raises a finding.
  * To confirm an item flip its flag, add its line to `rjsOutputOf20261005ReadsTheConfirmedKeys`, and copy its Settings
  * path into [path] (the evidence ends with it).
  *
- * [kind] is null for items with no finding (display only, or panel only). Confirmed on RJ's phone 2026-10-05 (step 0): every
+ * [kind] is null for items with no finding (display only, or panel only). Confirmed on the owner's phone 2026-10-05 (step 0): every
  * item except [USB_PORT] (no readable property on this build; its read stays here behind `confirmed = false` for a later
  * build) and the three auto-off timers (no key changed, the timers were not found in Settings). [extraKey] is a second key of the same table
  * that the item also reads (the VPN lockdown's exempt list).

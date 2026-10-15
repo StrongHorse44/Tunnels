@@ -86,7 +86,7 @@ fresh scan per window (NEARBY_WIFI_DEVICES and the location switch) and whether 
 Bluetooth: devices heard in an unfiltered scan (BLUETOOTH_SCAN; the screen stays on, or Android pauses the scan). The two
 permissions are asked for when the test starts; without them those parts are "not tested". Nothing is stored.
 
-## Device checks (on RJ's phone)
+## Device checks (on a test phone)
 
 1. Silence with Shizuku: each row in the Off column turns its transmitter off, and the state read back agrees. Note which
    first command failed and fell through; flip `ShellStep.confirmed` for the ones that work.

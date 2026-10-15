@@ -102,7 +102,7 @@ tests; Maven Central rate-limits (HTTP 429) are transient, retry.
 ## Status (2026-10-01)
 
 All phases are implemented and merged on the integration branch; every module has unit tests and an
-instrumented smoke test that ran on an API 36 emulator. Nothing has been verified on the Pixel 10 yet:
+instrumented smoke test that ran on an API 36 emulator. Nothing has been verified on the GrapheneOS test phone yet:
 each module's report lists the device checks that matter, collected in the pull request description.
 
 ## Status (2026-10-02): hardening build-out
@@ -115,7 +115,7 @@ typechecked against Robolectric's android-all and JetBrains' desktop Compose wit
 AndroidX APIs; Room's KSP step, AGP and resources were not exercised. First CI run to watch: the 2 to 3 store
 migration (`StoreMigrationTest`) and the new modules' instrumented tests in `ci.yml`'s smoke job.
 
-Device checks to make on the Pixel 10 (the Device checks screen walks through most of them):
+Device checks to make on the GrapheneOS test phone (the Device checks screen walks through most of them):
 - The Network and Sensors toggle checks pass (turn one app's toggle off first).
 - A background check runs on schedule with the phone idle; Device checks reports the last one. If GrapheneOS defers
   it, battery use Unrestricted should fix it.
@@ -145,12 +145,12 @@ Device checks to make on the Pixel 10 (the Device checks screen walks through mo
   events only); decide after a few weeks of manual scans show how often the notice appears. Verify on device which
   screen `ACTION_NETWORK_OPERATOR_SETTINGS` opens on GrapheneOS (expected: "Preferred network type", "Allow 2G"), and
   that `allCellInfo` with fine location returns the registered cell's tracking area, cell id, PCI and channel.
-- Surroundings Bluetooth over time (2026-10-11): verify on the Pixel 10 that `BluetoothDevice.getAddressType` reports public and
+- Surroundings Bluetooth over time (2026-10-11): verify on the GrapheneOS test phone that `BluetoothDevice.getAddressType` reports public and
   random addresses to an app with only Bluetooth scan (Android 14 falls back to the address's top bits), how many fixed-address
   devices a scan at home and in town logs, that the monitor's screen-on passes log and its screen-off passes stay trackers-only,
   and that find-it's device mode keeps up (each new address is hashed once in the keystore). Hint catalog: names and the GoPro
   company id only; confirm on devices before adding camera apps' setup-network prefixes or Wi-Fi vendor prefixes.
-- Surroundings Wi-Fi over time (2026-10-10): verify on the Pixel 10 that the monitor's scan, asked for before its Bluetooth
+- Surroundings Wi-Fi over time (2026-10-10): verify on the GrapheneOS test phone that the monitor's scan, asked for before its Bluetooth
   window, comes back fresh (results heard within 3 minutes count; older cached ones are left out), how many access points a
   day at home adds, and that a real move (home to shop) is told from a wandering fix at home. The monitor records Wi-Fi rows
   but only a manual scan judges them; decide whether its notification should count Wi-Fi access points that travelled too.
@@ -166,10 +166,10 @@ Device checks to make on the Pixel 10 (the Device checks screen walks through mo
 - Timeline: scans without usage access clear non-sticky data findings; consider holding them.
 - Runtime: a shared "is system app" helper for the PackageManager tunnels; a hard cap on the generic
   observations list for tunnels with hundreds of subjects.
-- Emissions (2026-10-10): every shell command and the UWB and tethering parsers are unconfirmed on the Pixel 10; the device
+- Emissions (2026-10-10): every shell command and the UWB and tethering parsers are unconfirmed on the GrapheneOS test phone; the device
   checks are in `docs/EMISSIONS.md`. Deep mode's `SCAN_ALWAYS_ENABLED` overlaps `EMISSION_SCANNING_WHILE_OFF` when a radio is
   off; decide whether Deep mode keeps it once Emissions has been used for a while.
-- Home network Look closer (2026-10-11): verify on the Pixel 10 that an app's ICMP ping socket bound to the Wi-Fi works
+- Home network Look closer (2026-10-11): verify on the GrapheneOS test phone that an app's ICMP ping socket bound to the Wi-Fi works
   on GrapheneOS and that `Os.recvmsg` reports the reply's TTL (the system hint is "no answer" otherwise), that the TLS
   read gets the certificate from a camera or NAS with a self-signed one, and which devices at home answer the NetBIOS and
   direct mDNS questions. PR 2, device notes (presence counts, naming, Mine, Watch), is built; verify on the phone that a
@@ -181,7 +181,7 @@ Device checks to make on the Pixel 10 (the Device checks screen walks through mo
   `_companion-link._tcp`, whether an Apple Watch on Wi-Fi announces it too, and that discovery still ends within its 34 s.
 - Home network census (B08): devices that announce nothing on mDNS or SSDP (most phones) were invisible; the opt-in
   address sweep (2026-10-10, `core:lan` `LanSweep` and `ReverseDns`) now finds them on the confirmed network and asks the
-  router (the gateway only) for their names. Verify on the Pixel 10: how long a sweep of the home /24 takes, how many
+  router (the gateway only) for their names. Verify on the GrapheneOS test phone: how long a sweep of the home /24 takes, how many
   phones answer while asleep, and which names the router gives (some routers answer PTR queries for DHCP clients, some do not). `ACCESS_LOCAL_NETWORK` is needed only when targetSdk moves to 37: that build must name the permission, ask for
   it when Home network opens with a one-line reason, and is a gate change. The census pins only Home-network-only
   snapshots (one per network, moved to the newest, which also moves or removes the pin on such a snapshot of that network that was pinned by hand), so a list that only mixed snapshots carry is not kept past retention.

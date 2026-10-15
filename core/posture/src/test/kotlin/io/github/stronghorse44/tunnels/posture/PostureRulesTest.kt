@@ -60,8 +60,8 @@ class PostureRulesTest {
     }
 
     @Test
-    fun twelveHoursIsGood() {
-        assertEquals(emptyList<FindingDraft>(), drafts(scan(global = "settings_reboot_after_timeout=43200000")).filter { it.kind == "POSTURE_AUTO_REBOOT" })
+    fun eightHoursIsGood() {
+        assertEquals(emptyList<FindingDraft>(), drafts(scan(global = "settings_reboot_after_timeout=28800000")).filter { it.kind == "POSTURE_AUTO_REBOOT" })
         assertTrue(drafts(scan(global = "settings_reboot_after_timeout=64800000")).none { it.kind == "POSTURE_AUTO_REBOOT" })
     }
 
@@ -206,7 +206,7 @@ class PostureRulesTest {
     @Test
     fun shippedConfirmationFlags() {
         val flags = PostureKeys.ITEMS.associate { it.id to it.confirmed }
-        // RJ's step 0 (2026-10-05): everything but the USB-C port (no readable property) and the three timers (no key appeared).
+        // What a test phone confirmed at step 0 (2026-10-05): everything but the USB-C port (no readable property) and the three timers (no key appeared).
         assertEquals(
             setOf(
                 PostureKeys.AUTO_REBOOT, PostureKeys.VPN_ALWAYS_ON, PostureKeys.VPN_LOCKDOWN, PostureKeys.PIN_SCRAMBLE_2,
@@ -260,7 +260,7 @@ class PostureRulesTest {
 
     @Test
     fun observationsRoundTrip() {
-        val g = PostureParser.table("settings_reboot_after_timeout=43200000\nprivate_dns_mode=hostname\nwifi_off_timeout=bad", PostureKeys.keys(PostureTable.GLOBAL))
+        val g = PostureParser.table("settings_reboot_after_timeout=28800000\nprivate_dns_mode=hostname\nwifi_off_timeout=bad", PostureKeys.keys(PostureTable.GLOBAL))
         val s = PostureParser.table(
             "always_on_vpn_app=org.vpn.client\nalways_on_vpn_lockdown=1\nalways_on_vpn_lockdown_whitelist=a.b\nlockscreen_scramble_pin_layout_secondary=0",
             PostureKeys.keys(PostureTable.SECURE),

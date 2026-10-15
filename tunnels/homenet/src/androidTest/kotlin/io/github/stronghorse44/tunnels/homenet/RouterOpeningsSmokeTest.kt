@@ -20,9 +20,9 @@ class RouterOpeningsSmokeTest {
     fun closeAsksTwiceAndNeverSendsOnAnUnconfirmedNetwork() = runBlocking {
         assertTrue(NetworkGate(context).forgetAll())
         val openings = HomeNetworkTunnel(context).openings
-        val subject = "192.168.1.183 · TCP 8554 to the internet"
+        val subject = "192.168.1.250 · TCP 8554 to the internet"
         assertEquals(
-            "Tap Close it again within a minute to ask your router to stop forwarding TCP 8554 from the internet to 192.168.1.183.",
+            "Tap Close it again within a minute to ask your router to stop forwarding TCP 8554 from the internet to 192.168.1.250.",
             openings.closeFromFinding(subject),
         )
         assertEquals("This Wi-Fi is not confirmed as yours, so Tunnels sends nothing.", openings.closeFromFinding(subject))

@@ -41,9 +41,9 @@ class LookCloserSmokeTest {
         val now = System.currentTimeMillis()
         val kept = LookCloser.Summary(now, HostKind.CAMERA, "Hikvision", "Web Viewer", listOf(80, 554), listOf("garage-cam"), OsHint.UNIX_LIKE)
         val store = TunnelsStore.get(context)
-        store.recordEvent(LookCloser.LEDGER, LookCloser.EVENT, LookCloser.subject("smoke", "192.168.1.183"), kept.encode())
-        val row = store.events(LookCloser.LEDGER, 500).first().first { it.subject == LookCloser.subject("smoke", "192.168.1.183") }
+        store.recordEvent(LookCloser.LEDGER, LookCloser.EVENT, LookCloser.subject("smoke", "192.168.1.250"), kept.encode())
+        val row = store.events(LookCloser.LEDGER, 500).first().first { it.subject == LookCloser.subject("smoke", "192.168.1.250") }
         assertEquals(kept.copy(at = kept.at), LookCloser.Summary.parse(row.summary))
-        assertEquals("192.168.1.183", LookCloser.ipOf(row.subject, "smoke"))
+        assertEquals("192.168.1.250", LookCloser.ipOf(row.subject, "smoke"))
     }
 }

@@ -47,7 +47,7 @@ class ShellPlanTest {
         ShellPlan.allCommands.forEach { assertFalse(it, unsafe.containsMatchIn(it)) }
         Emitter.entries.forEach { e ->
             assertTrue(ShellPlan.off(e).commands.isNotEmpty())
-            // Not one of these has been run on RJ's phone yet: they stay flagged until a device check.
+            // Not one of these has been run on a test phone yet: they stay flagged until a device check.
             assertFalse(ShellPlan.off(e).confirmed)
         }
     }

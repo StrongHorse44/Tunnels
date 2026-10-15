@@ -7,15 +7,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PostureParserTest {
-    // RJ's phone, 2026-10-05 (facts/device.md): the confirmed lines among unrelated keys.
+    // The confirmed lines among unrelated keys (synthetic values).
     private val globalFixture = """
-        activity_manager_constants=max_cached_processes=32
+        activity_manager_constants=max_cached_processes=24
         airplane_mode_on=0
         always_finish_activities=0
         auto_time=1
-        bluetooth_on=1
-        settings_reboot_after_timeout=43200000
-        wifi_on=2
+        bluetooth_on=0
+        settings_reboot_after_timeout=28800000
+        wifi_on=1
         zen_mode=0
     """.trimIndent()
 
@@ -46,11 +46,11 @@ class PostureParserTest {
     private fun List<Reading>.of(id: String) = single { it.item.id == id }
 
     @Test
-    fun rjsOutputOf20261005ReadsTheConfirmedKeys() {
+    fun theConfirmedKeysAreRead() {
         val readings = read()
         val reboot = readings.of(PostureKeys.AUTO_REBOOT)
         assertEquals(PostureState.GOOD, reboot.state)
-        assertEquals("12 h", reboot.value)
+        assertEquals("8 h", reboot.value)
         val vpn = readings.of(PostureKeys.VPN_ALWAYS_ON)
         assertEquals("none", vpn.value)
         assertEquals(PostureState.NA, vpn.state)
@@ -85,11 +85,11 @@ class PostureParserTest {
     }
 
     @Test
-    fun rjsStep0OutputAfterFlippingEachToggleReadsTheNewlyConfirmedKeys() {
-        // The lines that appeared after RJ changed each setting once (2026-10-05), among keys that must match nothing.
-        val global = globalFixture + "\nallow_clipboard_read=0\nprivate_dns_mode=off\ntime_to_full_millis=0"
-        val secure = secureFixture + "\nauto_grant_OTHER_SENSORS_perm=0\nclipboard_show_access_notifications=0\n" +
-            "lock_screen_lock_after_timeout=15000\nlockscreen_scramble_pin_layout=1"
+    fun linesThatAppearAfterFlippingEachToggleReadTheNewlyConfirmedKeys() {
+        // The lines that appear after each setting is changed once, among keys that must match nothing.
+        val global = globalFixture + "\nallow_clipboard_read=0\nprivate_dns_mode=hostname\ntime_to_full_millis=0"
+        val secure = secureFixture.replace("always_on_vpn_app=null", "always_on_vpn_app=org.vpn.client") + "\nauto_grant_OTHER_SENSORS_perm=0\nclipboard_show_access_notifications=0\n" +
+            "lock_screen_lock_after_timeout=5000\nlockscreen_scramble_pin_layout=1"
         val readings = read(global = global, secure = secure)
         fun check(id: String, state: PostureState, value: String) {
             val r = readings.of(id)
@@ -97,12 +97,13 @@ class PostureParserTest {
             assertEquals(id, value, r.value)
             assertNull(id, r.why)
         }
-        check(PostureKeys.AUTO_REBOOT, PostureState.GOOD, "12 h")
+        check(PostureKeys.AUTO_REBOOT, PostureState.GOOD, "8 h")
         check(PostureKeys.CLIPBOARD_DEFAULT, PostureState.GOOD, "restricted")
-        check(PostureKeys.PRIVATE_DNS, PostureState.WEAK, "off")
+        check(PostureKeys.PRIVATE_DNS, PostureState.GOOD, "provider")
+        check(PostureKeys.VPN_ALWAYS_ON, PostureState.GOOD, "org.vpn.client")
         check(PostureKeys.SENSORS_DEFAULT, PostureState.GOOD, "off")
         check(PostureKeys.CLIPBOARD_NOTICES, PostureState.WEAK, "off")
-        check(PostureKeys.LOCK_DELAY, PostureState.GOOD, "15 s")
+        check(PostureKeys.LOCK_DELAY, PostureState.GOOD, "5 s")
         check(PostureKeys.PIN_SCRAMBLE, PostureState.GOOD, "on")
         // 1 is Allow: weak.
         assertEquals(PostureState.WEAK, read(global = "allow_clipboard_read=1").of(PostureKeys.CLIPBOARD_DEFAULT).state)
@@ -137,8 +138,8 @@ class PostureParserTest {
 
     @Test
     fun truncatedOrNonZeroExitIsUnreadable() {
-        assertEquals(TableRead.Failed("truncated"), PostureParser.table("settings_reboot_after_timeout=43200000\n[truncated]"))
-        assertEquals(TableRead.Failed("exit"), PostureParser.table("settings_reboot_after_timeout=43200000\n[exit 1]"))
+        assertEquals(TableRead.Failed("truncated"), PostureParser.table("settings_reboot_after_timeout=28800000\n[truncated]"))
+        assertEquals(TableRead.Failed("exit"), PostureParser.table("settings_reboot_after_timeout=28800000\n[exit 1]"))
         val readings = read(secure = "always_on_vpn_app=null\n[exit 255]")
         assertEquals(PostureWhy.UNREADABLE, readings.of(PostureKeys.VPN_ALWAYS_ON).why)
         assertEquals(PostureWhy.UNREADABLE, readings.of(PostureKeys.PIN_SCRAMBLE_2).why)
@@ -149,7 +150,7 @@ class PostureParserTest {
     @Test
     fun errorFirstLineIsUnreadable() {
         for (first in listOf("Error: no such table", "Exception occurred while executing", "java.lang.SecurityException: denied", "Unknown command")) {
-            assertEquals(first, TableRead.Failed("error"), PostureParser.table("$first\nsettings_reboot_after_timeout=43200000"))
+            assertEquals(first, TableRead.Failed("error"), PostureParser.table("$first\nsettings_reboot_after_timeout=28800000"))
         }
         assertEquals(TableRead.Failed("error"), PostureParser.table(null))
         assertEquals(TableRead.Failed("error"), PostureParser.table(""))
@@ -171,22 +172,22 @@ class PostureParserTest {
         // An indented line never overrides the real one.
         assertEquals(
             PostureState.GOOD,
-            read(global = "settings_reboot_after_timeout=43200000\n  settings_reboot_after_timeout=0").of(PostureKeys.AUTO_REBOOT).state,
+            read(global = "settings_reboot_after_timeout=28800000\n  settings_reboot_after_timeout=0").of(PostureKeys.AUTO_REBOOT).state,
         )
         // The documented limit: an unindented lookalike inside a multi-line value conflicts with the real line (malformed, safe).
-        val lookalike = read(global = "note=first\nsettings_reboot_after_timeout=0\nsettings_reboot_after_timeout=43200000").of(PostureKeys.AUTO_REBOOT)
+        val lookalike = read(global = "note=first\nsettings_reboot_after_timeout=0\nsettings_reboot_after_timeout=28800000").of(PostureKeys.AUTO_REBOOT)
         assertEquals(PostureState.UNKNOWN, lookalike.state)
         assertEquals(PostureWhy.MALFORMED, lookalike.why)
     }
 
     @Test
     fun conflictingDuplicateIsMalformed() {
-        val readings = read(global = "settings_reboot_after_timeout=43200000\nsettings_reboot_after_timeout=0")
+        val readings = read(global = "settings_reboot_after_timeout=28800000\nsettings_reboot_after_timeout=0")
         assertEquals(PostureWhy.MALFORMED, readings.of(PostureKeys.AUTO_REBOOT).why)
         assertEquals(PostureState.UNKNOWN, readings.of(PostureKeys.AUTO_REBOOT).state)
         assertNull(readings.of(PostureKeys.AUTO_REBOOT).value)
         // The same value twice is not a conflict.
-        val same = read(global = "settings_reboot_after_timeout=43200000\nsettings_reboot_after_timeout=43200000")
+        val same = read(global = "settings_reboot_after_timeout=28800000\nsettings_reboot_after_timeout=28800000")
         assertEquals(PostureState.GOOD, same.of(PostureKeys.AUTO_REBOOT).state)
     }
 
@@ -259,7 +260,7 @@ class PostureParserTest {
         val r = read(items = unconfirmed).of(PostureKeys.AUTO_REBOOT)
         assertEquals(PostureState.UNKNOWN, r.state)
         assertEquals(PostureWhy.UNCONFIRMED, r.why)
-        assertEquals("12 h", r.value)
+        assertEquals("8 h", r.value)
         // A missing key stays absent, not unconfirmed.
         assertEquals(PostureWhy.ABSENT, read(global = "wifi_on=2", items = unconfirmed).of(PostureKeys.AUTO_REBOOT).why)
     }
@@ -275,6 +276,8 @@ class PostureParserTest {
         assertEquals("15 min", reboot("900000").value)
         val allConfirmed = PostureKeys.ITEMS.map { it.copy(confirmed = true) }
         fun lock(ms: String) = read(secure = "lock_screen_lock_after_timeout=$ms", items = allConfirmed).of(PostureKeys.LOCK_DELAY)
+        assertEquals(PostureState.WEAK, read(global = "private_dns_mode=off").of(PostureKeys.PRIVATE_DNS).state)
+        assertEquals("off", read(global = "private_dns_mode=off").of(PostureKeys.PRIVATE_DNS).value)
         assertEquals(PostureState.GOOD, lock("5000").state)
         assertEquals("5 s", lock("5000").value)
         assertEquals(PostureState.WEAK, lock("60000").state)

@@ -81,7 +81,7 @@ enum class ReadSource(val id: String) {
 }
 
 /**
- * One transmitter's state. [confirmed] is false while the way it was read has not been seen to work on RJ's phone
+ * One transmitter's state. [confirmed] is false while the way it was read has not been seen to work on the owner's phone
  * (a parser of shell output Tunnels has not checked there yet): such a reading is shown but never raises a finding.
  */
 data class EmitterReading(

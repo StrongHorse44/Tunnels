@@ -90,7 +90,7 @@ class PortMappingsTest {
     @Test
     fun eachOpeningIsAFindingRiskyOnesAreWarnings() {
         fun o(subject: String, key: String, value: String) = Observation(LanKeys.TUNNEL_ID, subject, key, value)
-        val cam = PortMapping("TCP", 8554, "192.168.1.183", 554, true, "", "IPCam")
+        val cam = PortMapping("TCP", 8554, "192.168.1.250", 554, true, "", "IPCam")
         val plex = PortMapping("TCP", 32400, "192.168.1.20", 32400, true, "", "Plex Media Server")
         val off = PortMapping("UDP", 9999, "192.168.1.20", 9999, false, "", null)
         val game = PortMapping("UDP", 3074, "192.168.1.40", 3074, true, "203.0.113.9", null)
@@ -98,27 +98,27 @@ class PortMappingsTest {
             o(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_GATE, LanKeys.GATE_CONFIRMED),
             o(LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_IP, "192.168.1.1"),
             o(LanKeys.SUBJECT_ROUTER, LanKeys.ROUTER_PORT_MAPPINGS, PortMappings.encode(listOf(cam, plex, off, game))),
-            o("192.168.1.183", LanKeys.HOST_KIND, HostKind.CAMERA.label),
-            o("192.168.1.183", LanKeys.HOST_LABEL, "Garage cam"),
+            o("192.168.1.250", LanKeys.HOST_KIND, HostKind.CAMERA.label),
+            o("192.168.1.250", LanKeys.HOST_LABEL, "Garage cam"),
             o("192.168.1.20", LanKeys.HOST_KIND, HostKind.NAS.label),
             o("192.168.1.20", LanKeys.HOST_NAME, "DiskStation"),
         )
         val drafts = LanRules.portOpened.evaluate(RuleContext(LanKeys.TUNNEL_ID, current, emptyList(), isFirstScan = false))
         assertEquals(
-            listOf("192.168.1.183 · TCP 8554 to the internet", "192.168.1.20 · TCP 32400 to the internet", "192.168.1.40 · UDP 3074 to the internet"),
+            listOf("192.168.1.250 · TCP 8554 to the internet", "192.168.1.20 · TCP 32400 to the internet", "192.168.1.40 · UDP 3074 to the internet"),
             drafts.map { it.subject },
         )
         assertEquals(listOf(Severity.WARN, Severity.NOTICE, Severity.NOTICE), drafts.map { it.severity })
         assertEquals(
-            "Garage cam (192.168.1.183) asked your router to open TCP 8554 → its port 554 to the internet for \"IPCam\" (UPnP). " +
+            "Garage cam (192.168.1.250) asked your router to open TCP 8554 → its port 554 to the internet for \"IPCam\" (UPnP). " +
                 "Anyone on the internet can reach its Video stream (RTSP): Live video, often from a camera.",
             drafts[0].evidence,
         )
         assertTrue(drafts[2].evidence.startsWith("The device at 192.168.1.40 asked your router to open UDP 3074 to the internet (UPnP)."))
         assertTrue(drafts[2].evidence.endsWith("The router limits it to the internet address 203.0.113.9."))
         assertTrue(drafts.none { it.sticky })
-        assertEquals(Triple("192.168.1.183", "TCP", 8554), PortMappings.parseSubject(drafts[0].subject))
-        assertNull(PortMappings.parseSubject("192.168.1.183"))
+        assertEquals(Triple("192.168.1.250", "TCP", 8554), PortMappings.parseSubject(drafts[0].subject))
+        assertNull(PortMappings.parseSubject("192.168.1.250"))
         assertTrue(LanGuides.wantsRouterAdmin(LanRules.PORT_OPENED))
         assertTrue(LanGuides.fix(LanRules.PORT_OPENED).contains("turn UPnP off"))
 
