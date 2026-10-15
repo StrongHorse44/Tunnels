@@ -87,6 +87,27 @@ object StoreKey {
         if (passphrase.size != PASSPHRASE_LENGTH) return Outcome.Unavailable("passphrase of ${passphrase.size} bytes")
         return Outcome.Opened(passphrase)
     }
+
+    /**
+     * The reset, in the only safe order: [loadKeystore] first, so a Keystore that cannot be loaded changes nothing on
+     * disk (the store stays fail-closed, nothing set aside, the wrapped file kept); then [setAside] the old store, then
+     * [deleteWrapped] the old wrapped file (before the key changes: a crash part-way leaves "file absent", a definite
+     * loss, never a file sealed under another key), then [deleteEntry] (a missing entry is no error), then [create] the
+     * new key and wrapped passphrase. Any throw propagates; the caller maps it to fail-closed.
+     */
+    fun <K> reset(
+        loadKeystore: () -> K,
+        setAside: () -> Unit,
+        deleteWrapped: () -> Unit,
+        deleteEntry: (K) -> Unit,
+        create: (K) -> ByteArray,
+    ): ByteArray {
+        val keystore = loadKeystore()
+        setAside()
+        deleteWrapped()
+        runCatching { deleteEntry(keystore) }
+        return create(keystore)
+    }
 }
 
 /**

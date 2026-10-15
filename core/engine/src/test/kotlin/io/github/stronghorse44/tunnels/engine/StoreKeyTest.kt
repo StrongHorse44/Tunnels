@@ -6,6 +6,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -189,5 +190,36 @@ class StoreKeyTest {
         assertEquals(null, StoreFailures.parse("junk"))
         assertEquals(null, StoreFailures.parse(null))
         assertEquals(null, StoreFailures.parse("1;0"))
+    }
+
+    @Test
+    fun aKeystoreThatCannotLoadLeavesEverythingOnDiskAsItWas() {
+        val steps = ArrayList<String>()
+        try {
+            StoreKey.reset<Unit>(
+                loadKeystore = { throw KeyStoreException("keystore2 down") },
+                setAside = { steps += "setAside" },
+                deleteWrapped = { steps += "deleteWrapped" },
+                deleteEntry = { steps += "deleteEntry" },
+                create = { steps += "create"; passphrase },
+            )
+            fail("expected the load failure to propagate")
+        } catch (_: KeyStoreException) {
+        }
+        assertEquals(emptyList<String>(), steps)
+    }
+
+    @Test
+    fun resetRunsLoadThenSetAsideThenWrappedFileThenEntryThenNewKey() {
+        val steps = ArrayList<String>()
+        val out = StoreKey.reset(
+            loadKeystore = { steps += "load"; "ks" },
+            setAside = { steps += "setAside" },
+            deleteWrapped = { steps += "deleteWrapped" },
+            deleteEntry = { steps += "deleteEntry"; throw KeyStoreException("no such entry") },
+            create = { steps += "create"; passphrase },
+        )
+        assertArrayEquals(passphrase, out)
+        assertEquals(listOf("load", "setAside", "deleteWrapped", "deleteEntry", "create"), steps)
     }
 }

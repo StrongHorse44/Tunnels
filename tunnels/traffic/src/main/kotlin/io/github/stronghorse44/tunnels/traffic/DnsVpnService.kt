@@ -83,6 +83,9 @@ class DnsVpnService : VpnService() {
     private var serial = 0
     /** Since when the network has had no resolver during this session, or null ([Resolvers.Grace]). */
     @Volatile private var noResolver: Resolvers.Grace.Episode? = null
+    /** The default network's DNS settings at its last link-properties change, and which network that was. */
+    @Volatile private var lastDns: String? = null
+    @Volatile private var lastDnsNetwork: Long = 0L
     private val subjects = ConcurrentHashMap<Int, String>()
     private var lastShown: SessionTotals? = null
 
@@ -113,6 +116,7 @@ class DnsVpnService : VpnService() {
         // The foreground notification must be up quickly after startForegroundService().
         startForeground(NOTIFICATION_ID, notification(SessionTotals()), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         noResolver = null
+        lastDns = null
         scope.launch {
             // The user's blocking choices, read before the tunnel opens so the first lookup already follows them.
             withContext(Dispatchers.IO) { runCatching { TunnelsStore.get(this@DnsVpnService).setting(BlockPolicy.KEY) }.getOrNull() }
@@ -258,8 +262,8 @@ class DnsVpnService : VpnService() {
      */
     private fun followDefaultNetwork(cm: ConnectivityManager) {
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) = adopt(cm, network, linkChange = false)
-            override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) = adopt(cm, network, linkChange = true)
+            override fun onAvailable(network: Network) = adopt(cm, network, linkProperties = null)
+            override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) = adopt(cm, network, linkProperties)
             override fun onLost(network: Network) {
                 // Nothing to forward to until a network comes back; apps cannot resolve without one either.
                 _state.update { it.copy(resolver = null) }
@@ -274,16 +278,24 @@ class DnsVpnService : VpnService() {
     }
 
     /** Runs on the connectivity thread: only volatile and atomic state is touched. */
-    private fun adopt(cm: ConnectivityManager, network: Network, linkChange: Boolean) {
+    private fun adopt(cm: ConnectivityManager, network: Network, linkProperties: LinkProperties?) {
         val fwd = forwarder ?: return
         val physical = if (VpnStatus.isVpn(cm, network)) VpnStatus.underlyingNetwork(cm) else network
         val resolvers = VpnStatus.resolversOf(cm, physical)
         if (resolvers != fwd.resolvers) fwd.resolvers = resolvers
         // No resolver (audit L3, review Q2): the forwarder drops plain lookups, nothing is sent anywhere, and the
-        // session ends unless one appears within 15 s or by the next link-properties change.
+        // session ends unless one appears within 15 s, or early at the next change of this same network's DNS settings
+        // that still names none. The callback is the default network's only; an address or route change does not count.
         val now = SystemClock.elapsedRealtime()
+        val handle = physical?.networkHandle ?: network.networkHandle
+        val dns = linkProperties?.takeIf { physical == network }?.let(::dnsSettings)
+        val dnsChange = dns != null && handle == lastDnsNetwork && dns != lastDns
+        if (dns != null) {
+            lastDns = dns
+            lastDnsNetwork = handle
+        }
         val before = noResolver
-        val episode = Resolvers.Grace.update(before, resolvers.isEmpty(), linkChange, now)
+        val episode = Resolvers.Grace.update(before, resolvers.isEmpty(), handle, dnsChange, now)
         noResolver = episode
         if (episode == null) {
             _state.update { it.copy(resolver = resolverLabel(resolvers)) }
@@ -292,14 +304,23 @@ class DnsVpnService : VpnService() {
         _state.update { it.copy(resolver = null) }
         if (Resolvers.Grace.shouldEnd(episode, now)) {
             scope.launch { stopSession(NO_RESOLVER_ENDED) }
-        } else if (before == null) {
+        } else if (before == null || before.network != episode.network) {
             val session = serial
             scope.launch {
                 delay(Resolvers.Grace.GRACE_MS)
-                if (serial == session && Resolvers.Grace.shouldEnd(noResolver, SystemClock.elapsedRealtime())) stopSession(NO_RESOLVER_ENDED)
+                val current = noResolver
+                if (serial == session && current?.since == episode.since && current.network == episode.network &&
+                    Resolvers.Grace.shouldEnd(current, SystemClock.elapsedRealtime())
+                ) {
+                    stopSession(NO_RESOLVER_ENDED)
+                }
             }
         }
     }
+
+    /** What of a network's link properties is about DNS: an address or route change leaves it the same. */
+    private fun dnsSettings(lp: LinkProperties): String =
+        listOf(lp.interfaceName, lp.dnsServers.joinToString(), lp.privateDnsServerName, lp.isPrivateDnsActive, lp.domains).joinToString("|")
 
     /** The encrypted provider when one is chosen, otherwise the network resolver's address. */
     private fun resolverLabel(resolvers: List<InetAddress>): String =

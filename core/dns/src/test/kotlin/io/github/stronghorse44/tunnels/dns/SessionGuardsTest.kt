@@ -71,26 +71,38 @@ class SessionGuardsTest {
 
     @Test
     fun noResolverGraceEndsAfterFifteenSeconds() {
-        var e = Resolvers.Grace.update(null, empty = true, linkChange = false, now = 1_000)
+        var e = Resolvers.Grace.update(null, empty = true, network = 100, dnsChange = false, now = 1_000)
         assertFalse(Resolvers.Grace.shouldEnd(e, 1_000))
         assertFalse(Resolvers.Grace.shouldEnd(e, 1_000 + Resolvers.Grace.GRACE_MS - 1))
         assertTrue(Resolvers.Grace.shouldEnd(e, 1_000 + Resolvers.Grace.GRACE_MS))
-        e = Resolvers.Grace.update(e, empty = true, linkChange = false, now = 5_000)
+        e = Resolvers.Grace.update(e, empty = true, network = 100, dnsChange = false, now = 5_000)
         assertEquals(1_000L, e?.since)
     }
 
     @Test
-    fun noResolverGraceEndsAtTheNextEmptyLinkChange() {
-        val first = Resolvers.Grace.update(null, empty = true, linkChange = true, now = 1_000)
+    fun noResolverGraceEndsEarlyOnlyOnADnsChangeOfTheSameNetwork() {
+        val first = Resolvers.Grace.update(null, empty = true, network = 100, dnsChange = true, now = 1_000)
         assertFalse("the change that empties the list starts the grace", Resolvers.Grace.shouldEnd(first, 1_000))
-        val next = Resolvers.Grace.update(first, empty = true, linkChange = true, now = 2_000)
+        val next = Resolvers.Grace.update(first, empty = true, network = 100, dnsChange = true, now = 2_000)
         assertTrue(Resolvers.Grace.shouldEnd(next, 2_000))
     }
 
     @Test
+    fun anUnrelatedLinkChangeDoesNotEndTheGrace() {
+        // An address or route added, DNS settings unchanged: the 15 s still run.
+        val first = Resolvers.Grace.update(null, empty = true, network = 100, dnsChange = false, now = 1_000)
+        val addressAdded = Resolvers.Grace.update(first, empty = true, network = 100, dnsChange = false, now = 2_000)
+        assertFalse(Resolvers.Grace.shouldEnd(addressAdded, 2_000))
+        // Another network's change starts its own episode instead of ending this one.
+        val other = Resolvers.Grace.update(addressAdded, empty = true, network = 200, dnsChange = true, now = 3_000)
+        assertFalse(Resolvers.Grace.shouldEnd(other, 3_000))
+        assertEquals(3_000L, other?.since)
+    }
+
+    @Test
     fun aResolverComingBackEndsTheGrace() {
-        val e = Resolvers.Grace.update(null, empty = true, linkChange = false, now = 1_000)
-        val back = Resolvers.Grace.update(e, empty = false, linkChange = true, now = 3_000)
+        val e = Resolvers.Grace.update(null, empty = true, network = 100, dnsChange = false, now = 1_000)
+        val back = Resolvers.Grace.update(e, empty = false, network = 100, dnsChange = true, now = 3_000)
         assertNull(back)
         assertFalse(Resolvers.Grace.shouldEnd(back, 100_000))
     }

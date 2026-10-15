@@ -61,19 +61,27 @@ object Resolvers {
     object Grace {
         const val GRACE_MS = 15_000L
 
-        /** One run of updates with an empty list: since when, and how many link-properties changes came after it began. */
-        data class Episode(val since: Long, val laterLinkChanges: Int = 0)
+        /**
+         * One run of updates with an empty list on one network ([network], its handle): since when, and how many DNS
+         * changes on that same network came after it began and still named no resolver.
+         */
+        data class Episode(val since: Long, val network: Long, val laterDnsChanges: Int = 0)
 
-        /** The episode after an update whose list is [empty]; null once a resolver is back. */
-        fun update(episode: Episode?, empty: Boolean, linkChange: Boolean, now: Long): Episode? = when {
+        /**
+         * The episode after an update on [network] whose list is [empty]; null once a resolver is back. Only a change of
+         * the same network's DNS settings ([dnsChange]: servers, private DNS, search domains or interface) that still names
+         * none can end the grace early; an unrelated change (an address added, a route) cannot. Another network starts a
+         * new episode.
+         */
+        fun update(episode: Episode?, empty: Boolean, network: Long, dnsChange: Boolean, now: Long): Episode? = when {
             !empty -> null
-            episode == null -> Episode(now)
-            linkChange -> episode.copy(laterLinkChanges = episode.laterLinkChanges + 1)
+            episode == null || episode.network != network -> Episode(now, network)
+            dnsChange -> episode.copy(laterDnsChanges = episode.laterDnsChanges + 1)
             else -> episode
         }
 
         fun shouldEnd(episode: Episode?, now: Long): Boolean =
-            episode != null && (episode.laterLinkChanges > 0 || now - episode.since >= GRACE_MS)
+            episode != null && (episode.laterDnsChanges > 0 || now - episode.since >= GRACE_MS)
     }
 }
 

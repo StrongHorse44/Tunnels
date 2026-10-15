@@ -77,19 +77,22 @@ internal object DatabaseKey {
     fun newKey(context: Context, onReset: () -> Unit): ByteArray {
         val file = File(context.noBackupFilesDir, FILE)
         return try {
-            onReset()
-            // The wrapped file goes before the key it was sealed with: a crash part-way leaves "file absent", a definite
-            // loss the next start resets again, never a file sealed under another key (which would fail closed forever).
-            if (fileState(file) != false && !file.delete()) throw IOException("Could not remove the old wrapped key")
-            val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-            // A missing entry is no error here; generateKey replaces an existing one anyway.
-            runCatching { keyStore.deleteEntry(ALIAS) }
-            val key = generateKey()
-            val passphrase = ByteArray(StoreKey.PASSPHRASE_LENGTH).also { SecureRandom().nextBytes(it) }
-            val tmp = File(file.parentFile, "$FILE.tmp")
-            tmp.writeBytes(wrap(key, passphrase))
-            if (!tmp.renameTo(file)) throw IOException("Could not store database key")
-            passphrase
+            StoreKey.reset(
+                // Loaded before anything on disk changes: if the Keystore cannot be reached, nothing is set aside.
+                loadKeystore = { KeyStore.getInstance("AndroidKeyStore").apply { load(null) } },
+                setAside = onReset,
+                deleteWrapped = { if (fileState(file) != false && !file.delete()) throw IOException("Could not remove the old wrapped key") },
+                // generateKey replaces an existing entry anyway.
+                deleteEntry = { keyStore -> keyStore.deleteEntry(ALIAS) },
+                create = {
+                    val key = generateKey()
+                    val passphrase = ByteArray(StoreKey.PASSPHRASE_LENGTH).also { SecureRandom().nextBytes(it) }
+                    val tmp = File(file.parentFile, "$FILE.tmp")
+                    tmp.writeBytes(wrap(key, passphrase))
+                    if (!tmp.renameTo(file)) throw IOException("Could not store database key")
+                    passphrase
+                },
+            )
         } catch (e: StoreUnavailableException) {
             throw e
         } catch (e: Exception) {

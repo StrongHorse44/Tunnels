@@ -19,12 +19,8 @@ class ActionConfirmationTest {
     fun otherActionsRunAtOnce() {
         assertNull(ActionConfirmation.prompt(FindingAction.Perform("Close it") { "asks for a second tap itself" }))
         assertNull(ActionConfirmation.prompt(FindingAction.OpenAppDetails("a.b")))
+        assertNull("Android's own dialog confirms an uninstall", ActionConfirmation.prompt(FindingAction.RequestUninstall("a.b")))
         assertNull(ActionConfirmation.prompt(FindingAction.OpenSettings("android.settings.SETTINGS", "Settings")))
-    }
-
-    @Test
-    fun uninstallAsksFirst() {
-        assertEquals("Uninstall? This changes settings on your phone.", ActionConfirmation.prompt(FindingAction.RequestUninstall("a.b"))?.question)
     }
 
     @Test

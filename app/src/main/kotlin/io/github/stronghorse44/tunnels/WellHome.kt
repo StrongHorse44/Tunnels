@@ -80,6 +80,8 @@ import io.github.stronghorse44.tunnels.store.TunnelsStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.DateFormat
+import java.util.Date
 
 private val Mono = FontFamily.Monospace
 
@@ -118,9 +120,9 @@ fun WellHome(
         value = opening.getOrNull()
     }
     val store = runtime?.store
-    var resetNotice by remember { mutableStateOf(false) }
+    var resetNotice by remember { mutableStateOf<TunnelsStore.ResetNotice?>(null) }
     LaunchedEffect(store) {
-        resetNotice = store != null && withContext(Dispatchers.IO) { store.resetNotice() }
+        resetNotice = if (store == null) null else withContext(Dispatchers.IO) { store.resetNotice(context) }
     }
     val scope = rememberCoroutineScope()
     val summaries by produceState<Map<String, TunnelSummary>>(emptyMap(), store) {
@@ -211,21 +213,28 @@ fun WellHome(
         )
     }
 
-    if (resetNotice && store != null) {
+    val notice = resetNotice
+    if (notice != null && store != null) {
+        val day = remember(notice) { DateFormat.getDateInstance(DateFormat.LONG).format(Date(notice.at.toEpochMilli())) }
         AlertDialog(
             onDismissRequest = {},
             title = { Text("Store reset") },
             text = {
                 Text(
-                    TunnelsStore.RESET_MESSAGE + ". Android no longer had the key that opened it, so Tunnels started a new, " +
-                        "empty store. The old one stays on the phone, unreadable, until you tap OK or for 30 days.",
+                    if (notice.byUser) {
+                        "You reset the store on $day; the earlier data is set aside and unreadable. It stays on the phone " +
+                            "until you tap OK or for 30 days."
+                    } else {
+                        TunnelsStore.RESET_MESSAGE + " (on $day). Android no longer had the key that opened it, so Tunnels started " +
+                            "a new, empty store. The old one stays on the phone, unreadable, until you tap OK or for 30 days."
+                    },
                     color = GlassColors.dim,
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
-                    resetNotice = false
-                    scope.launch(Dispatchers.IO) { store.dismissResetNotice() }
+                    resetNotice = null
+                    scope.launch(Dispatchers.IO) { store.dismissResetNotice(context) }
                 }) { Text("OK") }
             },
         )

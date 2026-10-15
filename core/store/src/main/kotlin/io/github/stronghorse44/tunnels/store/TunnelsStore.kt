@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 import java.io.File
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.time.ZoneId
 
 /** The encrypted store. Open it off the main thread: [get] touches the Keystore. */
@@ -74,12 +75,19 @@ class TunnelsStore private constructor(private val db: TunnelsDatabase, private 
      * a row written in the same run). The home screen then shows "The store was reset; earlier data is unreadable" until
      * [dismissResetNotice], or until the files are pruned 30 days after the reset. Touches the disk: off the main thread.
      */
-    fun resetNotice(): Boolean = runCatching { LostStoreFiles.present(dbDir, DB_NAME).isNotEmpty() }.getOrDefault(false)
+    fun resetNotice(context: Context): ResetNotice? = runCatching {
+        val newest = LostStoreFiles.present(dbDir, DB_NAME).maxOfOrNull { it.second } ?: return@runCatching null
+        ResetNotice(newest, byUser = prefs(context).getLong(USER_RESET_KEY, -1L) == newest.toEpochMilli())
+    }.getOrNull()
 
     /** The user read the reset notice: delete the old store's files kept aside (audit M5). */
-    fun dismissResetNotice() {
+    fun dismissResetNotice(context: Context) {
         runCatching { LostStoreFiles.discardAll(dbDir, DB_NAME) }
+        runCatching { prefs(context).edit().remove(USER_RESET_KEY).apply() }
     }
+
+    /** A reset whose old files are still kept aside: when ([at], the files' stamp), and whether the user asked for it. */
+    data class ResetNotice(val at: Instant, val byUser: Boolean)
 
     companion object {
         private const val DB_NAME = "tunnels.db"
@@ -97,6 +105,8 @@ class TunnelsStore private constructor(private val db: TunnelsDatabase, private 
          */
         private const val FAILURE_PREFS = "tunnels.store"
         private const val FAILURE_KEY = "unavailable"
+        /** The stamp of the reset the user asked for on the fail-closed message, so the notice can say so. */
+        private const val USER_RESET_KEY = "reset_by_user"
 
         @Volatile private var instance: TunnelsStore? = null
         @Volatile private var failureCounted = false
@@ -165,7 +175,11 @@ class TunnelsStore private constructor(private val db: TunnelsDatabase, private 
             // Only on a definite loss of the key, or the user's confirmed reset: the old files are renamed aside, never deleted.
             val setAside = {
                 dir.mkdirs()
-                LostStoreFiles.setAside(dir, DB_NAME, Instant.now())
+                // Seconds, like the stamp in the file names, so the notice can match the user's reset to its files.
+                val at = Instant.now().truncatedTo(ChronoUnit.SECONDS)
+                if (LostStoreFiles.setAside(dir, DB_NAME, at).isNotEmpty() && resetKey) {
+                    runCatching { prefs(context).edit().putLong(USER_RESET_KEY, at.toEpochMilli()).apply() }
+                }
                 Unit
             }
             val passphrase = if (resetKey) DatabaseKey.newKey(context, setAside) else DatabaseKey.passphrase(context, setAside)
