@@ -1,11 +1,11 @@
 package io.github.stronghorse44.tunnels.homenet
 
 import android.content.Context
+import io.github.stronghorse44.tunnels.engine.Presence
 import io.github.stronghorse44.tunnels.lan.CensusMessages
 import io.github.stronghorse44.tunnels.lan.DeviceKeys
 import io.github.stronghorse44.tunnels.lan.Labels
 import io.github.stronghorse44.tunnels.lan.LanHost
-import io.github.stronghorse44.tunnels.lan.Presence
 import io.github.stronghorse44.tunnels.lan.Watch
 import io.github.stronghorse44.tunnels.store.TunnelsStore
 import kotlinx.coroutines.CancellationException
@@ -59,7 +59,7 @@ class DeviceNotesStore(context: Context) {
                     Labels.encode(labels).ifEmpty { null }
                 }
                 store.updateSetting(PRESENCE + tag) { old ->
-                    val book = Presence.Book.parse(old)
+                    val book = Presence.Book.parse(old, DeviceKeys::isKey)
                     Presence.update(book.copy(entries = DeviceKeys.rekey(book.entries, hosts)), today, hosts.map { it.key }).encode()
                 }
                 var events = emptyMap<String, Watch.Event>()
@@ -84,7 +84,7 @@ class DeviceNotesStore(context: Context) {
             NotesView(
                 tag,
                 Labels.parse(store.setting(LABELS + tag)),
-                Presence.Book.parse(store.setting(PRESENCE + tag)),
+                Presence.Book.parse(store.setting(PRESENCE + tag), DeviceKeys::isKey),
                 Watch.parse(store.setting(WATCH)),
             )
         } catch (e: CancellationException) {

@@ -31,6 +31,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -105,14 +106,21 @@ fun WellHome(
     val version = remember { versionName(context) }
     // A store that cannot be opened now fails closed: nothing is deleted, and the home says so (audit M5).
     var storeUnavailable by remember { mutableStateOf(false) }
-    val runtime by produceState<TunnelsRuntime?>(null) {
-        value = runCatching { TunnelsRuntime.get(context) }
-            .onFailure { if (it is StoreUnavailableException) storeUnavailable = true }
-            .getOrNull()
+    // "Reset the store" only once the failure has survived a restart (review Q3), behind a confirmation.
+    var resetOffered by remember { mutableStateOf(false) }
+    var confirmReset by remember { mutableStateOf(false) }
+    var opened by remember { mutableStateOf(0) }
+    val runtime by produceState<TunnelsRuntime?>(null, opened) {
+        val opening = runCatching { TunnelsRuntime.get(context) }
+        val unavailable = opening.exceptionOrNull() is StoreUnavailableException
+        storeUnavailable = unavailable
+        resetOffered = unavailable && withContext(Dispatchers.IO) { TunnelsStore.resetOffered(context) }
+        value = opening.getOrNull()
     }
     val store = runtime?.store
-    val resetNotice by produceState<String?>(null, store) {
-        store?.resetNotice()?.collect { value = it }
+    var resetNotice by remember { mutableStateOf(false) }
+    LaunchedEffect(store) {
+        resetNotice = store != null && withContext(Dispatchers.IO) { store.resetNotice() }
     }
     val scope = rememberCoroutineScope()
     val summaries by produceState<Map<String, TunnelSummary>>(emptyMap(), store) {
@@ -159,6 +167,13 @@ fun WellHome(
             if (storeUnavailable) {
                 Spacer(Modifier.height(8.dp))
                 Text(TunnelsStore.UNAVAILABLE_MESSAGE + ".", color = StatusColors.blocker, fontSize = 13.sp)
+                if (resetOffered) {
+                    Text(
+                        "It still fails after a restart. Resetting starts an empty store; the old one is kept aside, unreadable.",
+                        color = GlassColors.dim, fontSize = 12.sp,
+                    )
+                    TextButton(onClick = { confirmReset = true }) { Text("Reset the store", color = StatusColors.blocker) }
+                }
             }
             Spacer(Modifier.height(10.dp))
             HomeWell(summaries, ::live, ::enter, openFindings)
@@ -172,7 +187,31 @@ fun WellHome(
         }
     }
 
-    if (resetNotice != null && store != null) {
+    if (confirmReset) {
+        AlertDialog(
+            onDismissRequest = { confirmReset = false },
+            title = { Text("Reset the store?") },
+            text = {
+                Text(
+                    "Tunnels starts a new, empty store: findings, snapshots, settings, second-phone pins and confirmed networks " +
+                        "are gone from the app. The old store is kept aside, unreadable, for 30 days.",
+                    color = GlassColors.dim,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmReset = false
+                    scope.launch {
+                        withContext(Dispatchers.IO) { runCatching { TunnelsStore.resetAfterFailure(context) } }
+                        opened++
+                    }
+                }) { Text("Reset the store", color = StatusColors.blocker) }
+            },
+            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("Cancel") } },
+        )
+    }
+
+    if (resetNotice && store != null) {
         AlertDialog(
             onDismissRequest = {},
             title = { Text("Store reset") },
@@ -184,7 +223,10 @@ fun WellHome(
                 )
             },
             confirmButton = {
-                TextButton(onClick = { scope.launch(Dispatchers.IO) { runCatching { store.dismissResetNotice() } } }) { Text("OK") }
+                TextButton(onClick = {
+                    resetNotice = false
+                    scope.launch(Dispatchers.IO) { store.dismissResetNotice() }
+                }) { Text("OK") }
             },
         )
     }

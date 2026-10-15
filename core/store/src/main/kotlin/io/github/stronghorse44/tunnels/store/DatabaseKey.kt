@@ -10,6 +10,7 @@ import android.util.Log
 import io.github.stronghorse44.tunnels.engine.StoreKey
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
 import java.security.KeyStore
 import java.security.ProviderException
 import java.security.SecureRandom
@@ -45,14 +46,19 @@ internal object DatabaseKey {
     fun passphrase(context: Context, onReset: () -> Unit): ByteArray {
         val file = File(context.noBackupFilesDir, FILE)
         val keyStore by lazy { KeyStore.getInstance("AndroidKeyStore").apply { load(null) } }
+        var wrapKey: SecretKey? = null
         val outcome = StoreKey.read(
-            fileExists = { file.exists() },
-            aliasPresent = { keyStore.containsAlias(ALIAS) },
-            readFile = { file.readBytes() },
-            unwrap = { data ->
-                val key = keyStore.getKey(ALIAS, null) as? SecretKey ?: throw IllegalStateException("wrapping key unreadable")
-                unwrap(key, data)
+            fileExists = { fileState(file) },
+            // getKey, never containsAlias: see StoreKey.read. Null only for "no such key"; a fault throws.
+            aliasPresent = {
+                when (val key = keyStore.getKey(ALIAS, null)) {
+                    null -> false
+                    is SecretKey -> true.also { wrapKey = key }
+                    else -> throw IllegalStateException("wrapping key has an unexpected type")
+                }
             },
+            readFile = { file.readBytes() },
+            unwrap = { data -> unwrap(wrapKey ?: throw IllegalStateException("wrapping key unreadable"), data) },
             isInvalidated = { it is KeyPermanentlyInvalidatedException },
         )
         when (outcome) {
@@ -60,12 +66,24 @@ internal object DatabaseKey {
             is StoreKey.Outcome.Unavailable -> throw StoreUnavailableException(outcome.cause)
             is StoreKey.Outcome.Lost -> Log.w(TAG, "store key lost: ${outcome.why}")
         }
+        return newKey(context, onReset)
+    }
+
+    /**
+     * Sets the old store aside ([onReset], which must throw when it cannot) and makes a new key. Runs on a definite loss,
+     * or when the user asks for it on the fail-closed message after the failure survived a restart. Never deletes the
+     * old store's files.
+     */
+    fun newKey(context: Context, onReset: () -> Unit): ByteArray {
+        val file = File(context.noBackupFilesDir, FILE)
         return try {
             onReset()
             // The wrapped file goes before the key it was sealed with: a crash part-way leaves "file absent", a definite
             // loss the next start resets again, never a file sealed under another key (which would fail closed forever).
-            if (file.exists() && !file.delete()) throw IOException("Could not remove the old wrapped key")
-            if (keyStore.containsAlias(ALIAS)) keyStore.deleteEntry(ALIAS)
+            if (fileState(file) != false && !file.delete()) throw IOException("Could not remove the old wrapped key")
+            val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            // A missing entry is no error here; generateKey replaces an existing one anyway.
+            runCatching { keyStore.deleteEntry(ALIAS) }
             val key = generateKey()
             val passphrase = ByteArray(StoreKey.PASSPHRASE_LENGTH).also { SecureRandom().nextBytes(it) }
             val tmp = File(file.parentFile, "$FILE.tmp")
@@ -76,6 +94,16 @@ internal object DatabaseKey {
             throw e
         } catch (e: Exception) {
             throw StoreUnavailableException(e.javaClass.simpleName, e)
+        }
+    }
+
+    /** True or false when the file system is sure, null when it cannot tell (an IO error reads as neither). */
+    private fun fileState(file: File): Boolean? {
+        val path = file.toPath()
+        return when {
+            Files.exists(path) -> true
+            Files.notExists(path) -> false
+            else -> null
         }
     }
 

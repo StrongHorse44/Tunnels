@@ -11,7 +11,9 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.io.IOException
+import java.security.KeyStoreException
 import java.security.ProviderException
+import java.security.UnrecoverableKeyException
 import java.time.Instant
 import javax.crypto.AEADBadTagException
 
@@ -25,13 +27,14 @@ class StoreKeyTest {
     private val passphrase = ByteArray(32) { it.toByte() }
 
     private fun read(
-        fileExists: Boolean = true,
+        fileExists: Boolean? = true,
         aliasPresent: Boolean = true,
         file: ByteArray = wrapped,
         unwrap: (ByteArray) -> ByteArray = { passphrase },
         aliasCheck: () -> Boolean = { aliasPresent },
+        fileCheck: () -> Boolean? = { fileExists },
     ): Outcome = StoreKey.read(
-        fileExists = { fileExists },
+        fileExists = fileCheck,
         aliasPresent = aliasCheck,
         readFile = { file },
         unwrap = unwrap,
@@ -70,6 +73,23 @@ class StoreKeyTest {
         assertTrue(
             StoreKey.read({ true }, { true }, { throw IOException("read failed") }, { passphrase }, { false }) is Outcome.Unavailable,
         )
+    }
+
+    @Test
+    fun keystoreFaultOnTheAliasLookupIsNotAMissingKey() {
+        // keystore2's containsAlias swallows faults and says "absent"; getKey throws UnrecoverableKeyException instead.
+        // Whatever the lookup throws, the store must not be reset (review H1).
+        assertTrue(read(aliasCheck = { throw UnrecoverableKeyException("SYSTEM_ERROR") }) is Outcome.Unavailable)
+        assertTrue(read(aliasCheck = { throw KeyStoreException("binder died") }) is Outcome.Unavailable)
+        assertTrue(read(aliasCheck = { throw IllegalStateException("unexpected key type") }) is Outcome.Unavailable)
+    }
+
+    @Test
+    fun anUncertainFileStateIsNotAMissingFile() {
+        // File.exists() says false on an IO error too: only a sure "not there" may reset (review H1, reviewer's L2).
+        assertTrue(read(fileCheck = { throw SecurityException("denied") }) is Outcome.Unavailable)
+        assertTrue(read(fileCheck = { throw IOException("EIO") }) is Outcome.Unavailable)
+        assertTrue(read(fileCheck = { null }) is Outcome.Unavailable)
     }
 
     @Test
@@ -140,5 +160,34 @@ class StoreKeyTest {
         LostStoreFiles.setAside(dir, "tunnels.db", Instant.now())
         assertEquals(2, LostStoreFiles.discardAll(dir, "tunnels.db"))
         assertTrue(dir.listFiles().orEmpty().isEmpty())
+    }
+
+    @Test
+    fun resetIsOfferedOnlyAfterTheFailureSurvivesARestart() {
+        assertFalse(StoreFailures.offerReset(null, 7))
+        val first = StoreFailures.failed(null, 7)
+        assertFalse("same boot: a passing fault, no reset offered", StoreFailures.offerReset(first, 7))
+        val again = StoreFailures.failed(first, 7)
+        assertFalse(StoreFailures.offerReset(again, 7))
+        assertTrue("failed again after a restart", StoreFailures.offerReset(StoreFailures.failed(again, 8), 8))
+    }
+
+    @Test
+    fun withoutABootCountThreeFailedStartsStandInForARestart() {
+        var r = StoreFailures.failed(null, -1)
+        assertFalse(StoreFailures.offerReset(r, -1))
+        r = StoreFailures.failed(r, -1)
+        assertFalse(StoreFailures.offerReset(r, -1))
+        r = StoreFailures.failed(r, -1)
+        assertTrue(StoreFailures.offerReset(r, -1))
+    }
+
+    @Test
+    fun failureRecordRoundTrips() {
+        val r = StoreFailures.Record(12, 3)
+        assertEquals(r, StoreFailures.parse(r.encode()))
+        assertEquals(null, StoreFailures.parse("junk"))
+        assertEquals(null, StoreFailures.parse(null))
+        assertEquals(null, StoreFailures.parse("1;0"))
     }
 }

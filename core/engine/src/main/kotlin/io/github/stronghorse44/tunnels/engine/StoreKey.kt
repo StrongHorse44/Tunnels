@@ -42,11 +42,20 @@ object StoreKey {
     }
 
     /**
-     * Reads the passphrase. [fileExists], [aliasPresent], [readFile] and [unwrap] are the platform calls; [isInvalidated]
-     * says whether a failure of [unwrap] is the Keystore's "permanently invalidated". Only [Outcome.Lost] allows a reset.
+     * Reads the passphrase. Only [Outcome.Lost] allows a reset, so each platform call must say "gone" only when it is sure:
+     * - [fileExists]: true, false only when the file is known not to exist, null when that cannot be told (an IO error).
+     *   A throw or a null is [Outcome.Unavailable]; `File.exists()` alone is not enough, since it also says false on an
+     *   IO error.
+     * - [aliasPresent]: false only when the Keystore answers "no such key". `KeyStore.containsAlias` must never be used
+     *   here: in keystore2 it is `getKeyMetadata(alias) != null`, and `getKeyMetadata` swallows every
+     *   `KeyStoreException` (binder death, SYSTEM_ERROR) and returns null, so a Keystore fault would read as a missing key
+     *   and reset the store. `KeyStore.getKey` returns null only for KEY_NOT_FOUND and throws (UnrecoverableKeyException)
+     *   for everything else; a throw here is [Outcome.Unavailable].
+     * - [readFile] and [unwrap]: any throw is [Outcome.Unavailable], except one [isInvalidated] recognises as the Keystore's
+     *   "permanently invalidated".
      */
     fun read(
-        fileExists: () -> Boolean,
+        fileExists: () -> Boolean?,
         aliasPresent: () -> Boolean,
         readFile: () -> ByteArray,
         unwrap: (ByteArray) -> ByteArray,
@@ -56,7 +65,7 @@ object StoreKey {
             fileExists()
         } catch (e: Exception) {
             return Outcome.Unavailable(e.javaClass.simpleName)
-        }
+        } ?: return Outcome.Unavailable("wrapped key file state unknown")
         if (!exists) return Outcome.Lost(Loss.FILE_ABSENT)
         val alias = try {
             aliasPresent()
@@ -128,4 +137,36 @@ object LostStoreFiles {
 
     /** Deletes every lost file (the user dismissed the notice). */
     fun discardAll(dir: File, dbName: String): Int = present(dir, dbName).count { (f, _) -> f.delete() }
+}
+
+/**
+ * When the fail-closed message may offer "Reset the store" (review Q3): only once the failure has survived a restart of
+ * the phone, so a passing Keystore fault is never answered with a reset. The record is a flag kept outside the store
+ * (it cannot be in it): the boot the first failure was seen in, and on how many app starts it was seen since. When the
+ * boot count cannot be read, three app starts that all failed stand in for a restart.
+ */
+object StoreFailures {
+    data class Record(val firstBoot: Int, val starts: Int) {
+        fun encode(): String = "$firstBoot;$starts"
+    }
+
+    const val STARTS_WITHOUT_BOOT_COUNT = 3
+
+    fun parse(text: String?): Record? {
+        val parts = text?.split(';') ?: return null
+        if (parts.size != 2) return null
+        val boot = parts[0].toIntOrNull() ?: return null
+        val starts = parts[1].toIntOrNull()?.takeIf { it > 0 } ?: return null
+        return Record(boot, starts)
+    }
+
+    /** The record after one more app start whose store failed, on boot [boot] (-1 when unknown). */
+    fun failed(record: Record?, boot: Int): Record = record?.copy(starts = record.starts + 1) ?: Record(boot, 1)
+
+    /** Whether the failure has survived a restart: seen on an earlier boot than [boot], or on enough starts. */
+    fun offerReset(record: Record?, boot: Int): Boolean {
+        if (record == null) return false
+        if (boot >= 0 && record.firstBoot >= 0) return boot != record.firstBoot
+        return record.starts >= STARTS_WITHOUT_BOOT_COUNT
+    }
 }
