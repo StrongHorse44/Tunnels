@@ -50,6 +50,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.stronghorse44.tunnels.common.GlassColors
 import io.github.stronghorse44.tunnels.common.GlassPanel
+import io.github.stronghorse44.tunnels.common.SecureDialog
+import io.github.stronghorse44.tunnels.common.SecureWindow
 import io.github.stronghorse44.tunnels.common.LineColors
 import io.github.stronghorse44.tunnels.common.StatusColors
 import io.github.stronghorse44.tunnels.common.TunnelScaffold
@@ -437,8 +439,11 @@ private fun PasswordDialog(
     val problem = if (confirm && password.isNotEmpty()) password.toCharArray().let { chars -> PassphraseCheck.problem(chars).also { chars.fill('\u0000') } } else null
     val mismatch = confirm && repeat != password
     val ok = password.isNotEmpty() && problem == null && !mismatch
+    // No screenshot, recording or Recents thumbnail while a passphrase is typed (audit L6).
+    SecureWindow()
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = SecureDialog,
         containerColor = MaterialTheme.colorScheme.surface,
         title = { Text(title) },
         text = {

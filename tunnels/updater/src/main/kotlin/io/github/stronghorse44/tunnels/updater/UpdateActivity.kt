@@ -55,6 +55,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.stronghorse44.tunnels.common.GlassBackground
 import io.github.stronghorse44.tunnels.common.GlassColors
 import io.github.stronghorse44.tunnels.common.GlassPanel
+import io.github.stronghorse44.tunnels.common.SecureWindow
 import io.github.stronghorse44.tunnels.common.LineColors
 import io.github.stronghorse44.tunnels.common.StatusColors
 import io.github.stronghorse44.tunnels.common.TunnelsTheme
@@ -219,6 +220,8 @@ private fun TokenCard(hint: String?, save: (String) -> Boolean, forget: () -> Un
                 TextButton(onClick = { open = !open }) { Text(if (open) "Close" else if (hint == null) "Add" else "Replace") }
             }
             if (open || (highlight && hint == null)) {
+                // The token is a secret like a passphrase: no screenshot while its field is shown (audit L6).
+                SecureWindow()
                 Text(
                     "github.com → Settings → Developer settings → Fine-grained tokens → Generate new token. Repository access: " +
                         "only ${UpdateSource.OWNER}/${UpdateSource.REPO}. Permissions: Contents, read-only. Copy it and paste it here. " +

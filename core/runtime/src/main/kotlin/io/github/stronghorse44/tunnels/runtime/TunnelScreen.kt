@@ -106,6 +106,9 @@ fun TunnelScreen(vm: TunnelViewModel, tunnelId: String, onBack: () -> Unit) {
     val title = info?.title ?: tunnelId
     val module = state.module
     var openFinding by remember { mutableStateOf<String?>(null) }
+    // A tunnel's own panel performs through the same confirmation as the finding cards (audit L7).
+    val confirmedPerform = rememberConfirmedAction(vm::perform)
+    val panelActions = remember(vm, confirmedPerform) { ConfirmingActions(vm, confirmedPerform) }
     // Where the tunnel's bead sits on the header band and where the scan's glory will bloom, in root coordinates.
     var beadAt by remember { mutableStateOf<Offset?>(null) }
     var gloryAt by remember { mutableStateOf<Offset?>(null) }
@@ -135,7 +138,7 @@ fun TunnelScreen(vm: TunnelViewModel, tunnelId: String, onBack: () -> Unit) {
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         item { ScanPanel(state, title, info?.stratum, line, vm::scan, onGlory = { gloryAt = it }) }
-                        if (ui != null) item { ui.Content(state, vm) }
+                        if (ui != null) item { ui.Content(state, panelActions) }
                         if (state.findings.isNotEmpty()) {
                             item { SectionTitle("Findings", state.findings.size) }
                             items(state.findings, key = { it.id }) { f ->
@@ -254,6 +257,7 @@ private fun isDestructive(a: FindingAction) = a is FindingAction.RequestUninstal
 @Composable
 fun FindingCard(f: Finding, onAction: (FindingAction) -> Unit, onDismiss: () -> Unit, onOpen: (() -> Unit)? = null) {
     val color = severityColor(f.severity)
+    val act = rememberConfirmedAction(onAction)
     var expanded by remember(f.id) { mutableStateOf(false) }
     val open = onOpen ?: { expanded = !expanded }
     GlassPanel(Modifier.fillMaxWidth().animateContentSize(), tint = color) {
@@ -279,11 +283,11 @@ fun FindingCard(f: Finding, onAction: (FindingAction) -> Unit, onDismiss: () -> 
                     f.actions.forEachIndexed { i, a ->
                         when {
                             isDestructive(a) -> OutlinedButton(
-                                onClick = { onAction(a) }, modifier = Modifier.fillMaxWidth(), shape = CircleShape,
+                                onClick = { act(a) }, modifier = Modifier.fillMaxWidth(), shape = CircleShape,
                                 border = BorderStroke(1.dp, StatusColors.blocker.copy(alpha = 0.7f)),
                             ) { Text(a.label, color = Color(0xFFFFB3C0)) }
-                            i == 0 -> SpectrumButton(a.label, { onAction(a) }, Modifier.fillMaxWidth())
-                            else -> PrismButton(a.label, { onAction(a) }, Modifier.fillMaxWidth())
+                            i == 0 -> SpectrumButton(a.label, { act(a) }, Modifier.fillMaxWidth())
+                            else -> PrismButton(a.label, { act(a) }, Modifier.fillMaxWidth())
                         }
                     }
                     TextButton(onClick = { expanded = false }, modifier = Modifier.fillMaxWidth()) { Text("Less ‹", color = GlassColors.dim) }
@@ -294,7 +298,7 @@ fun FindingCard(f: Finding, onAction: (FindingAction) -> Unit, onDismiss: () -> 
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.padding(top = 4.dp),
                 ) {
-                    f.actions.firstOrNull()?.let { a -> PrismButton(a.label, { onAction(a) }) }
+                    f.actions.firstOrNull()?.let { a -> PrismButton(a.label, { act(a) }) }
                     TextButton(onClick = open) {
                         val more = f.actions.size - 1
                         Text(if (more > 0) "$more more action${if (more == 1) "" else "s"} ›" else "Details ›", color = GlassColors.text)
@@ -324,6 +328,7 @@ private fun FindingDetail(
     val context = LocalContext.current
     val appPage = remember(f.subject) { AppPage.isApp(f.subject) && AppPage.available(context) }
     val color = severityColor(f.severity)
+    val act = rememberConfirmedAction(onAction)
     val fmt = remember { DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT) }
     DepthBackground(depth) {
         Column(
@@ -366,12 +371,12 @@ private fun FindingDetail(
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 f.actions.forEachIndexed { i, a ->
                     when {
-                        i == 0 && !isDestructive(a) -> SpectrumButton(a.label, { onAction(a) }, Modifier.fillMaxWidth())
+                        i == 0 && !isDestructive(a) -> SpectrumButton(a.label, { act(a) }, Modifier.fillMaxWidth())
                         isDestructive(a) -> OutlinedButton(
-                            onClick = { onAction(a) }, modifier = Modifier.fillMaxWidth(), shape = CircleShape,
+                            onClick = { act(a) }, modifier = Modifier.fillMaxWidth(), shape = CircleShape,
                             border = BorderStroke(1.dp, StatusColors.blocker.copy(alpha = 0.7f)),
                         ) { Text(a.label, color = Color(0xFFFFB3C0)) }
-                        else -> PrismButton(a.label, { onAction(a) }, Modifier.fillMaxWidth())
+                        else -> PrismButton(a.label, { act(a) }, Modifier.fillMaxWidth())
                     }
                 }
                 if (appPage) {
