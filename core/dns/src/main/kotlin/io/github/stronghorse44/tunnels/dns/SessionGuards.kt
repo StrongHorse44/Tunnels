@@ -42,7 +42,7 @@ object Resolvers {
     /**
      * IPv4 first, then global IPv6, then link-local IPv6 that carry their scope (LinkProperties hands them out with the
      * interface's scope id). A link-local address without a scope cannot be sent to and is dropped; no interface lookup
-     * is made to give it one (that would add `java.net.NetworkInterface`, a network type the release gate does not list).
+     * is made to give it one (that would add a JDK network-interface type the release gate does not list).
      */
     fun select(servers: List<InetAddress>): List<InetAddress> {
         val out = ArrayList<InetAddress>()
