@@ -1,31 +1,33 @@
 # The vX.Y.Z release channel (docs/RELEASING.md): release-signed APKs, published as the GitHub release vX.Y.Z.
 #
 # Trigger: a push to the integration branch that changes the VERSION file (a merged pull request that bumps
-# it), or workflow_dispatch. There is no tag trigger (a tag can name any commit, with any workflow file, and
-# the `signing` environment has no reviewer, so a tag push must not be able to reach the key), and no push
-# trigger on main (it only receives versions that are already released). The version always comes from the
-# VERSION file at the run's commit (docs/RELEASING.md has its format); it is never typed. A push means
-# "publish": the owner's approval at the `publish` environment is the control. The one dispatch input:
+# it), or workflow_dispatch. There is no tag trigger (a tag can name any commit, with any workflow file, and a
+# tag push must not be able to reach the key; since 2026-10-15 the `signing` environment also needs the
+# owner's approval), and no push trigger on main (it only receives versions that are already released). The
+# version always comes from the VERSION file at the run's commit (docs/RELEASING.md has its format); it is
+# never typed. A push means "publish": the owner's approval at the `publish` environment is the control. The
+# one dispatch input:
 #   publish   default false. false is a DRY RUN: it builds, runs the release gate and rehearses signing with a
 #             throwaway key, and stops; `sign`, `release-check` and `publish` do not run, so nothing is signed or
 #             published. true runs the whole chain and, at the end, creates the tag and the release. It is
 #             refused unless the run is on the integration branch or main.
 #
 # Signing split (the program's spec 5.1). The four signing secrets are secrets of the `signing` environment
-# (restricted to the integration branch and main; no reviewers) and are referenced in exactly one job, `sign`. That job checks out nothing and runs no repository or third-party
+# (restricted to the integration branch and main; the owner's approval required since 2026-10-15) and are referenced in exactly one job, `sign`. That job checks out nothing and runs no repository or third-party
 # code: only GitHub's own actions, gh, the runner's JDK 17 and its Android SDK tools. No job that runs this
 # repository's code references a secret. The release is built UNSIGNED by `build`, which also runs the release
 # gate (gate/gate.py against gate/baseline.release.json) and a signing rehearsal with a throwaway key.
 #
 #   plan           no checkout, no repository code. reads VERSION, decides what this run does   -> tag, code, build, release
 #   build          no environment. unsigned APK, tests, gate, rehearsal            -> unsigned-apk
-#   sign           environment: signing. ref check, decode key, align, sign, verify -> signed-apk (1 day)
+#   sign           environment: signing (the owner's approval). ref check, decode key, align, sign, verify -> signed-apk (1 day)
 #   release-check  certificate pin (gate.py cert --require-pin), version, order    -> checked sha256
 #   publish        environment: publish (the owner's approval). attest, tag, release
 #
-# Who can push to the integration branch and main is the control on the key: a VERSION merge or a
-# publish=true dispatch from either one signs without a reviewer (one approval per release, at `publish`). The
-# signed APK exists as a run artifact (downloadable by signed-in users, 1 day) before that approval, and only on
+# The owner's approval at `sign` and who can push to the integration branch and main are the control on the key:
+# a VERSION merge or a publish=true dispatch from either one signs once the owner approves `sign` (two approvals
+# per release since 2026-10-15: `sign`, then `publish`). The
+# signed APK exists as a run artifact (downloadable by signed-in users, 1 day) before the `publish` approval, and only on
 # runs that will ask for it: `plan` stops a run whose version is already released, malformed, out of order or
 # otherwise refused before anything is built or signed.
 #
@@ -466,8 +468,8 @@ jobs:
   # Signs the APK the build job built. The only job that references the signing secrets, so it checks out
   # nothing and runs no repository or third-party code: GitHub's own actions, gh and the runner's JDK 17 and
   # Android SDK tools only. The secrets are secrets of the `signing` environment, which only the integration
-  # branch and main can use, whatever this file says. No reviewers on `signing`: the owner's one
-  # approval is the `publish` environment's, at the end.
+  # branch and main can use, whatever this file says. Since 2026-10-15 `signing` requires the owner's approval
+  # before this job starts; the second approval is the `publish` environment's, at the end.
   sign:
     if: >-
       needs.plan.outputs.release == 'true' && (

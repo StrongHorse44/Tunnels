@@ -5,7 +5,8 @@ description: How an agent drives a Tunnels pull request from opening to release 
 
 # Steward: from pull request to release
 
-RJ's plan of 2026-10-11: releases follow from merges without extra steps, while publishing keeps RJ's one tap.
+RJ's plan of 2026-10-11: releases follow from merges without extra steps, while signing and publishing keep RJ's taps
+(two since 2026-10-15: `signing`, then `publish`).
 CLAUDE.md's release rules stay in force; this file says how an agent works inside them.
 
 ## The release habit
@@ -19,17 +20,21 @@ CLAUDE.md's release rules stay in force; this file says how an agent works insid
    - Put the bump in its own last commit, `Release X.Y.Z: <what the release ships, in a few words>`, after the feature
      commits (it carries `[emulator]`, see below). The PR title says `(release X.Y.Z)` at its end.
 2. **The PR body gets a `## Release` section:**
-   - one line: "Merging this starts release X.Y.Z; it publishes only after RJ approves `publish` in the GitHub app."
+   - one line: "Merging this starts release X.Y.Z; it is signed only after RJ approves `signing` and published only
+     after RJ approves `publish`, both in the GitHub app."
    - what the release ships, in RJ's words where possible.
    - a dry-run note when the build changed (a new module, Gradle or workflow change): `docs/RELEASING.md` step 2 asks
      for a Release dry run on the branch first. RJ or the overseer starts it; agents never do.
 3. **Two PRs open at once both bump.** The first to merge takes the number. The second then has a conflict on `VERSION`:
    merge the base branch into it (never rebase someone else's branch) and set `VERSION` to the new base plus one patch.
    The Release run refuses a version lower than or equal to one already released, so a stale bump fails safely.
-4. **After the merge,** the Release run starts by itself: plan, build, sign, release check, then `publish` waits.
+4. **After the merge,** the Release run starts by itself: plan, build, then the `sign` job waits for RJ's first tap
+   (`signing`); once approved it signs, the release check runs, and `publish` waits for the second tap.
    - Watch it.
-   - When it reaches `publish`, tell RJ in one line: "vX.Y.Z is ready: Actions → the Release run → Review deployments
-     → publish → Approve, today (the signed APK expires after a day)."
+   - When it reaches `sign`, tell RJ in one line: "vX.Y.Z is ready to sign: Actions → the Release run → Review
+     deployments → signing → Approve."
+   - When it reaches `publish`, tell RJ in one line: "vX.Y.Z is signed and ready: Actions → the Release run → Review
+     deployments → publish → Approve, today (the signed APK expires after a day)."
    - If a job fails, read its log, say what broke, and propose the fix as a new PR (which bumps again).
    - Once published, give RJ the release link.
 5. **Never, under this habit or any other:**
@@ -38,7 +43,7 @@ CLAUDE.md's release rules stay in force; this file says how an agent works insid
    - approve or reject a deployment;
    - push to the integration branch or `main`.
 
-   The tap is RJ's; it is the control on publishing (CLAUDE.md).
+   Both taps are RJ's: `signing` guards the key and `publish` is the control on publishing (CLAUDE.md).
 
 ## Driving the PR to green
 

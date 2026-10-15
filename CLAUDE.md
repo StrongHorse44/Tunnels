@@ -90,7 +90,8 @@ everything, so uninstall wipes all data and nothing goes to cloud backup.
 - `core:emissions` + `tunnels:emissions` Emissions: what the phone transmits, Silence/Restore through Deep mode's Shizuku shell or
   Settings panels, a Quick Settings tile and a Faraday bag test (no new permission at APK level; `docs/EMISSIONS.md`)
 - `core:pairing` + `tunnels:pairing` Second phone: one phone verifies another's hardware attestation through two QR codes (CAMERA, no network)
-- `app` well home (the strata as rings of a stairwell, Prism well design); `verifyPermissions` runs before every assemble
+- `app` well home (the strata as rings of a stairwell, Prism well design); `verifyPermissions` and `verifyEgress` run
+  before every assemble
 
 Keep Android-free logic in the plain Kotlin modules so it can be tested without an emulator.
 Google's Maven is not reachable from the cloud dev container: Android modules only compile in CI.
@@ -128,6 +129,14 @@ Google's Maven is not reachable from the cloud dev container: Android modules on
 - Every module ships unit tests (JVM) and at least one instrumented smoke test under
   `src/androidTest` that runs its `scan()` on the emulator.
 - Observations are summaries (counts, names, hashes, booleans), never raw payloads.
+- Hard rule 1 is checked in the code too (audit M2, 2026-10-15): every assemble runs `verifyEgress`
+  (`buildSrc/.../Egress.kt`), which reads each module's compiled main classes and fails the build on a network API
+  (java.net sockets and URLs, `javax.net`, socket channels, `Network.bindSocket`/`openConnection`, `Os` sockets,
+  local sockets, RTP, NSD, `VpnService`, `DnsResolver`, `DownloadManager`, `WebView`, media from a URL, HTTP client
+  libraries, host name lookups) or a shell API (Deep mode's `ShizukuShell`, its shell service and `ShellRunner`, the
+  Shizuku API, child processes) that `buildSrc/egress.allow` does not grant that module. A stale or unknown grant
+  fails too, and so does a module whose compile tasks the check cannot find. Network grants go only to hard rule
+  1's four modules and, type by type, to core libraries of theirs; changing the allowlist is a gate change.
 - Every change goes up as a pull request from its own branch. Never push to the integration branch or
   `main` directly. One release channel exists, `vX.Y.Z`, and it never publishes without the owner's approval
   (a merge alone never publishes):
@@ -135,27 +144,29 @@ Google's Maven is not reachable from the cloud dev container: Android modules on
     and publishes nothing; no job there holds a writing token. The "Debug build #N" prereleases are retired.
     Manual `ci.yml` runs build and test only; agents still don't start them by hand, the program overseer may
     on a reviewed branch.
-  - `vX.Y.Z` releases (`release.yml`): a release starts when a merge changes the `VERSION` file on the
-    integration branch (or when the owner starts a `publish` ticked run, for recovery). The version comes from
-    that file. The run signs in the `sign` job under the `signing` environment (the owner's release key, no
-    reviewer; the environment admits only the integration branch and `main`) and is gated against
-    `gate/baseline.release.json`; the `publish` job waits for the owner's approval and creates the tag. The
-    approval is required: it is the control on publishing, and rejecting it publishes nothing. The overseer
-    starts dry runs (`publish` off) on a reviewed branch only; they build, gate and rehearse and publish
-    nothing. Agents never start a publishing run: never by dispatching `release.yml` with `publish` ticked and
-    never by pushing a tag, and agents never approve or reject a pending deployment (the `publish` tap is the
-    owner's by rule; sessions act with the owner's GitHub identity, so the rule is the control). Who can push to
-    the two branches is the control on the key.
+  - `vX.Y.Z` releases (`release.yml`): a release starts when a merge changes the `VERSION` file on the integration
+    branch (or when the owner starts a `publish` ticked run, for recovery). The version comes from that file. The
+    run signs in the `sign` job under the `signing` environment (the owner's release key; since 2026-10-15 the
+    environment requires the owner's approval, and it admits only the integration branch and `main`) and is gated
+    against `gate/baseline.release.json`; the `publish` job waits for the owner's approval and creates the tag.
+    The approval is required: it is the control on publishing, and rejecting it publishes nothing. The overseer
+    starts dry runs (`publish` off) on a reviewed branch only; they build, gate and rehearse and publish nothing.
+    Agents never start a publishing run: never by dispatching `release.yml` with `publish` ticked and never by
+    pushing a tag, and agents never approve or reject a pending deployment (both taps, `signing` and `publish`,
+    are the owner's by rule; sessions act with the owner's GitHub identity, so the rule is the control). The
+    owner's `signing` approval and who can push to the two branches are the control on the key.
   - Release habit (RJ, 2026-10-11): every PR that changes the app bumps `VERSION` by one patch in the same PR,
     so its merge starts the release; docs-, CI-, test- and skill-only PRs don't bump. Publishing still waits for
     the owner's tap. How: `.claude/skills/steward/SKILL.md`.
-  Builder and reviewer agents never merge. The overseer may merge a PR only when review passed,
-  CI is green and the PR has no gate change (no new or changed permission, network host, runtime
-  dependency, native library, build type, signing config, release workflow or either baseline); a PR
-  with a gate change waits for the owner to merge. A PR whose only gate-relevant change is the `VERSION`
-  bump (a release) is not a gate change for this list: the overseer may merge it once reviewed and green, and
-  the owner's approval at `publish` is what releases it. A `VERSION` change combined with any real gate change
-  is a gate change, and the owner merges it.
+  Builder and reviewer agents never merge. The overseer may merge a PR only when review passed, CI is green and
+  the PR has no gate change (no new or changed permission, network host, runtime dependency, native library, build
+  type, signing config, release workflow or either baseline); a gate change also includes any change under
+  `.github/`, `gate/`, `buildSrc/`, `gradle/` (verification metadata, wrapper), `scripts/`, a committed keystore,
+  or this file's hard rules, and any change to the sha256 of an existing dependency version (RJ, OQ183, 2026-10-15); RJ
+  merges these. A PR with a gate change waits for the owner to merge. A PR whose only gate-relevant change is the
+  `VERSION` bump (a release) is not a gate change for this list: the overseer may merge it once reviewed and
+  green, and the owner's approval at `publish` is what releases it. A `VERSION` change combined with any real gate
+  change is a gate change, and the owner merges it.
 
 ## Workflow
 
