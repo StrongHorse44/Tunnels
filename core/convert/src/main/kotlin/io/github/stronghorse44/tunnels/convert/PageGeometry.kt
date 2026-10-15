@@ -1,10 +1,9 @@
 package io.github.stronghorse44.tunnels.convert
 
-import kotlin.math.floor
-import kotlin.math.roundToInt
-import kotlin.math.sqrt
-
-/** Page sizes and placement for the PDF writer and renderer, in PDF points (1/72 inch). */
+/**
+ * Page sizes and placement for the PDF writer, in PDF points (1/72 inch). Render and sample sizes for the sealed decoder
+ * are `core:decoder`'s FrameSizing (audit M6).
+ */
 object PageGeometry {
     const val A4_WIDTH = 595
     const val A4_HEIGHT = 842
@@ -49,21 +48,6 @@ object PageGeometry {
         val w = imageWidth * scale
         val h = imageHeight * scale
         return Placement(pw, ph, (pw - w) / 2f, (ph - h) / 2f, w, h)
-    }
-
-    /** Bitmap size for rendering a page at [dpi], scaled down so it stays within [maxPixels]. */
-    fun renderSize(pageWidthPt: Int, pageHeightPt: Int, dpi: Int = 150, maxPixels: Long = 16_000_000L): Pair<Int, Int> {
-        val w = pageWidthPt.coerceAtLeast(1) * dpi / 72.0
-        val h = pageHeightPt.coerceAtLeast(1) * dpi / 72.0
-        val shrink = if (w * h > maxPixels) sqrt(maxPixels / (w * h)) else 1.0
-        return floor(w * shrink).roundToInt().coerceAtLeast(1) to floor(h * shrink).roundToInt().coerceAtLeast(1)
-    }
-
-    /** The power-of-two sample size that brings an image within [maxPixels] when decoded. */
-    fun sampleSize(width: Int, height: Int, maxPixels: Long = 24_000_000L): Int {
-        var s = 1
-        while (width.toLong() / s * (height.toLong() / s) > maxPixels) s *= 2
-        return s
     }
 
     /** Body text size and the size for each heading level. */
