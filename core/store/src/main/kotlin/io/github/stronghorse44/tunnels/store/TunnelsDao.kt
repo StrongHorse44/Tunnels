@@ -169,6 +169,10 @@ abstract class TunnelsDao {
     @Upsert
     abstract suspend fun putSetting(setting: SettingEntity)
 
+    /** Keys of the settings rows whose key starts with [prefix] (compared exactly, no LIKE wildcards). */
+    @Query("SELECT `key` FROM settings WHERE substr(`key`, 1, length(:prefix)) = :prefix")
+    abstract suspend fun settingKeysWithPrefix(prefix: String): List<String>
+
     @Query("DELETE FROM settings WHERE `key` = :key")
     abstract suspend fun deleteSetting(key: String)
 

@@ -60,6 +60,9 @@ object Presence {
     /** A device not seen for this many days is forgotten, like every event (rule 4). */
     const val RETENTION_DAYS = 30
 
+    /** Each network's book is the settings row with this prefix and the network's tag (`homenet.presence.<tag>`). */
+    const val SETTINGS_PREFIX = "homenet.presence."
+
     /** One device: first and last day seen (days since 1970), scans and days it was there, and the network's scan-day count when first seen. */
     data class Entry(val firstDay: Long, val lastDay: Long, val scans: Int, val days: Int, val scanDaysAtFirst: Int)
 
@@ -113,6 +116,22 @@ object Presence {
             .entries.sortedWith(compareByDescending<Map.Entry<String, Entry>> { it.value.lastDay }.thenBy { it.key })
             .take(MAX_ENTRIES).associate { it.key to it.value }
         return Book(scanDays, today, kept)
+    }
+
+    /**
+     * The stored row [text] with retention applied on [today] (rule 4, audit L5), for the store's routine maintenance:
+     * devices not seen for [RETENTION_DAYS] are forgotten even when the network is never scanned again, and the row goes
+     * (null) once no device is left and the network itself was last scanned more than [RETENTION_DAYS] ago. A row that is
+     * not a v1 book is returned as it is; a row with nothing to forget is returned unchanged.
+     */
+    fun prune(text: String, today: Long): String? {
+        if (!text.startsWith("v1;")) return text
+        val book = Book.parse(text)
+        if (book == Book.EMPTY) return text
+        val kept = book.entries.filterValues { today - it.lastDay <= RETENTION_DAYS }
+        if (kept.isEmpty() && today - book.lastScanDay > RETENTION_DAYS) return null
+        if (kept.size == book.entries.size) return text
+        return book.copy(entries = kept).encode()
     }
 
     enum class Pattern(val words: String) {

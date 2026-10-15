@@ -35,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +59,7 @@ import androidx.compose.ui.unit.sp
 import io.github.stronghorse44.tunnels.common.DepthBackground
 import io.github.stronghorse44.tunnels.common.GlassColors
 import io.github.stronghorse44.tunnels.common.GlassPanel
+import io.github.stronghorse44.tunnels.common.StatusColors
 import io.github.stronghorse44.tunnels.common.StratumColors
 import io.github.stronghorse44.tunnels.common.WellView
 import io.github.stronghorse44.tunnels.convert.ConvertActivity
@@ -72,8 +74,10 @@ import io.github.stronghorse44.tunnels.runtime.TunnelSummary
 import io.github.stronghorse44.tunnels.runtime.TunnelsRuntime
 import io.github.stronghorse44.tunnels.runtime.severityColor
 import io.github.stronghorse44.tunnels.store.EventEntity
+import io.github.stronghorse44.tunnels.store.StoreUnavailableException
 import io.github.stronghorse44.tunnels.store.TunnelsStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val Mono = FontFamily.Monospace
@@ -99,10 +103,18 @@ fun WellHome(
     var placeholder by remember { mutableStateOf<TunnelInfo?>(null) }
     val netOn = networkAllowed(context)
     val version = remember { versionName(context) }
+    // A store that cannot be opened now fails closed: nothing is deleted, and the home says so (audit M5).
+    var storeUnavailable by remember { mutableStateOf(false) }
     val runtime by produceState<TunnelsRuntime?>(null) {
-        value = runCatching { TunnelsRuntime.get(context) }.getOrNull()
+        value = runCatching { TunnelsRuntime.get(context) }
+            .onFailure { if (it is StoreUnavailableException) storeUnavailable = true }
+            .getOrNull()
     }
     val store = runtime?.store
+    val resetNotice by produceState<String?>(null, store) {
+        store?.resetNotice()?.collect { value = it }
+    }
+    val scope = rememberCoroutineScope()
     val summaries by produceState<Map<String, TunnelSummary>>(emptyMap(), store) {
         store?.dao?.findingCounts()?.collect { value = TunnelSummary.from(it) }
     }
@@ -144,6 +156,10 @@ fun WellHome(
                     fontFamily = Mono, fontSize = 10.sp, letterSpacing = 0.6.sp, color = GlassColors.dim,
                 )
             }
+            if (storeUnavailable) {
+                Spacer(Modifier.height(8.dp))
+                Text(TunnelsStore.UNAVAILABLE_MESSAGE + ".", color = StatusColors.blocker, fontSize = 13.sp)
+            }
             Spacer(Modifier.height(10.dp))
             HomeWell(summaries, ::live, ::enter, openFindings)
             Spacer(Modifier.height(6.dp))
@@ -154,6 +170,23 @@ fun WellHome(
             Console(version, netOn, keyLevel, lastInstall, lastUnzip, lastConvert, onOpenUpdates, onOpenBreaches, onOpenConvert)
             Spacer(Modifier.navigationBarsPadding().height(12.dp))
         }
+    }
+
+    if (resetNotice != null && store != null) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Store reset") },
+            text = {
+                Text(
+                    TunnelsStore.RESET_MESSAGE + ". Android no longer had the key that opened it, so Tunnels started a new, " +
+                        "empty store. The old one stays on the phone, unreadable, until you tap OK or for 30 days.",
+                    color = GlassColors.dim,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { scope.launch(Dispatchers.IO) { runCatching { store.dismissResetNotice() } } }) { Text("OK") }
+            },
+        )
     }
 
     placeholder?.let { t ->

@@ -154,7 +154,7 @@ class DeviceNotesStore(context: Context) {
     }
 
     companion object {
-        const val PRESENCE = "homenet.presence."
+        const val PRESENCE = Presence.SETTINGS_PREFIX
         const val LABELS = "homenet.labels."
         const val WATCH = "homenet.watch"
     }

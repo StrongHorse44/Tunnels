@@ -21,6 +21,8 @@ kotlin {
 dependencies {
     api(project(":core:model"))
     implementation(project(":core:engine"))
+    // Presence.prune for maintain(): plain Kotlin, no Android or network code (audit L5).
+    implementation(project(":core:lan"))
     api(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)

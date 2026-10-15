@@ -1,0 +1,131 @@
+package io.github.stronghorse44.tunnels.engine
+
+import java.io.File
+import java.io.IOException
+import java.time.Duration
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+
+/**
+ * When the store's wrapped key may be replaced, and when it may not (audit M5). The store is reset only on a definite
+ * loss of the old key: the wrapped-key file is gone, the Keystore no longer holds the wrapping key, or the Keystore says
+ * the key was permanently invalidated. Any other failure (a Keystore error, a keystore2 restart, a damaged or
+ * wrong-length file while the key is still there) may pass, so the store fails closed and nothing is deleted.
+ * Plain JVM: the Android adapter (`core/store` DatabaseKey) passes the Keystore calls in.
+ */
+object StoreKey {
+    /** Why the old key is gone for good. */
+    enum class Loss { FILE_ABSENT, ALIAS_MISSING, KEY_INVALIDATED }
+
+    sealed interface Outcome {
+        class Opened(val passphrase: ByteArray) : Outcome
+
+        /** The old key is gone: the store may be reset (its files set aside first, see [LostStoreFiles]). */
+        data class Lost(val why: Loss) : Outcome
+
+        /** Not readable now, for a reason that may pass: fail closed, delete nothing, try again later. [cause] is a class name or a shape. */
+        data class Unavailable(val cause: String) : Outcome
+    }
+
+    const val PASSPHRASE_LENGTH = 32
+    private const val TAG_LENGTH = 16
+
+    /** AES-GCM nonces Android Keystore produces are 12 bytes; up to 16 is accepted so a longer one never locks the store. */
+    private val IV_LENGTHS = 12..16
+
+    /** The wrapped file as `DatabaseKey` writes it: one IV-length byte, the IV, the 32-byte passphrase sealed with a 16-byte tag. */
+    fun wellFormed(data: ByteArray): Boolean {
+        if (data.isEmpty()) return false
+        val ivLength = data[0].toInt()
+        return ivLength in IV_LENGTHS && data.size == 1 + ivLength + PASSPHRASE_LENGTH + TAG_LENGTH
+    }
+
+    /**
+     * Reads the passphrase. [fileExists], [aliasPresent], [readFile] and [unwrap] are the platform calls; [isInvalidated]
+     * says whether a failure of [unwrap] is the Keystore's "permanently invalidated". Only [Outcome.Lost] allows a reset.
+     */
+    fun read(
+        fileExists: () -> Boolean,
+        aliasPresent: () -> Boolean,
+        readFile: () -> ByteArray,
+        unwrap: (ByteArray) -> ByteArray,
+        isInvalidated: (Throwable) -> Boolean,
+    ): Outcome {
+        val exists = try {
+            fileExists()
+        } catch (e: Exception) {
+            return Outcome.Unavailable(e.javaClass.simpleName)
+        }
+        if (!exists) return Outcome.Lost(Loss.FILE_ABSENT)
+        val alias = try {
+            aliasPresent()
+        } catch (e: Exception) {
+            return Outcome.Unavailable(e.javaClass.simpleName)
+        }
+        if (!alias) return Outcome.Lost(Loss.ALIAS_MISSING)
+        val data = try {
+            readFile()
+        } catch (e: Exception) {
+            return Outcome.Unavailable(e.javaClass.simpleName)
+        }
+        if (!wellFormed(data)) return Outcome.Unavailable("wrapped key of ${data.size} bytes")
+        val passphrase = try {
+            unwrap(data)
+        } catch (e: Exception) {
+            return if (isInvalidated(e)) Outcome.Lost(Loss.KEY_INVALIDATED) else Outcome.Unavailable(e.javaClass.simpleName)
+        }
+        if (passphrase.size != PASSPHRASE_LENGTH) return Outcome.Unavailable("passphrase of ${passphrase.size} bytes")
+        return Outcome.Opened(passphrase)
+    }
+}
+
+/**
+ * A reset store's old files, kept aside instead of deleted (audit M5): `tunnels.db`, `-wal`, `-shm` and `-journal` are
+ * renamed to `tunnels.db.lost-<UTC stamp>` (plus the same suffix). Nothing can read them without the lost key; they are
+ * kept until the user dismisses the reset notice or for [KEEP], whichever comes first (rule 4).
+ */
+object LostStoreFiles {
+    val KEEP: Duration = Duration.ofDays(30)
+
+    private val SUFFIXES = listOf("", "-wal", "-shm", "-journal")
+    private val STAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'").withZone(ZoneOffset.UTC)
+
+    fun stamp(at: Instant): String = STAMP.format(at)
+
+    private fun pattern(dbName: String) = Regex(Regex.escape("$dbName.lost-") + "(\\d{8}T\\d{6}Z)(-\\d+)?(-wal|-shm|-journal)?")
+
+    /**
+     * Renames [dbName]'s files in [dir] aside, stamped [at]. Returns the renamed files (empty when there was no store).
+     * Throws [IOException] when a file cannot be moved; then nothing was deleted, and files already moved stay moved.
+     */
+    fun setAside(dir: File, dbName: String, at: Instant): List<File> {
+        val present = SUFFIXES.map { File(dir, dbName + it) }.filter { it.exists() }
+        if (present.isEmpty()) return emptyList()
+        var base = "$dbName.lost-${stamp(at)}"
+        var n = 1
+        while (SUFFIXES.any { File(dir, base + it).exists() }) base = "$dbName.lost-${stamp(at)}-${n++}"
+        return present.map { file ->
+            val target = File(dir, base + file.name.removePrefix(dbName))
+            if (!file.renameTo(target)) throw IOException("Could not set aside ${file.name}")
+            target
+        }
+    }
+
+    /** The lost files in [dir], with the time each was set aside. */
+    fun present(dir: File, dbName: String): List<Pair<File, Instant>> {
+        val regex = pattern(dbName)
+        return dir.listFiles().orEmpty().mapNotNull { f ->
+            val m = regex.matchEntire(f.name) ?: return@mapNotNull null
+            val at = runCatching { Instant.from(STAMP.parse(m.groupValues[1])) }.getOrNull() ?: return@mapNotNull null
+            f to at
+        }
+    }
+
+    /** Deletes lost files set aside more than [KEEP] before [now]. Returns how many went. */
+    fun prune(dir: File, dbName: String, now: Instant): Int =
+        present(dir, dbName).filter { (_, at) -> at.isBefore(now.minus(KEEP)) }.count { (f, _) -> f.delete() }
+
+    /** Deletes every lost file (the user dismissed the notice). */
+    fun discardAll(dir: File, dbName: String): Int = present(dir, dbName).count { (f, _) -> f.delete() }
+}
