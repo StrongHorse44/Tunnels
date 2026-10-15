@@ -40,8 +40,18 @@ class DecodeFailure(val status: DecodeStatus) : Exception(status.name)
 /** The PDF has more pages than Tunnels renders; nothing was rendered. */
 class TooManyPagesException(val pageCount: Int, val maxPages: Int) : Exception("too many pages")
 
-/** What Device checks shows. [heic] is null when the reader didn't start; [heicStatus] says how canDecode(HEIC) ended. */
-data class SelfTest(val isolated: Boolean, val noAppData: Boolean, val heic: Boolean?, val heicStatus: DecodeStatus?) {
+/**
+ * What Device checks shows. [heic] is null when the reader didn't start; [heicStatus] says how canDecode(HEIC) ended
+ * (or ended earlier in this app process: a refusal is remembered). [busy] means a conversion held the reader, so
+ * nothing was asked.
+ */
+data class SelfTest(
+    val isolated: Boolean,
+    val noAppData: Boolean,
+    val heic: Boolean?,
+    val heicStatus: DecodeStatus?,
+    val busy: Boolean = false,
+) {
     val sealed: Boolean get() = isolated && noAppData
 }
 
@@ -72,6 +82,7 @@ class DecoderClient(
     private val timeouts: DecoderTimeouts = DecoderTimeouts.DEFAULT,
     private val policy: FailurePolicy = SHARED_POLICY,
     private val processSuffix: String = PROCESS_SUFFIX,
+    private val heicVerdict: HeicVerdict = SHARED_HEIC_VERDICT,
 ) {
     private val app: Context = context.applicationContext
     private val sessions = CopyOnWriteArraySet<Session>()
@@ -83,9 +94,15 @@ class DecoderClient(
     internal val binds = AtomicInteger()
     internal val regionMaps = AtomicInteger()
 
+    /** Test hook: runs on the job's thread after its session is registered and before it binds (the abort race). */
+    @Volatile
+    internal var beforeBindForTest: (() -> Unit)? = null
+
     /** A host-owned software ARGB_8888 bitmap within [limits]. Throws DecodeFailure. */
     fun decodeImage(file: File, kind: ImageKind, limits: FrameLimits = FrameLimits.IMAGE): Bitmap {
         val key = admit(file)
+        // Refused once in this app process, HEIC is refused again without starting a reader (not counted).
+        if (kind == ImageKind.HEIC && heicVerdict.refusal != null) fail(DecodeStatus.UNSUPPORTED)
         acquire(timeouts.busyWaitMs)
         try {
             return counted(key) {
@@ -95,7 +112,7 @@ class DecoderClient(
                     val region = s.region()
                     val source = s.source(file)
                     val reply = s.call(timeouts.workCallMs) { it.decodeImage(source, kind.wire, FrameRegion(region), limits.maxPixels, limits.maxSide) }
-                    val frame = frameOf(ReplyCheck.frame(reply.wire(), limits, FrameLimits.REGION_BYTES))
+                    val frame = frameOf(ReplyCheck.frame(reply, limits, FrameLimits.REGION_BYTES))
                     // The job is done: the process is killed before the host reads its output.
                     s.stop()
                     s.read(frame)
@@ -120,7 +137,7 @@ class DecoderClient(
                     s.region()
                     val source = s.source(file)
                     val reply = s.call(timeouts.workCallMs) { it.openPdf(source) }
-                    when (val opened = ReplyCheck.pdfOpen(reply.wire(), maxPages)) {
+                    when (val opened = ReplyCheck.pdfOpen(reply, maxPages)) {
                         is PdfOpenResult.Opened -> Pages(key, s, opened.pageCount).also { handedOver = true }
                         is PdfOpenResult.TooManyPages -> throw TooManyPagesException(opened.pageCount, maxPages)
                         is PdfOpenResult.Failed -> throw DecodeFailure(opened.status)
@@ -135,8 +152,10 @@ class DecoderClient(
     }
 
     /**
-     * Binds a fresh reader and asks it whether it is sealed and whether it can read HEIC, then ends it. Within
-     * [DecoderTimeouts.selfTestMs] in all; sends no file and never throws.
+     * Binds a fresh reader and asks it whether it is sealed and whether it can read HEIC, then ends it. The start-up
+     * (the wait for the job lock, bind, version and self check) has [DecoderTimeouts.selfTestMs]; the HEIC probe then gets
+     * [DecoderTimeouts.probeCallMs], the same as in a conversion, so both reach the same verdict. A conversion holding
+     * the reader gives a BUSY answer. Sends no file and never throws.
      */
     fun selfTest(): SelfTest {
         checkWorker()
@@ -145,9 +164,9 @@ class DecoderClient(
         fun left(cap: Long): Long = minOf(cap, deadline - SystemClock.elapsedRealtime())
         if (!declaredSealed()) return none
         try {
-            acquire(left(timeouts.busyWaitMs))
-        } catch (_: DecodeFailure) {
-            return none
+            acquire(left(timeouts.selfTestBusyWaitMs))
+        } catch (e: DecodeFailure) {
+            return if (e.status == DecodeStatus.BUSY) none.copy(busy = true) else none
         }
         try {
             val s = session()
@@ -155,11 +174,7 @@ class DecoderClient(
                 s.bind(left(timeouts.bindMs))
                 if (s.call(left(timeouts.quickCallMs)) { it.protocolVersion() } != PROTOCOL_VERSION) return none
                 val bits = s.call(left(timeouts.quickCallMs)) { it.selfCheck() }
-                val heic = try {
-                    ReplyCheck.canDecode(s.call(left(timeouts.probeCallMs)) { it.canDecode(ImageKind.HEIC.wire) })
-                } catch (e: DecodeFailure) {
-                    e.status
-                }
+                val heic = heicVerdict.refusal ?: probeHeic(s)
                 return SelfTest(SelfCheckBits.isolated(bits), SelfCheckBits.noAppData(bits), heic == DecodeStatus.OK, heic)
             } catch (_: DecodeFailure) {
                 return none
@@ -221,13 +236,21 @@ class DecoderClient(
 
     /** HEIC is decoded only when this process decodes the built-in sample; otherwise it is refused (RJ's M6-Q1). */
     private fun requireHeic(s: Session) {
+        val answer = probeHeic(s)
+        if (answer == DecodeStatus.CANCELLED) fail(DecodeStatus.CANCELLED)
+        // Any other answer than OK, a crash of the sealed process included, refuses HEIC. UNSUPPORTED is not counted.
+        if (answer != DecodeStatus.OK) fail(DecodeStatus.UNSUPPORTED)
+    }
+
+    /** canDecode(HEIC) in [s]: OK, UNSUPPORTED or how the call failed. A refusal is remembered for this app process. */
+    private fun probeHeic(s: Session): DecodeStatus {
         val answer = try {
             ReplyCheck.canDecode(s.call(timeouts.probeCallMs) { it.canDecode(ImageKind.HEIC.wire) })
         } catch (e: DecodeFailure) {
-            if (e.status == DecodeStatus.CANCELLED) throw e
-            DecodeStatus.UNSUPPORTED
+            e.status
         }
-        if (answer != DecodeStatus.OK) fail(DecodeStatus.UNSUPPORTED)
+        heicVerdict.record(answer)
+        return answer
     }
 
     /** The service must be ours, declared isolated, not exported, in its own `:decoder` process. */
@@ -278,8 +301,6 @@ class DecoderClient(
 
     private fun fail(status: DecodeStatus): Nothing = throw DecodeFailure(status)
 
-    private fun DecodeReply?.wire(): WireReply =
-        if (this == null) WireReply(status = -1) else WireReply(status, width, height, stride, colorSpace, flags, pageCount)
 
     // ---- One sealed process ----
 
@@ -299,7 +320,7 @@ class DecoderClient(
                     val reply = s.call(timeouts.workCallMs) {
                         it.renderPdfPage(index, FrameLimits.PDF_DPI, FrameRegion(region), FrameLimits.PAGE.maxPixels, FrameLimits.PAGE.maxSide)
                     }
-                    s.read(frameOf(ReplyCheck.frame(reply.wire(), FrameLimits.PAGE, FrameLimits.REGION_BYTES))).apply { setHasAlpha(false) }
+                    s.read(frameOf(ReplyCheck.frame(reply, FrameLimits.PAGE, FrameLimits.REGION_BYTES))).apply { setHasAlpha(false) }
                 }
             } catch (e: DecodeFailure) {
                 failed = true
@@ -330,9 +351,16 @@ class DecoderClient(
 
         @Volatile
         private var pending: Future<*>? = null
+
+        /** Guards [bound] against [stopped]: an abort either comes before the bind (which then refuses) or unbinds it. */
+        private val bindLock = Any()
         private var bound = false
+
+        @Volatile
         private var binder: IBinder? = null
-        private var remote: IIsolatedDecoder? = null
+
+        @Volatile
+        private var remote: RawDecoder? = null
         private var memory: SharedMemory? = null
         private var sourceFd: ParcelFileDescriptor? = null
 
@@ -361,12 +389,18 @@ class DecoderClient(
         /** A new isolated process: the instance name is a counter, never a file name (process names are visible to ps). */
         fun bind(timeoutMs: Long) {
             if (timeoutMs <= 0) fail(DecodeStatus.UNAVAILABLE)
-            binds.incrementAndGet()
-            bound = true
-            val ok = try {
-                app.bindIsolatedService(Intent().setComponent(component), Context.BIND_AUTO_CREATE, "j" + INSTANCES.incrementAndGet(), CALLBACKS, connection)
-            } catch (_: Exception) {
-                false
+            beforeBindForTest?.invoke()
+            val ok = synchronized(bindLock) {
+                if (stopped.get()) fail(DecodeStatus.CANCELLED)
+                binds.incrementAndGet()
+                try {
+                    app.bindIsolatedService(Intent().setComponent(component), Context.BIND_AUTO_CREATE, "j" + INSTANCES.incrementAndGet(), CALLBACKS, connection)
+                } catch (_: Exception) {
+                    false
+                } finally {
+                    // Set once the call has returned: a binding that returned false must still be unbound.
+                    bound = true
+                }
             }
             if (!ok) fail(DecodeStatus.UNAVAILABLE)
             val b = try {
@@ -386,19 +420,18 @@ class DecoderClient(
                 fail(DecodeStatus.UNAVAILABLE)
             }
             binder = b
-            val svc = IIsolatedDecoder.Stub.asInterface(b)
-            // A local Stub means the service runs in this very process: not sealed.
-            if (svc == null || svc is IIsolatedDecoder.Stub) fail(DecodeStatus.UNAVAILABLE)
-            remote = svc
+            // A local interface means the service runs in this very process: not sealed.
+            if (b.queryLocalInterface(RawDecoder.DESCRIPTOR) != null) fail(DecodeStatus.UNAVAILABLE)
+            remote = RawDecoder(b)
         }
 
         /**
          * One remote call on a worker thread, waited for at most [timeoutMs]. A timeout or an abort ends the process at
          * once (the worker may stay blocked until it dies; it holds no lock). Any exception becomes a status: a dead
-         * process is CRASHED, anything else (a malformed reply, an exception header with text) is BAD_REPLY, and its
-         * message is neither shown nor logged.
+         * process is CRASHED, anything else (a malformed reply: any exception code or reply header, which RawDecoder never
+         * acts on) is BAD_REPLY.
          */
-        fun <T> call(timeoutMs: Long, block: (IIsolatedDecoder) -> T): T {
+        fun <T> call(timeoutMs: Long, block: (RawDecoder) -> T): T {
             val svc = remote
             if (aborted || stopped.get() || svc == null) fail(DecodeStatus.CANCELLED)
             if (timeoutMs <= 0) {
@@ -491,7 +524,7 @@ class DecoderClient(
             pending?.cancel(true)
             connected.completeExceptionally(DecodeFailure(DecodeStatus.CANCELLED))
             binder?.let { b -> runCatching { b.unlinkToDeath(death, 0) } }
-            if (bound) runCatching { app.unbindService(connection) }
+            synchronized(bindLock) { if (bound) runCatching { app.unbindService(connection) } }
         }
 
         /** Stops the process and closes the region and the source. Called by the job's own thread. */
@@ -512,6 +545,9 @@ class DecoderClient(
 
         /** Process-wide and in memory only: restarting Tunnels clears it. */
         val SHARED_POLICY = FailurePolicy { SystemClock.elapsedRealtime() }
+
+        /** Process-wide and in memory only: a HEIC refusal lasts until Tunnels restarts, which probes again. */
+        val SHARED_HEIC_VERDICT = HeicVerdict()
 
         private val JOBS = Semaphore(1, true)
         private val INSTANCES = AtomicLong()

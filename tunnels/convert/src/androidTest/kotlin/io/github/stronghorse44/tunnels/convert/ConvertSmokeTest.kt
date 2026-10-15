@@ -46,7 +46,7 @@ class ConvertSmokeTest {
         val pdf = File(dir, "doc.pdf")
         val pages = pdf.outputStream().use { DocumentPdf.write(doc, it) }
         assertTrue("200 wrapped paragraphs plus a page break take several pages, got $pages", pages >= 4)
-        assertEquals(pages, PdfPages.pageCount(client(), pdf))
+        assertEquals(pages, client().openPdf(pdf).use { it.pageCount })
 
         val images = mutableListOf<File>()
         val rendered = PdfPages.render(client(), pdf, OutputFormat.PNG, openPage = { i, n ->
@@ -72,7 +72,7 @@ class ConvertSmokeTest {
 
         val pdf = File(dir, "pic.pdf")
         pdf.outputStream().use { Images.toPdf(client(), png, InputFormat.PNG, it) }
-        assertEquals(1, PdfPages.pageCount(client(), pdf))
+        assertEquals(1, client().openPdf(pdf).use { it.pageCount })
 
         val jpeg = ByteArrayOutputStream().also { Images.toImage(client(), png, InputFormat.PNG, OutputFormat.JPEG, it) }.toByteArray()
         val back = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)

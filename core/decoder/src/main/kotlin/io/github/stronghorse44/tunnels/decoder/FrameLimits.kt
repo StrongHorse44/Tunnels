@@ -42,15 +42,20 @@ data class DecoderTimeouts(
     val bindMs: Long = 10_000,
     /** protocolVersion and selfCheck. */
     val quickCallMs: Long = 5_000,
-    /** canDecode: it decodes the built-in HEIC sample, which may wait on a media service the sealed process is refused. */
-    val probeCallMs: Long = 30_000,
+    /**
+     * canDecode: it decodes the built-in HEIC sample, which may wait on a media service the sealed process is refused.
+     * One value for Convert's jobs and Device checks' self test, so both reach the same verdict.
+     */
+    val probeCallMs: Long = 15_000,
     /** decodeImage, openPdf and renderPdfPage, each. */
     val workCallMs: Long = 30_000,
     val closeMs: Long = 5_000,
     /** How long a second caller waits for the one job at a time before it gets BUSY. */
     val busyWaitMs: Long = 60_000,
-    /** The whole of selfTest(), Device checks' probe. */
+    /** selfTest()'s start-up (the wait for the job lock, bind, version and self check); the HEIC probe then gets [probeCallMs]. */
     val selfTestMs: Long = 15_000,
+    /** How long selfTest() waits for a conversion to finish before it answers BUSY. */
+    val selfTestBusyWaitMs: Long = 1_000,
 ) {
     companion object {
         val DEFAULT = DecoderTimeouts()

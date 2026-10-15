@@ -9,7 +9,8 @@ package io.github.stronghorse44.tunnels.decoder
  * Held in memory only; nothing is stored. Thread-safe.
  */
 class FailurePolicy(private val clock: () -> Long) {
-    private val perFile = object : LinkedHashMap<String, Int>() {
+    // Access order: a file that keeps being asked about or failing stays; the least recently seen one is forgotten.
+    private val perFile = object : LinkedHashMap<String, Int>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Int>?) = size > MAX_FILES
     }
     private val recent = ArrayDeque<Long>()
@@ -43,6 +44,6 @@ class FailurePolicy(private val clock: () -> Long) {
         const val WINDOW_MS = 10L * 60 * 1000
 
         /** Bounds the per-file map; a forgotten file is a new staged copy in practice (each open stages anew). */
-        private const val MAX_FILES = 256
+        const val MAX_FILES = 256
     }
 }

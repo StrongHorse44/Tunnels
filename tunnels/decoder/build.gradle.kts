@@ -4,8 +4,8 @@ plugins {
 }
 
 // The sealed decoder (audit M6): an isolatedProcess service that decodes images and renders PDF pages for Convert, and
-// the host client that talks to it. It depends on core:decoder only, so the sealed process cannot link the store,
-// staging or runtime code.
+// the host client that talks to it. It depends on core:decoder only, so the service's own code cannot call the store,
+// staging or runtime code. What protects Tunnels' data from the process is its isolated uid and SELinux domain.
 android {
     namespace = "io.github.stronghorse44.tunnels.decoder"
     compileSdk = 36

@@ -47,10 +47,11 @@ class DecoderClientTest {
 
     private fun policy() = FailurePolicy { SystemClock.elapsedRealtime() }
 
-    private fun real(policy: FailurePolicy = policy()) = DecoderClient(context, policy = policy)
+    // A fresh HEIC verdict each time, so every self test really probes (the app shares one per process).
+    private fun real(policy: FailurePolicy = policy(), heic: HeicVerdict = HeicVerdict()) = DecoderClient(context, policy = policy, heicVerdict = heic)
 
     private fun test(service: Class<*>, policy: FailurePolicy = policy(), timeouts: DecoderTimeouts = DecoderTimeouts.DEFAULT) =
-        DecoderClient(context, ComponentName(context, service), timeouts, policy, ":decodertest")
+        DecoderClient(context, ComponentName(context, service), timeouts, policy, ":decodertest", HeicVerdict())
 
     private fun file(name: String, bytes: ByteArray) = File(dir, name).apply { writeBytes(bytes) }
 
@@ -238,8 +239,11 @@ class DecoderClientTest {
         assertEquals(DecodeStatus.DAMAGED, status { real().openPdf(asset("truncated.pdf")).close() })
     }
 
-    /** A PNG whose IHDR claims [w] x [h] (CRC computed), followed by a tiny IDAT and IEND. */
-    private fun pngHeader(w: Int, h: Int): ByteArray {
+    /**
+     * A PNG whose IHDR claims [w] x [h] (CRC computed), followed by a tiny IDAT and IEND. RGBA by default; 1-bit grey keeps
+     * a big header's byte size small, so no codec limit on bytes refuses it before the service's own check sees it.
+     */
+    private fun pngHeader(w: Int, h: Int, bitDepth: Int = 8, colourType: Int = 6): ByteArray {
         val out = ByteArrayOutputStream()
         out.write(byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte(), 13, 10, 26, 10))
         fun chunk(type: String, data: ByteArray) {
@@ -248,8 +252,8 @@ class DecoderClientTest {
             out.write(td)
             out.write(ByteBuffer.allocate(4).putInt(CRC32().apply { update(td) }.value.toInt()).array())
         }
-        // Bit depth 8, colour type 6 (RGBA), deflate, adaptive filtering, no interlace.
-        chunk("IHDR", ByteBuffer.allocate(13).putInt(w).putInt(h).put(byteArrayOf(8, 6, 0, 0, 0)).array())
+        // Bit depth, colour type, deflate, adaptive filtering, no interlace.
+        chunk("IHDR", ByteBuffer.allocate(13).putInt(w).putInt(h).put(byteArrayOf(bitDepth.toByte(), colourType.toByte(), 0, 0, 0)).array())
         val deflater = Deflater().apply { setInput(ByteArray(64)); finish() }
         val z = ByteArray(128).let { buf -> buf.copyOf(deflater.deflate(buf)) }
         chunk("IDAT", z)
@@ -267,6 +271,11 @@ class DecoderClientTest {
         assertTrue("$huge", huge == DecodeStatus.TOO_LARGE || huge == DecodeStatus.DAMAGED)
         // 70000 x 10 is small enough for every codec but over the side cap: only the service's own check refuses it.
         assertEquals(DecodeStatus.TOO_LARGE, status { real().decodeImage(file("wide.png", pngHeader(70_000, 10)), ImageKind.PNG) })
+        // The 2^28 pixel cap, on 1-bit grey headers (16384 x 16384 is 32 MiB of rows, so no codec refuses it first):
+        // over it is TOO_LARGE; exactly at it passes the check and then fails on the missing pixel data (DAMAGED).
+        assertEquals(DecodeStatus.TOO_LARGE, status { real().decodeImage(file("cap1.png", pngHeader(20_000, 20_000, 1, 0)), ImageKind.PNG) })
+        assertEquals(DecodeStatus.TOO_LARGE, status { real().decodeImage(file("cap2.png", pngHeader(16_385, 16_384, 1, 0)), ImageKind.PNG) })
+        assertEquals(DecodeStatus.DAMAGED, status { real().decodeImage(file("cap3.png", pngHeader(16_384, 16_384, 1, 0)), ImageKind.PNG) })
         assertReaderStillWorks()
     }
 
@@ -279,7 +288,8 @@ class DecoderClientTest {
     // 10
     @Test
     fun heicAnswersAgree() {
-        val t = real().selfTest()
+        val verdict = HeicVerdict()
+        val t = real(heic = verdict).selfTest()
         // Whatever canDecode did (on the API 36 emulator the sealed process dies on HEIC), no reader process is left.
         assertGone("${context.packageName}:decoder")
         val heic = asset("gradient.heic")
@@ -291,6 +301,11 @@ class DecoderClientTest {
             // never decoded anywhere else. A timeout or any other answer still fails.
             assertTrue("canDecode says this process can't read HEIC: ${t.heicStatus}", t.heicStatus == DecodeStatus.UNSUPPORTED || t.heicStatus == DecodeStatus.CRASHED)
             assertEquals(DecodeStatus.UNSUPPORTED, e.status)
+            // The refusal is remembered for the process: the next HEIC file is refused without starting a reader.
+            val again = real(heic = verdict)
+            assertEquals(DecodeStatus.UNSUPPORTED, status { again.decodeImage(heic, ImageKind.HEIC) })
+            assertEquals("refused from memory, without binding", 0, again.binds.get())
+            assertEquals("Device checks reads the remembered refusal", t.heicStatus, real(heic = verdict).selfTest().heicStatus)
             return
         }
         Log.i(TAG, "HEIC in the sealed process: canDecode ${t.heicStatus}, decodeImage OK")
@@ -373,6 +388,14 @@ class DecoderClientTest {
         }
         assertEquals("never read", 0, unprotected.regionMaps.get())
 
+        // Exception headers the generated proxy would have acted on (EX_PARCELABLE, a StrictMode reply header): the host
+        // reads the first int only, so each is BAD_REPLY and nothing of the service's is unparcelled or thrown here.
+        val parcelable = test(ExceptionHeaderDecoderService::class.java, policy)
+        assertEquals(DecodeStatus.BAD_REPLY, status { parcelable.decodeImage(file("exc1.png", f.readBytes()), ImageKind.PNG) })
+        val strictMode = test(ExceptionHeaderDecoderService::class.java, policy)
+        assertEquals(DecodeStatus.BAD_REPLY, status { strictMode.decodeImage(file("exc2.png", f.readBytes()), ImageKind.JPEG) })
+        assertEquals("never read", 0, parcelable.regionMaps.get() + strictMode.regionMaps.get())
+
         // Counted: the first file's second bad reply refuses it.
         assertEquals(DecodeStatus.BAD_REPLY, status { test(LyingDecoderService::class.java, policy).decodeImage(f, ImageKind.PNG) })
         assertEquals(DecodeStatus.REFUSED_FILE, policy.refusal(f.canonicalPath))
@@ -394,6 +417,36 @@ class DecoderClientTest {
         assertEquals(DecodeStatus.CANCELLED, status { aborted.decodeImage(f, ImageKind.PNG) })
         assertReaderStillWorks()
         assertEquals(401, real().decodeImage(f, ImageKind.PNG).width)
+    }
+
+    @Test
+    fun theHandWrittenProxyUsesTheStubsDescriptor() {
+        val stub = object : TestDecoderStub() {
+            override fun decodeImage(source: ParcelFileDescriptor?, kind: Int, frame: FrameRegion?, maxPixels: Int, maxSide: Int): DecodeReply =
+                reply(DecodeStatus.BAD_REQUEST)
+        }
+        assertEquals(stub.interfaceDescriptor, RawDecoder.DESCRIPTOR)
+    }
+
+    @Test
+    fun anAbortJustBeforeTheBindLeavesNoProcess() {
+        val client = test(HangingDecoderService::class.java)
+        // The race: abort() lands after the job registered its session and before it binds.
+        client.beforeBindForTest = { client.abort() }
+        assertEquals(DecodeStatus.CANCELLED, status { client.decodeImage(png(), ImageKind.PNG) })
+        assertEquals("never bound", 0, client.binds.get())
+        assertGone("${context.packageName}:decodertest")
+    }
+
+    @Test
+    fun aSelfTestDuringAConversionIsBusy() {
+        real().openPdf(pdf(3)).use {
+            val start = SystemClock.elapsedRealtime()
+            val t = real().selfTest()
+            assertTrue("busy: $t", t.busy)
+            assertTrue("answered without waiting for the conversion", SystemClock.elapsedRealtime() - start < 5_000)
+        }
+        assertFalse(real().selfTest().busy)
     }
 
     @Test

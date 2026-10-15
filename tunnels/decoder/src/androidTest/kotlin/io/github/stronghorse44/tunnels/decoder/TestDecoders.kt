@@ -3,6 +3,7 @@ package io.github.stronghorse44.tunnels.decoder
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
+import android.os.Parcel
 import android.os.ParcelFileDescriptor
 import android.os.Process
 import android.system.OsConstants
@@ -66,5 +67,51 @@ class LyingDecoderService : Service() {
                 }
                 else -> reply(DecodeStatus.BAD_REQUEST)
             }
+    }
+}
+
+/**
+ * Answers decodeImage with a reply header the AIDL-generated proxy would act on (audit M6 review, MEDIUM-1): PNG gets
+ * an EX_PARCELABLE exception naming a boot-classpath Parcelable, JPEG a StrictMode reply header with violation records
+ * followed by an otherwise valid reply. The host must read the first int only and answer BAD_REPLY.
+ */
+class ExceptionHeaderDecoderService : Service() {
+    override fun onBind(intent: Intent?): IBinder = object : TestDecoderStub() {
+        override fun decodeImage(source: ParcelFileDescriptor?, kind: Int, frame: FrameRegion?, maxPixels: Int, maxSide: Int): DecodeReply =
+            reply(DecodeStatus.BAD_REQUEST)
+
+        override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
+            if (code != IIsolatedDecoder.Stub.TRANSACTION_decodeImage || reply == null) return super.onTransact(code, data, reply, flags)
+            data.enforceInterface(RawDecoder.DESCRIPTOR)
+            if (data.readInt() != 0) ParcelFileDescriptor.CREATOR.createFromParcel(data).close()
+            when (ImageKind.fromWire(data.readInt())) {
+                ImageKind.PNG -> {
+                    reply.writeInt(EX_PARCELABLE)
+                    reply.writeString("not for the host")
+                    reply.writeInt(0)
+                    reply.writeInt(0)
+                    reply.writeString("android.app.RecoverableSecurityException")
+                }
+                else -> {
+                    reply.writeInt(EX_HAS_STRICTMODE_REPLY_HEADER)
+                    reply.writeInt(16)
+                    reply.writeInt(1)
+                    reply.writeString("java.lang.Throwable")
+                    reply.writeInt(0)
+                    // What would follow the header: no exception and a well-formed 10 x 10 frame.
+                    reply.writeInt(0)
+                    reply.writeInt(1)
+                    reply.writeInt(ReplyParcel.DECODE_REPLY_SIZE)
+                    for (v in intArrayOf(DecodeStatus.OK.wire, 10, 10, 40, 0, 0, 0)) reply.writeInt(v)
+                }
+            }
+            return true
+        }
+    }
+
+    private companion object {
+        // Parcel's values (hidden constants).
+        const val EX_PARCELABLE = -9
+        const val EX_HAS_STRICTMODE_REPLY_HEADER = -128
     }
 }

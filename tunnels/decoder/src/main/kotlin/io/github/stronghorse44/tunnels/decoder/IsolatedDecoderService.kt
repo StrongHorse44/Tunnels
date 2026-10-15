@@ -103,10 +103,7 @@ class IsolatedDecoderService : Service() {
                 if (!kind.matches(info.mimeType)) throw Refused(DecodeStatus.DAMAGED)
                 val w = info.size.width
                 val h = info.size.height
-                if (w <= 0 || h <= 0) throw Refused(DecodeStatus.DAMAGED)
-                if (w.toLong() * h > FrameLimits.MAX_SOURCE_PIXELS || w > FrameLimits.MAX_SOURCE_SIDE || h > FrameLimits.MAX_SOURCE_SIDE) {
-                    throw Refused(DecodeStatus.TOO_LARGE)
-                }
+                SourceCheck.header(w, h)?.let { throw Refused(it) }
                 decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
                 val sample = FrameSizing.sampleSize(w, h, maxPixels, maxSide)
                 if (sample > 1) decoder.setTargetSampleSize(sample)

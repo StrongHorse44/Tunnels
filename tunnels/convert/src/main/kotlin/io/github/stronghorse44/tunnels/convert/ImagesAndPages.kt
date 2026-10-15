@@ -96,8 +96,6 @@ internal object PdfPages {
         return job.use(block)
     }
 
-    fun pageCount(client: DecoderClient, file: File): Int = open(client, file) { it.pageCount }
-
     /** Renders every page, asking [openPage] for each page's output (index from 0, page count). Returns the page count. */
     fun render(
         client: DecoderClient,

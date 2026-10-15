@@ -18,5 +18,10 @@
             android:exported="false"
             android:isolatedProcess="true"
             android:process=":decodertest" />
+        <service
+            android:name="io.github.stronghorse44.tunnels.decoder.ExceptionHeaderDecoderService"
+            android:exported="false"
+            android:isolatedProcess="true"
+            android:process=":decodertest" />
     </application>
 </manifest>

@@ -246,5 +246,11 @@ class DeviceChecksTest {
             assertEquals(failText, r.detail)
             assertEquals(null, r.action)
         }
+
+        // A conversion holding the reader is a note, not a failure.
+        val busy = DeviceChecks.sealedReader(isolated = false, noAppData = false, heic = null, busy = true)
+        assertEquals(CheckStatus.NOTE, busy.status)
+        assertEquals("Tunnels' file reader is busy with a conversion. Try again in a moment.", busy.detail)
+        assertEquals(null, busy.action)
     }
 }

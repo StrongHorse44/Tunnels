@@ -6,8 +6,8 @@ import android.os.SharedMemory
 
 /**
  * The host-created, fixed-size shared memory region the service writes one frame into. It travels host to service
- * only: the host never unparcels anything from the service except DecodeReply's ints. (A wrapper, so the AIDL needs
- * nothing from the SDK's declaration of SharedMemory.)
+ * only. The host reads its replies by hand (RawDecoder): an exception code that must be 0, then ints, and nothing else,
+ * never `readException`. (A wrapper, so the AIDL needs nothing from the SDK's declaration of SharedMemory.)
  */
 class FrameRegion(val memory: SharedMemory) : Parcelable {
     override fun describeContents(): Int = Parcelable.CONTENTS_FILE_DESCRIPTOR

@@ -88,7 +88,7 @@ object DeviceCheckRunner {
                     DeviceChecks.backgroundChecks(settings, status, scheduled, notifications, unrestricted, now),
                     // Asking the biometric service needs USE_BIOMETRIC (declared by the app); never let a probe throw.
                     DeviceChecks.appLock(runCatching { AppLock.canLock(app) }.getOrDefault(false), runCatching { AppLock.isEnabled(app) }.getOrDefault(false)),
-                    DeviceChecks.sealedReader(sealed?.isolated == true, sealed?.noAppData == true, sealed?.heic),
+                    DeviceChecks.sealedReader(sealed?.isolated == true, sealed?.noAppData == true, sealed?.heic, busy = sealed?.busy == true),
                 ),
             ),
             CheckGroup("Traffic sessions", listOf(DeviceChecks.vpn(vpnConnected, vpnOurs), DeviceChecks.privateDns(dns))),

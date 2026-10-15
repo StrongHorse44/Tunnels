@@ -64,4 +64,45 @@ class FailurePolicyTest {
         repeat(5) { policy.record("/a", DecodeStatus.CRASHED) }
         assertEquals(DecodeStatus.PAUSED, policy.refusal("/a"))
     }
+
+    @Test fun theWindowIsTenMinutesExactly() {
+        // Four failures at the start, the fifth exactly ten minutes after the first: the first has left the window.
+        repeat(4) { policy.record("/w$it", DecodeStatus.CRASHED) }
+        now += FailurePolicy.WINDOW_MS
+        policy.record("/w4", DecodeStatus.CRASHED)
+        assertFalse(policy.isPaused)
+
+        val tight = FailurePolicy { now }
+        val start = now
+        repeat(4) { tight.record("/t$it", DecodeStatus.CRASHED) }
+        now = start + FailurePolicy.WINDOW_MS - 1
+        tight.record("/t4", DecodeStatus.CRASHED)
+        assertTrue("one millisecond inside the window pauses", tight.isPaused)
+    }
+
+    /** Records one counted failure per file, three minutes apart, so the reader never pauses. */
+    private fun fail(key: String) {
+        policy.record(key, DecodeStatus.CRASHED)
+        now += 3 * minute
+    }
+
+    @Test fun aFileNotSeenFor256OtherFilesIsForgotten() {
+        fail("/old")
+        repeat(FailurePolicy.MAX_FILES) { fail("/other$it") }
+        fail("/old")
+        assertNull("its first failure was forgotten", policy.refusal("/old"))
+        assertFalse(policy.isPaused)
+    }
+
+    @Test fun aRefusedFileThatKeepsComingBackIsNotForgotten() {
+        fail("/bad")
+        fail("/bad")
+        assertEquals(DecodeStatus.REFUSED_FILE, policy.refusal("/bad"))
+        // Alternating: the refused file is asked about between new files, so it stays the most recently seen.
+        repeat(3 * FailurePolicy.MAX_FILES) {
+            fail("/new$it")
+            assertEquals("after ${it + 1} new files", DecodeStatus.REFUSED_FILE, policy.refusal("/bad"))
+        }
+        assertFalse(policy.isPaused)
+    }
 }
