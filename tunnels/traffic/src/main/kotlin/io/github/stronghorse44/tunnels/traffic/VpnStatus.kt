@@ -8,10 +8,12 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.VpnService
+import io.github.stronghorse44.tunnels.dns.Resolvers
+import io.github.stronghorse44.tunnels.dns.VpnPresence
 import java.net.DatagramSocket
-import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
+import java.net.NetworkInterface
 
 /**
  * Read-only questions about the device's VPN and DNS state. Every call swallows system errors.
@@ -62,9 +64,6 @@ object VpnStatus {
             .sorted()
     }.getOrDefault(emptyList())
 
-    /** Documented last resort when the underlying network reports no usable resolver. */
-    val FALLBACK_RESOLVER: InetAddress = InetAddress.getByAddress("one.one.one.one", byteArrayOf(1, 1, 1, 1))
-
     /**
      * True when the system still has to show the VPN consent dialog for this app. False, without asking
      * the system, while any VPN is connected: asking would disconnect it (see the class comment), and the
@@ -84,12 +83,14 @@ object VpnStatus {
         return runCatching { VpnService.prepare(context) }.getOrNull()
     }
 
-    /** Any connected network with the VPN transport. While our own session runs, that includes ours. */
-    fun anyVpnActive(context: Context): Boolean {
-        val cm = context.getSystemService(ConnectivityManager::class.java) ?: return false
-        return runCatching {
-            networks(cm).any { cm.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true }
-        }.getOrDefault(false)
+    /**
+     * Any connected network with the VPN transport. While our own session runs, that includes ours. Fails closed (audit
+     * L4): no connectivity service, or any error asking it, reads as "a VPN is up", so a session never replaces a VPN it
+     * could not see ([VpnPresence]).
+     */
+    fun anyVpnActive(context: Context): Boolean = VpnPresence.anyUp {
+        val cm = context.getSystemService(ConnectivityManager::class.java) ?: return@anyUp null
+        networks(cm).map { cm.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true }
     }
 
     /** A VPN that is not our session. */
@@ -109,14 +110,15 @@ object VpnStatus {
         runCatching { cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true }.getOrDefault(false)
 
     /**
-     * Resolvers of [network] (IPv4 first, link-local IPv6 dropped since it needs a scope), or
-     * [FALLBACK_RESOLVER] alone when there are none.
+     * Resolvers of [network]: IPv4 first, then global IPv6, then link-local IPv6 scoped to the network's interface
+     * ([Resolvers.select]). Empty when the network names none, or its properties cannot be read: there is no public
+     * fallback (audit L3), and the session then refuses to start or ends with [Resolvers.NONE].
      */
     fun resolversOf(cm: ConnectivityManager, network: Network?): List<InetAddress> {
-        val servers = network?.let { runCatching { cm.getLinkProperties(it)?.dnsServers }.getOrNull() }.orEmpty()
-            .filter { it is Inet4Address || (it is Inet6Address && !it.isLinkLocalAddress) }
-            .sortedBy { if (it is Inet4Address) 0 else 1 }
-        return servers.ifEmpty { listOf(FALLBACK_RESOLVER) }
+        val props = network?.let { runCatching { cm.getLinkProperties(it) }.getOrNull() } ?: return emptyList()
+        val servers = runCatching { props.dnsServers }.getOrNull().orEmpty()
+        val iface = runCatching { props.interfaceName?.let(NetworkInterface::getByName) }.getOrNull()
+        return Resolvers.select(servers) { v6 -> iface?.let { Inet6Address.getByAddress(null, v6.address, it) } }
     }
 
     /**

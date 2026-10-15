@@ -16,6 +16,7 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import io.github.stronghorse44.tunnels.dns.BlockPolicy
 import io.github.stronghorse44.tunnels.dns.Blocklists
+import io.github.stronghorse44.tunnels.dns.Resolvers
 import io.github.stronghorse44.tunnels.dns.SessionCounter
 import io.github.stronghorse44.tunnels.dns.SessionTotals
 import io.github.stronghorse44.tunnels.dns.TrafficKeys
@@ -171,6 +172,8 @@ class DnsVpnService : VpnService() {
         if (!VpnStatus.networkAllowed(this)) return VpnStatus.NETWORK_OFF_MESSAGE
         val cm = getSystemService(ConnectivityManager::class.java) ?: return "No connectivity service."
         val resolvers = VpnStatus.resolversOf(cm, VpnStatus.underlyingNetwork(cm))
+        // No public fallback (audit L3): with no resolver the network names, the session does not start.
+        if (resolvers.isEmpty()) return "${Resolvers.NONE} The session did not start."
 
         val builder = Builder()
             .setSession("Tunnels DNS log")
@@ -190,6 +193,8 @@ class DnsVpnService : VpnService() {
             builder.addDisallowedApplication(packageName)
         } catch (_: PackageManager.NameNotFoundException) {
         }
+        // Checked again right before establish() (audit L4): a VPN that came up since the first check would be replaced.
+        if (VpnStatus.anyVpnActive(this)) return VpnStatus.otherVpnMessage(this)
         val pfd = try {
             builder.establish()
         } catch (e: Exception) {
@@ -270,12 +275,17 @@ class DnsVpnService : VpnService() {
         val physical = if (VpnStatus.isVpn(cm, network)) VpnStatus.underlyingNetwork(cm) else network
         val resolvers = VpnStatus.resolversOf(cm, physical)
         if (resolvers != fwd.resolvers) fwd.resolvers = resolvers
+        if (resolvers.isEmpty()) {
+            // The network names no resolver: end the session rather than send lookups anywhere else (audit L3).
+            scope.launch { stopSession("${Resolvers.NONE} The session ended and lookups go back to the system.") }
+            return
+        }
         _state.update { it.copy(resolver = resolverLabel(resolvers)) }
     }
 
     /** The encrypted provider when one is chosen, otherwise the network resolver's address. */
     private fun resolverLabel(resolvers: List<InetAddress>): String =
-        _upstream.value.takeIf { it.encrypted }?.label ?: resolvers.first().hostAddress.orEmpty()
+        _upstream.value.takeIf { it.encrypted }?.label ?: resolvers.firstOrNull()?.hostAddress.orEmpty()
 
     private fun ownerUid(cm: ConnectivityManager, protocol: Int, src: InetAddress, srcPort: Int, dst: InetAddress, dstPort: Int): Int =
         try {

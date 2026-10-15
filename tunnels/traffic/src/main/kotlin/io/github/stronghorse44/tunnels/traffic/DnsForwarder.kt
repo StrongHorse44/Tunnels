@@ -10,6 +10,7 @@ import io.github.stronghorse44.tunnels.dns.DnsMessage
 import io.github.stronghorse44.tunnels.dns.Doh
 import io.github.stronghorse44.tunnels.dns.IpPacket
 import io.github.stronghorse44.tunnels.dns.IpPackets
+import io.github.stronghorse44.tunnels.dns.ReplyGate
 import io.github.stronghorse44.tunnels.dns.SessionCounter
 import io.github.stronghorse44.tunnels.dns.Upstream
 import java.io.FileOutputStream
@@ -18,9 +19,10 @@ import java.io.InterruptedIOException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
-import java.net.SocketException
+import java.net.SocketTimeoutException
 import java.net.URL
 import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -30,8 +32,13 @@ import javax.net.ssl.HttpsURLConnection
 /**
  * The packet loop of a session. Reads IP packets from the TUN, keeps the UDP port-53 ones, counts each
  * query against the app that owns the socket, answers it here when the session blocks it, otherwise
- * forwards it through one protected upstream socket and writes the answer back with fresh IP/UDP headers. Everything else is dropped (TCP 853 is counted as
- * encrypted DNS first). Two plain threads; nothing here touches the UI or the store.
+ * forwards it and writes the answer back with fresh IP/UDP headers. Everything else is dropped (TCP 853 is counted as
+ * encrypted DNS first). Plain threads; nothing here touches the UI or the store.
+ *
+ * Plain lookups (audit M4): each goes out on its own protected socket, connected to the resolver it is sent to, from a
+ * port the system picks at random, and the answer is taken only from that resolver's port 53 with the query's id and
+ * name ([ReplyGate]) within [PENDING_MS]. A device on the same Wi-Fi can no longer flood one fixed port with forged
+ * answers, nor answer from its own address.
  *
  * While the TUN is established the phone's DNS depends on these threads, so neither may die quietly: a
  * loop that exits while the session is still meant to run reports through [onFailure] exactly once and
@@ -53,25 +60,30 @@ class DnsForwarder(
     /** Where forwarded lookups go, read per lookup ([Upstream]): the network's resolver, or a DNS-over-HTTPS endpoint. */
     private val upstreamOf: () -> Upstream = { Upstream() },
 ) {
-    private class Pending(val src: InetAddress, val dst: InetAddress, val srcPort: Int, val question: String?, val at: Long)
-
     /**
      * Upstream resolvers, tried in order of [resolverIndex]. The service replaces the list when the
-     * underlying network changes (Wi-Fi to cellular, say), so the session keeps resolving.
+     * underlying network changes (Wi-Fi to cellular, say), so the session keeps resolving. Never a public
+     * fallback (audit L3): while it is empty, plain lookups are dropped, and the service ends the session.
      */
-    @Volatile var resolvers: List<InetAddress> = resolvers.ifEmpty { listOf(VpnStatus.FALLBACK_RESOLVER) }
+    @Volatile var resolvers: List<InetAddress> = resolvers
         set(value) {
-            field = value.ifEmpty { listOf(VpnStatus.FALLBACK_RESOLVER) }
+            field = value
             resolverIndex.set(0)
         }
 
     private val output = FileOutputStream(tun.fileDescriptor)
-    @Volatile private var upstream = DatagramSocket()
-    private val pending = LinkedHashMap<String, Pending>()
     private val resolverIndex = AtomicInteger(0)
     private val failed = AtomicBoolean(false)
     @Volatile private var running = false
-    private var reopens = 0
+    /** Upstream sockets that could not be opened in a row; past [MAX_REOPENS] the forwarder reports failure. */
+    private val openFailuresInRow = AtomicInteger(0)
+    /** Sockets of lookups in flight, closed by [stop] so their threads end at once. */
+    private val inFlight = ConcurrentHashMap.newKeySet<DatagramSocket>()
+
+    init {
+        // EPERM here means the GrapheneOS Network toggle is off; the service says so instead of starting.
+        DatagramSocket().close()
+    }
 
     val dropped = AtomicInteger(0)
     val answered = AtomicInteger(0)
@@ -90,27 +102,30 @@ class DnsForwarder(
     /** Lookups answered by the encrypted resolver. */
     val encryptedAnswered = AtomicInteger(0)
 
-    private val reader = Thread(::readLoop, "tunnels-dns-tun")
-    private val responder = Thread(::responseLoop, "tunnels-dns-upstream")
+    /** Plain lookups in flight, one connected socket each; bounded like [doh], so a dead resolver cannot pile up threads. */
+    private val plain = ThreadPoolExecutor(
+        PLAIN_THREADS, PLAIN_THREADS, 30, TimeUnit.SECONDS, ArrayBlockingQueue(PLAIN_QUEUE),
+        { r -> Thread(r, "tunnels-dns-upstream").apply { isDaemon = true } },
+        { _, _ -> dropped.incrementAndGet() },
+    ).apply { allowCoreThreadTimeOut(true) }
 
-    /** Both threads still run. False once either has exited, whether or not [onFailure] fired yet. */
-    val alive: Boolean get() = running && reader.isAlive && responder.isAlive
+    private val reader = Thread(::readLoop, "tunnels-dns-tun")
+
+    /** The reader still runs. False once it has exited, whether or not [onFailure] fired yet. */
+    val alive: Boolean get() = running && reader.isAlive
 
     fun start() {
         running = true
-        prepareSocket(upstream)
-        upstream.soTimeout = 0
         reader.start()
-        responder.start()
     }
 
-    /** Stops both threads; returns once they have exited (bounded wait). */
+    /** Stops the threads; returns once the reader has exited (bounded wait). */
     fun stop() {
         running = false
         doh.shutdownNow()
-        runCatching { upstream.close() }
+        plain.shutdownNow()
+        inFlight.forEach { runCatching { it.close() } }
         runCatching { reader.join(1500) }
-        runCatching { responder.join(1500) }
     }
 
     private fun fail(what: String) {
@@ -186,9 +201,6 @@ class DnsForwarder(
         }
     }
 
-    /** Two apps may pick the same 16-bit id at once; the question name tells their replies apart. */
-    private fun pendingKey(id: Int, question: String?): String = "$id:${question.orEmpty()}"
-
     private fun query(p: IpPacket.Udp) {
         val message = DnsMessage.parseOrNull(p.payload)
         if (message == null || message.isResponse) {
@@ -211,24 +223,72 @@ class DnsForwarder(
             return
         }
 
-        val key = pendingKey(message.id, message.queryName)
-        synchronized(pending) {
-            val now = System.currentTimeMillis()
-            val stale = pending.entries.filter { now - it.value.at > PENDING_MS }.map { it.key }
-            stale.forEach(pending::remove)
-            while (pending.size >= MAX_PENDING) pending.remove(pending.keys.first())
-            pending[key] = Pending(p.src, p.dst, p.srcPort, message.queryName, now)
-        }
         val list = resolvers
+        if (list.isEmpty()) {
+            // No resolver on this network: nothing is sent anywhere (audit L3); the service ends the session.
+            dropped.incrementAndGet()
+            return
+        }
         val resolver = list[Math.floorMod(resolverIndex.get(), list.size)]
+        val queuedAt = System.currentTimeMillis()
+        plain.execute { forwardPlain(p, message, resolver, queuedAt) }
+    }
+
+    /**
+     * Sends [p]'s lookup to [resolver] from a fresh socket connected to it (a random source port the system picks) and
+     * writes back the first reply [ReplyGate] accepts within [PENDING_MS] of [queuedAt]. An unanswered lookup is
+     * forgotten; the app's resolver retries on its own.
+     */
+    private fun forwardPlain(p: IpPacket.Udp, query: DnsMessage, resolver: InetAddress, queuedAt: Long) {
+        if (!running) return
+        var opened: DatagramSocket? = null
+        val socket = try {
+            DatagramSocket().also { s ->
+                opened = s
+                inFlight += s
+                prepareSocket(s)
+                s.connect(resolver, DnsMessage.PORT)
+            }
+        } catch (e: Exception) {
+            opened?.let { inFlight -= it; runCatching { it.close() } }
+            dropped.incrementAndGet()
+            Log.w(TAG, "upstream socket failed: ${e.javaClass.simpleName}")
+            if (openFailuresInRow.incrementAndGet() > MAX_REOPENS) fail("upstream socket failed (${e.javaClass.simpleName})")
+            return
+        }
+        openFailuresInRow.set(0)
         try {
-            upstream.send(DatagramPacket(p.payload, p.payload.size, resolver, DnsMessage.PORT))
+            socket.send(DatagramPacket(p.payload, p.payload.size))
+            val buffer = ByteArray(RESPONSE_MAX)
+            while (running) {
+                val left = PENDING_MS - (System.currentTimeMillis() - queuedAt)
+                if (left <= 0) return
+                socket.soTimeout = left.toInt()
+                val datagram = DatagramPacket(buffer, buffer.size)
+                try {
+                    socket.receive(datagram)
+                } catch (_: SocketTimeoutException) {
+                    return
+                }
+                val reply = DnsMessage.parseOrNull(buffer, 0, datagram.length) ?: continue
+                if (!ReplyGate.accepts(resolver, datagram.address, datagram.port, query, reply)) continue
+                val packet = IpPackets.buildUdp(p.dst, p.src, DnsMessage.PORT, p.srcPort, buffer.copyOf(datagram.length))
+                synchronized(output) { output.write(packet) }
+                answered.incrementAndGet()
+                return
+            }
         } catch (e: IOException) {
+            if (!running) return // closed by stop()
             // Try the next resolver for the following query; this one is lost (the app retries).
             resolverIndex.incrementAndGet()
-            synchronized(pending) { pending.remove(key) }
             dropped.incrementAndGet()
-            Log.w(TAG, "upstream send failed: ${e.javaClass.simpleName}")
+            Log.w(TAG, "upstream lookup failed: ${e.javaClass.simpleName}")
+        } catch (e: Exception) {
+            dropped.incrementAndGet()
+            Log.w(TAG, "reply dropped: ${e.javaClass.simpleName}")
+        } finally {
+            inFlight -= socket
+            socket.close()
         }
     }
 
@@ -330,70 +390,17 @@ class DnsForwarder(
         }
     }
 
-    /**
-     * Replaces a broken upstream socket so a transient socket error does not end the session. Bounded:
-     * after [MAX_REOPENS] the forwarder gives up and reports failure instead.
-     */
-    private fun reopenUpstream(): Boolean {
-        if (++reopens > MAX_REOPENS) return false
-        return try {
-            runCatching { upstream.close() }
-            val fresh = DatagramSocket()
-            prepareSocket(fresh)
-            fresh.soTimeout = 0
-            upstream = fresh
-            true
-        } catch (e: Exception) {
-            Log.w(TAG, "upstream reopen failed: ${e.javaClass.simpleName}")
-            false
-        }
-    }
-
-    private fun responseLoop() {
-        var why = "upstream loop ended"
-        try {
-            val buffer = ByteArray(RESPONSE_MAX)
-            while (running) {
-                val datagram = DatagramPacket(buffer, buffer.size)
-                try {
-                    upstream.receive(datagram)
-                } catch (e: SocketException) {
-                    if (!running) break // closed by stop()
-                    if (reopenUpstream()) continue
-                    why = "upstream socket failed (${e.javaClass.simpleName})"
-                    break
-                } catch (_: IOException) {
-                    continue
-                }
-                val message = DnsMessage.parseOrNull(buffer, 0, datagram.length) ?: continue
-                if (!message.isResponse) continue
-                val match = synchronized(pending) { pending.remove(pendingKey(message.id, message.queryName)) } ?: continue
-                val payload = buffer.copyOf(datagram.length)
-                try {
-                    val packet = IpPackets.buildUdp(match.dst, match.src, DnsMessage.PORT, match.srcPort, payload)
-                    synchronized(output) { output.write(packet) }
-                    answered.incrementAndGet()
-                } catch (e: Exception) {
-                    dropped.incrementAndGet()
-                    Log.w(TAG, "reply dropped: ${e.javaClass.simpleName}")
-                }
-            }
-        } catch (e: Throwable) {
-            why = "upstream reader crashed (${e.javaClass.simpleName})"
-        } finally {
-            fail(why)
-        }
-    }
-
     companion object {
         private const val TAG = "TunnelsDns"
         private const val POLL_MS = 500
         /** Unanswered queries are forgotten after this; the app's resolver retries on its own. */
         private const val PENDING_MS = 5_000L
-        private const val MAX_PENDING = 512
+        /** Plain lookups waiting for their answer at once, each on its own socket and thread, and queued behind them. */
+        private const val PLAIN_THREADS = 32
+        private const val PLAIN_QUEUE = 512
         /** Largest UDP answer we accept: EDNS answers rarely exceed 1232 bytes, none exceed this. */
         private const val RESPONSE_MAX = 4096
-        /** Upstream socket replacements tolerated per session before the forwarder reports failure. */
+        /** Upstream sockets that may fail to open in a row before the forwarder reports failure. */
         private const val MAX_REOPENS = 8
 
         /** Prefix of the failure reason when the encrypted resolver stopped answering; the host follows. */
