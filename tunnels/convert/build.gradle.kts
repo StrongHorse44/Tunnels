@@ -27,6 +27,8 @@ dependencies {
     implementation(project(":core:runtime"))
     implementation(project(":core:store"))
     implementation(project(":core:convert"))
+    // Images and PDF pages are decoded in the sealed decoder's isolated process, never in this one (audit M6).
+    implementation(project(":tunnels:decoder"))
     implementation(libs.androidx.documentfile)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.junit)

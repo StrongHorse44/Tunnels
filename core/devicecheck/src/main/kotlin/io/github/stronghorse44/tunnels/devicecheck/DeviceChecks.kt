@@ -373,6 +373,20 @@ object DeviceChecks {
         }
     }
 
+    /**
+     * The sealed file reader (audit M6): Convert's photos and PDFs are decoded in an isolated process. [heic] is whether
+     * that process can read HEIC (null when the reader didn't start). No action: when it fails, Convert refuses the file.
+     */
+    fun sealedReader(isolated: Boolean, noAppData: Boolean, heic: Boolean?): CheckResult {
+        val id = "sealed_reader"
+        val title = "Sealed file reader"
+        if (!isolated || !noAppData) {
+            return CheckResult(id, title, CheckStatus.FAIL, "The sealed reader didn't start or isn't sealed, so Convert won't read photos or PDFs.")
+        }
+        val heicText = if (heic == true) " HEIC photos can be read there." else " This phone can't read HEIC photos there, so Convert refuses them."
+        return CheckResult(id, title, CheckStatus.PASS, "Photos and PDFs are read in a sealed process with no permissions and no access to Tunnels' data.$heicText")
+    }
+
     fun appLock(available: Boolean, enabled: Boolean): CheckResult {
         val id = "app_lock"
         val title = "App lock"

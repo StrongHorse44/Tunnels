@@ -11,6 +11,7 @@ import android.net.NetworkCapabilities
 import android.os.PowerManager
 import android.os.Process
 import io.github.stronghorse44.tunnels.attestation.SiliconKeys
+import io.github.stronghorse44.tunnels.decoder.DecoderClient
 import io.github.stronghorse44.tunnels.posture.PostureKeys
 import io.github.stronghorse44.tunnels.posture.PostureObservations
 import io.github.stronghorse44.tunnels.runtime.AppLock
@@ -53,6 +54,9 @@ object DeviceCheckRunner {
         val notifications = app.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         val unrestricted = runCatching { app.getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(app.packageName) == true }.getOrDefault(false)
 
+        // Binds a fresh sealed reader, asks it whether it is sealed and can read HEIC, and ends it (15 s at most; no file).
+        val sealed = runCatching { DecoderClient(app).selfTest() }.getOrNull()
+
         val (vpnConnected, vpnOurs) = vpn(app)
         val fromFile = RestrictedSettings.installedFromFile(app)
         val access = runtime.registry.modules.values.sortedBy { it.info.title }.flatMap { module ->
@@ -84,6 +88,7 @@ object DeviceCheckRunner {
                     DeviceChecks.backgroundChecks(settings, status, scheduled, notifications, unrestricted, now),
                     // Asking the biometric service needs USE_BIOMETRIC (declared by the app); never let a probe throw.
                     DeviceChecks.appLock(runCatching { AppLock.canLock(app) }.getOrDefault(false), runCatching { AppLock.isEnabled(app) }.getOrDefault(false)),
+                    DeviceChecks.sealedReader(sealed?.isolated == true, sealed?.noAppData == true, sealed?.heic),
                 ),
             ),
             CheckGroup("Traffic sessions", listOf(DeviceChecks.vpn(vpnConnected, vpnOurs), DeviceChecks.privateDns(dns))),

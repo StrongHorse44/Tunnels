@@ -15,6 +15,9 @@ class TunnelsApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // The sealed decoder's process (tunnels:decoder, isolatedProcess) runs this class too. It has no access to Tunnels'
+        // data, and must never open the store (whose failed-start count it would feed), touch staging or install the lock.
+        if (android.os.Process.isIsolated()) return
         AppLock.install(this)
         // Every start empties the staging area (audit L9): renamed away now, before any screen stages a file, deleted below.
         runCatching { Staging.clearOnStart(this) }
