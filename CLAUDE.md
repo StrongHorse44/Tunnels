@@ -131,11 +131,12 @@ Google's Maven is not reachable from the cloud dev container: Android modules on
 - Observations are summaries (counts, names, hashes, booleans), never raw payloads.
 - Hard rule 1 is checked in the code too (audit M2, 2026-10-15): every assemble runs `verifyEgress`
   (`buildSrc/.../Egress.kt`), which reads each module's compiled main classes and fails the build on a network API
-  (java.net sockets and URLs, `javax.net`, socket channels, `Network.bindSocket`/`openConnection`, NSD, `VpnService`,
-  `DnsResolver`, `DownloadManager`, `WebView`, HTTP client libraries, host name lookups) or a shell API (Deep mode's
-  `ShizukuShell`, its shell service and `ShellRunner`, the Shizuku API, child processes) that `buildSrc/egress.allow`
-  does not grant that module. Network grants go only to hard rule 1's four modules and to core libraries of theirs;
-  changing the allowlist is a gate change.
+  (java.net sockets and URLs, `javax.net`, socket channels, `Network.bindSocket`/`openConnection`, `Os` sockets,
+  local sockets, RTP, NSD, `VpnService`, `DnsResolver`, `DownloadManager`, `WebView`, media from a URL, HTTP client
+  libraries, host name lookups) or a shell API (Deep mode's `ShizukuShell`, its shell service and `ShellRunner`, the
+  Shizuku API, child processes) that `buildSrc/egress.allow` does not grant that module. A stale or unknown grant
+  fails too, and so does a module whose compile tasks the check cannot find. Network grants go only to hard rule
+  1's four modules and, type by type, to core libraries of theirs; changing the allowlist is a gate change.
 - Every change goes up as a pull request from its own branch. Never push to the integration branch or
   `main` directly. One release channel exists, `vX.Y.Z`, and it never publishes without the owner's approval
   (a merge alone never publishes):
@@ -151,9 +152,9 @@ Google's Maven is not reachable from the cloud dev container: Android modules on
     The approval is required: it is the control on publishing, and rejecting it publishes nothing. The overseer
     starts dry runs (`publish` off) on a reviewed branch only; they build, gate and rehearse and publish nothing.
     Agents never start a publishing run: never by dispatching `release.yml` with `publish` ticked and never by
-    pushing a tag, and agents never approve or reject a pending deployment (the `publish` tap is the owner's by
-    rule; sessions act with the owner's GitHub identity, so the rule is the control). The owner's `signing`
-    approval and who can push to the two branches are the control on the key.
+    pushing a tag, and agents never approve or reject a pending deployment (both taps, `signing` and `publish`,
+    are the owner's by rule; sessions act with the owner's GitHub identity, so the rule is the control). The
+    owner's `signing` approval and who can push to the two branches are the control on the key.
   - Release habit (RJ, 2026-10-11): every PR that changes the app bumps `VERSION` by one patch in the same PR,
     so its merge starts the release; docs-, CI-, test- and skill-only PRs don't bump. Publishing still waits for
     the owner's tap. How: `.claude/skills/steward/SKILL.md`.
@@ -161,7 +162,7 @@ Google's Maven is not reachable from the cloud dev container: Android modules on
   the PR has no gate change (no new or changed permission, network host, runtime dependency, native library, build
   type, signing config, release workflow or either baseline); a gate change also includes any change under
   `.github/`, `gate/`, `buildSrc/`, `gradle/` (verification metadata, wrapper), `scripts/`, a committed keystore,
-  or this file's hard rules, and any change to the sha256 of an existing dependency version (RJ, 2026-10-15); RJ
+  or this file's hard rules, and any change to the sha256 of an existing dependency version (RJ, OQ183, 2026-10-15); RJ
   merges these. A PR with a gate change waits for the owner to merge. A PR whose only gate-relevant change is the
   `VERSION` bump (a release) is not a gate change for this list: the overseer may merge it once reviewed and
   green, and the owner's approval at `publish` is what releases it. A `VERSION` change combined with any real gate

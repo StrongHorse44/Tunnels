@@ -1,6 +1,7 @@
-# Full build of the integration branch and main: everything compiles, every unit test passes,
-# permissions are allowed, the release gate (gate/baseline.json) matches the APK, the VERSION file is well
-# formed, and the app launches on an emulator. It runs on pull requests, pushes and manual runs, and
+# Full build of the integration branch and main: everything compiles, every unit test passes (buildSrc's included),
+# permissions are allowed, every module's code names only the network and shell APIs buildSrc/egress.allow grants
+# it, the release gate (gate/baseline.json) matches the APK, the VERSION file is well formed, and the app launches on
+# an emulator. It runs on pull requests, pushes and manual runs, and
 # PUBLISHES NOTHING: no job here holds a writing token. Releases are release.yml's (docs/RELEASING.md); there is
 # no longer a "Debug build #N" channel.
 #
@@ -149,6 +150,13 @@ jobs:
       - name: Dependency verification mode
         id: verify
         run: .github/scripts/verify-mode.sh
+
+      # The egress check's own tests (buildSrc: the class file reader and the allowlist rules), before the build that
+      # relies on the check. Verification is forced on the command line, as below.
+      - name: buildSrc tests (egress check)
+        env:
+          VERIFY: ${{ steps.verify.outputs.flag }}
+        run: ./gradlew --no-daemon --stacktrace $VERIFY :buildSrc:test
 
       # One Gradle invocation builds everything that is checked: unit tests, the permission checks, the shipped
       # debug APK, the release variant (unsigned: this job never holds the release key) and the dependency

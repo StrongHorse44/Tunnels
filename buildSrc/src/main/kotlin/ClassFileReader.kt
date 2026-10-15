@@ -50,6 +50,12 @@ object ClassFileReader {
         if (entry.startsWith("[")) typesIn(entry).firstOrNull() else entry
 
     private class Pool(val tags: IntArray, val values: Array<Any?>) {
+        /** invokedynamic and dynamic constants met in code, with where: their bootstrap arguments belong there too. */
+        val dynamicUses = mutableListOf<Pair<String, Int>>()
+
+        /** The BootstrapMethods table: per entry, the bootstrap method handle followed by its static arguments. */
+        var bootstraps: List<IntArray> = emptyList()
+
         fun utf8(i: Int): String = values[i] as? String ?: throw IllegalArgumentException("constant $i is not Utf8")
         fun className(i: Int): String = utf8(values[i] as Int)
         fun tag(i: Int): Int = if (i in 1 until tags.size) tags[i] else 0
@@ -85,6 +91,10 @@ object ClassFileReader {
             readAttributes(input, pool, where, refs, code = true)
         }
         readAttributes(input, pool, "class header", refs, code = false)
+
+        // A method reference (`Socket::new`, `InetAddress::getByName`) can be named only as a bootstrap argument of the
+        // invokedynamic that makes the lambda: report those arguments at the method that holds the invokedynamic.
+        for ((where, index) in pool.dynamicUses) bootstrapRefs(pool, index, where, refs, depth = 0)
 
         // Whatever the walk above did not reach (bootstrap arguments, nest and inner-class tables, anything a newer class
         // file version adds) is still in the constant pool: report it from there, so nothing named can be missed.
@@ -156,6 +166,10 @@ object ClassFileReader {
                     repeat(data.readUnsignedByte()) { repeat(data.readUnsignedShort()) { readAnnotation(data, pool, where, refs) } }
                 "AnnotationDefault" -> readElementValue(data, pool, where, refs)
                 "Code" -> if (code) readCode(data, pool, where, refs)
+                "BootstrapMethods" -> pool.bootstraps = List(data.readUnsignedShort()) {
+                    val method = data.readUnsignedShort()
+                    IntArray(data.readUnsignedShort() + 1) { i -> if (i == 0) method else data.readUnsignedShort() }
+                }
             }
         }
     }
@@ -186,13 +200,26 @@ object ClassFileReader {
         data.readUnsignedShort() // max_stack
         data.readUnsignedShort() // max_locals
         val code = ByteArray(data.readInt()).also { data.readFully(it) }
-        walkBytecode(code) { index -> constantRef(pool, index, where)?.let { refs += it } }
+        walkBytecode(code) { index ->
+            constantRef(pool, index, where)?.let { refs += it }
+            if (pool.tag(index) == INVOKE_DYNAMIC || pool.tag(index) == DYNAMIC) pool.dynamicUses += where to index
+        }
         repeat(data.readUnsignedShort()) {
             data.readUnsignedShort(); data.readUnsignedShort(); data.readUnsignedShort()
             val catchType = data.readUnsignedShort()
             if (catchType != 0) refs += Ref(where, pool.className(catchType))
         }
         readAttributes(data, pool, where, refs, code = false)
+    }
+
+    /** The bootstrap method and static arguments of the invokedynamic or dynamic constant at [index], as refs at [where]. */
+    private fun bootstrapRefs(pool: Pool, index: Int, where: String, refs: MutableList<Ref>, depth: Int) {
+        val entry = pool.bootstraps.getOrNull((pool.values[index] as IntArray)[0]) ?: return
+        for (argument in entry) {
+            constantRef(pool, argument, where)?.let { refs += it }
+            val tag = pool.tag(argument)
+            if ((tag == DYNAMIC || tag == INVOKE_DYNAMIC) && depth < 4) bootstrapRefs(pool, argument, where, refs, depth + 1)
+        }
     }
 
     /** Calls [onConstant] with each constant pool index an instruction of [code] uses. */

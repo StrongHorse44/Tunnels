@@ -62,3 +62,38 @@ class CatchesSocketTimeout {
 class Plain {
     fun add(a: Int, b: Int): Int = a + b
 }
+
+/** The shape of LookCloserProbe's ping: Os.socket returns a FileDescriptor and Os.sendto names only InetAddress. */
+class PingsThroughOs {
+    fun ping(address: java.net.InetAddress, bytes: ByteArray): Int {
+        val fd = android.system.Os.socket(2, 2, 1)
+        android.system.Os.setsockoptInt(fd, 0, 1, 1)
+        return android.system.Os.sendto(fd, bytes, 0, bytes.size, 0, address, 0)
+    }
+}
+
+class ReadsOsErrors {
+    fun text(errno: Int): String = android.system.Os.strerror(errno)
+}
+
+class ExecsThroughOs {
+    fun go() = android.system.Os.execv("/system/bin/sh", arrayOf("sh"))
+}
+
+class ConnectsLocalSocket {
+    fun go() = android.net.LocalSocket().connect(android.net.LocalSocketAddress("dnsproxyd"))
+}
+
+class StreamsMedia {
+    fun go(player: android.media.MediaPlayer) = player.setDataSource("https://example.org/a.mp3")
+    fun quiet(player: android.media.MediaPlayer) = player.setVolume(0f, 0f)
+}
+
+/** A function reference made into a Java Function (Kotlin compiles it to a class of its own, not to a bootstrap). */
+class LooksUpByReference {
+    fun resolver(): java.util.function.Function<String, java.net.InetAddress> = java.util.function.Function(java.net.InetAddress::getByName)
+}
+
+class NamesAProperty {
+    fun prefer(): String? = System.getProperty("java.net.preferIPv4Stack")
+}

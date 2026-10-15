@@ -13,7 +13,7 @@ workflow job.
 | Signed with | the owner's release key (never in the repository) |
 | Published by | `release.yml`, started by a merge that changes `VERSION` on the integration branch (or by the owner's `publish` run, below), as the release **vX.Y.Z** |
 | APK name | `tunnels-X.Y.Z.apk` + `.sha256` |
-| Approval | the `publish` environment waits for the owner |
+| Approval | two, both the owner's: the `signing` environment before the `sign` job, then the `publish` environment (since 2026-10-15) |
 | The in-app updater follows | `vX.Y.Z` releases only |
 
 `ci.yml` still builds the debug package (`io.github.stronghorse44.tunnels.debug`, signed with the public key in
@@ -61,9 +61,10 @@ hold the same value). Then:
 
 Set up in the repository's **Settings → Environments** (the mobile browser works; the GitHub app has no
 environment settings). Each is limited to **Deployment branches and tags → Selected**:
-- `signing`: branch `ccr-dff99af5-ij1rle` and branch `main` only. No tag pattern: `release.yml` no longer runs
-  on tags, a tag can point at any commit with any workflow file, and with no reviewer on `signing` a tag policy
-  would let a pushed tag reach the key.
+- `signing`: branch `ccr-dff99af5-ij1rle` and branch `main` only, and the owner as required reviewer (since
+  2026-10-15). No tag pattern: `release.yml` no longer runs on tags, and a tag can point at any commit with any
+  workflow file. The branch limit keeps the key to reviewed workflow files on the two branches; the reviewer means
+  even a run from them reads the key only after the owner approves it.
 - `publish`: the same two branches plus tag pattern `v*`, kept by the owner's choice (it has the required
   reviewer, so a tag run still waits for approval).
 
@@ -91,12 +92,12 @@ code, and the `sign` job runs no repository code; nothing else can read the secr
   release runs by dispatch or tag, or approve them" is a **policy**, not a control. The program overseer starts
   dry runs (`publish` off) only; a `publish` ticked dispatch and every approval are the owner's. Sessions act
   with the owner's own GitHub identity, so nothing but the rule stops an agent approving or rejecting a pending
-  deployment at `publish`: agents never do, and the tap is the owner's.
-- A publishing run produces a **release-signed APK as a run artifact (`signed-apk`) before anyone has approved
-  anything**. Signed-in users with read access to the repository (it is public) can download artifacts, so the
-  artifact is kept for 1 day only. Approve on the same day, or re-run the run. The `plan` job keeps this to runs
-  that will ask: a version that is already released, malformed or out of order is refused before anything is
-  built or signed.
+  deployment at `signing` or `publish`: agents never do, and both taps are the owner's.
+- A publishing run produces a **release-signed APK as a run artifact (`signed-apk`) once the owner has approved
+  `signing`, before the `publish` approval**. Signed-in users with read access to the repository (it is public)
+  can download artifacts, so the artifact is kept for 1 day only. Approve on the same day, or re-run the run. The
+  `plan` job keeps this to runs that will ask: a version that is already released, malformed or out of order is
+  refused before anything is built or signed.
 
 Secrets are **environment** secrets, not repository secrets. To add them from Termux without showing them
 (`pkg install gh`, `gh auth login` once):
@@ -123,7 +124,7 @@ job checks the format on every pull request, so a malformed file is a red pull r
 | Event | What runs | What you see |
 | --- | --- | --- |
 | Merge, `VERSION` unchanged | CI. No Release run. | Nothing to approve |
-| Merge, `VERSION` raised to an unreleased higher version | Release: plan, build, sign, release-check, publish (waits) | **Waiting for review**; approve the same day |
+| Merge, `VERSION` raised to an unreleased higher version | Release: plan, build, sign (waits for the owner), release-check, publish (waits for the owner) | **Waiting for review** twice: `signing`, then `publish`; approve both the same day |
 | Merge, `VERSION` equals an existing release (a revert) | Release: plan only, a notice, green | Nothing to approve |
 | Merge, `VERSION` malformed, missing, lower than the highest release, or its tag exists without a release | Release: plan fails red; nothing is built or signed | A red Release run; fix it in a pull request |
 | Run, `publish` off (any branch) | plan, build, gate, signing rehearsal | Nothing; a dry run |
@@ -137,14 +138,17 @@ job checks the format on every pull request, so a malformed file is a red pull r
    reads that branch's `VERSION`, builds, runs the release gate and rehearses signing with a throwaway key, and
    publishes nothing; the `sign` job does not even start, so the key is not touched. (The program overseer
    starts dry runs.)
-3. **Merge it.** The Release run starts by itself within a few minutes: `plan`, then the build, the signing job
-   and the release check. If a check fails, the run stops before you are asked to approve anything.
-4. **Approve, the same day.** The run then shows **Waiting for review** on the `publish` environment. In the
-   GitHub app: the notification, or the repository → Actions → the run → **Review deployments → publish →
-   Approve**. The signed APK the run holds expires after 1 day; if it did, publish fails and nothing is
-   published: use **Re-run all jobs**, which signs again. Rejecting the deployment publishes nothing and that
-   version is skipped; the next bump goes higher.
-5. The release **vX.Y.Z** appears on the Releases page with `tunnels-X.Y.Z.apk` and its `.sha256`.
+3. **Merge it.** The Release run starts by itself within a few minutes: `plan`, then the build. If the build or the
+   gate fails, the run stops before you are asked to approve anything.
+4. **Approve signing.** The run shows **Waiting for review** on the `signing` environment. In the GitHub app: the
+   notification, or the repository → Actions → the run → **Review deployments → signing → Approve**. The `sign`
+   job then signs, and the release check runs (a failure there stops the run before `publish`). Rejecting it signs
+   nothing and publishes nothing.
+5. **Approve publishing, the same day.** The run then shows **Waiting for review** on the `publish` environment:
+   **Review deployments → publish → Approve**. The signed APK the run holds expires after 1 day; if it did,
+   publish fails and nothing is published: use **Re-run all jobs**, which asks for both approvals again and signs
+   again. Rejecting the deployment publishes nothing and that version is skipped; the next bump goes higher.
+6. The release **vX.Y.Z** appears on the Releases page with `tunnels-X.Y.Z.apk` and its `.sha256`.
    Install it: tap the APK in the browser or Obtainium, or use **update** inside an installed release.
 
 If two bump pull requests merge close together, their runs build and sign in parallel and publish one at a time

@@ -1,12 +1,12 @@
 # The vX.Y.Z release channel (docs/RELEASING.md): release-signed APKs, published as the GitHub release vX.Y.Z.
 #
 # Trigger: a push to the integration branch that changes the VERSION file (a merged pull request that bumps
-# it), or workflow_dispatch. There is no tag trigger (a tag can name any commit, with any workflow file, and
-# a tag push must not be able to reach the key; the `signing` environment has had a reviewer, the owner, only
-# since 2026-10-15), and no push
-# trigger on main (it only receives versions that are already released). The version always comes from the
-# VERSION file at the run's commit (docs/RELEASING.md has its format); it is never typed. A push means
-# "publish": the owner's approval at the `publish` environment is the control. The one dispatch input:
+# it), or workflow_dispatch. There is no tag trigger (a tag can name any commit, with any workflow file, and a
+# tag push must not be able to reach the key; since 2026-10-15 the `signing` environment also needs the
+# owner's approval), and no push trigger on main (it only receives versions that are already released). The
+# version always comes from the VERSION file at the run's commit (docs/RELEASING.md has its format); it is
+# never typed. A push means "publish": the owner's approval at the `publish` environment is the control. The
+# one dispatch input:
 #   publish   default false. false is a DRY RUN: it builds, runs the release gate and rehearses signing with a
 #             throwaway key, and stops; `sign`, `release-check` and `publish` do not run, so nothing is signed or
 #             published. true runs the whole chain and, at the end, creates the tag and the release. It is

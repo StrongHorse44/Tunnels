@@ -1,4 +1,11 @@
 import egressfixtures.CallsShell
+import egressfixtures.ConnectsLocalSocket
+import egressfixtures.ExecsThroughOs
+import egressfixtures.JavaSocketRef
+import egressfixtures.NamesAProperty
+import egressfixtures.PingsThroughOs
+import egressfixtures.ReadsOsErrors
+import egressfixtures.StreamsMedia
 import egressfixtures.CatchesSocketTimeout
 import egressfixtures.ExecsRuntime
 import egressfixtures.HoldsSocket
@@ -213,5 +220,79 @@ class EgressTest {
         assertEquals(listOf("java/util/List", "java/net/Socket"), ClassFileReader.typesIn("Ljava/util/List<Ljava/net/Socket;>;"))
         assertEquals("java/net/Socket", ClassFileReader.classNameOf("[[Ljava/net/Socket;"))
         assertEquals(null, ClassFileReader.classNameOf("[I"))
+    }
+    @Test
+    fun aPingThroughOsIsCaught() {
+        // LookCloserProbe's shape: no java.net type but InetAddress, which is a value.
+        val findings = scan(PingsThroughOs::class.java)
+        assertEquals(setOf("socket", "sendto"), findings.map { it.memberName }.toSet())
+        assertTrue(findings.all { it.type == "android/system/Os" && it.rule.category == Egress.Category.NETWORK })
+        assertTrue(findings.all { it.location.startsWith("method ping") })
+        assertEquals(emptyList<Egress.Finding>(), scan(ReadsOsErrors::class.java))
+        val exec = scan(ExecsThroughOs::class.java).single()
+        assertEquals("execv", exec.memberName)
+        assertEquals(Egress.Category.SHELL, exec.rule.category)
+    }
+
+    @Test
+    fun localSocketsAndMediaFromAUrlAreCaught() {
+        val local = scan(ConnectsLocalSocket::class.java)
+        assertEquals(setOf("android/net/LocalSocket", "android/net/LocalSocketAddress"), local.map { it.type }.toSet())
+        val media = scan(StreamsMedia::class.java).single()
+        assertEquals("android/media/MediaPlayer", media.type)
+        assertEquals("setDataSource", media.memberName)
+        assertTrue(media.location.startsWith("method go"))
+        assertTrue(Egress.typeRuleFor("android/net/rtp/AudioStream") != null)
+        assertTrue(Egress.memberRuleFor("android/widget/VideoView", "setVideoURI") != null)
+    }
+
+    @Test
+    fun methodReferencesNamedOnlyByABootstrapAreCaughtAtTheirMethod() {
+        val java = scan(JavaSocketRef::class.java)
+        assertTrue(java.toString(), java.any { it.type == "java/net/Socket" && it.location == "method sockets()Ljava/util/function/Supplier;" })
+        // Kotlin compiles this one to a small class of its own; the lookup sits in its apply().
+        val kotlin = scan(Class.forName("egressfixtures.LooksUpByReference\$resolver\$1"))
+        assertTrue(kotlin.toString(), kotlin.any { it.type == "java/net/InetAddress" && it.memberName == "getByName" })
+    }
+
+    /** A class file whose only mention of java/net/Socket is an unused CONSTANT_Class: only the pool sweep sees it. */
+    private fun poolOnlyClass(): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        java.io.DataOutputStream(out).apply {
+            writeInt(0xCAFEBABE.toInt()); writeShort(0); writeShort(52)
+            writeShort(7)
+            writeByte(1); writeUTF("egressfixtures/PoolOnly")
+            writeByte(7); writeShort(1)
+            writeByte(1); writeUTF("java/lang/Object")
+            writeByte(7); writeShort(3)
+            writeByte(1); writeUTF("java/net/Socket")
+            writeByte(7); writeShort(5)
+            writeShort(0x21); writeShort(2); writeShort(4)
+            writeShort(0); writeShort(0); writeShort(0); writeShort(0)
+        }
+        return out.toByteArray()
+    }
+
+    @Test
+    fun theConstantPoolSweepCatchesWhatNoInstructionNames() {
+        val f = Egress.scan(poolOnlyClass()).single()
+        assertEquals("egressfixtures/PoolOnly", f.inClass)
+        assertEquals("constant pool", f.location)
+        assertEquals("java/net/Socket", f.type)
+    }
+
+    @Test
+    fun aPropertyNameIsNotAClassName() {
+        assertEquals(emptyList<Egress.Finding>(), scan(NamesAProperty::class.java))
+    }
+
+    @Test
+    fun staleAndUnknownGrantsAreFound() {
+        val allow = Egress.Allowlist.parse("core/lan java/net/Socket\ncore/lan java/net/DatagramSocket\ncore/nope java/net/Socket")
+        val socket = finding(OpensSocket::class.java)
+        assertEquals(listOf("java/net/DatagramSocket"), Egress.unusedGrants("core/lan", listOf(socket), allow).map { it.pattern })
+        assertEquals(listOf("core/nope"), Egress.unknownModuleGrants(allow, setOf("core/lan", "tunnels/convert")).map { it.module })
+        refusedLine("core/lan @network", "type by type")
+        refusedLine("core/emissions @shell", "type by type")
     }
 }

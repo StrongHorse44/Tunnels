@@ -2,6 +2,7 @@ import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.IgnoreEmptyDirectories
 import org.gradle.api.tasks.Input
@@ -76,6 +77,17 @@ object Egress {
         Rule.Type(Category.NETWORK, "DNS queries", classOrNested("android/net/DnsResolver")),
         Rule.Type(Category.NETWORK, "socket factory", classOrNested("android/net/SSLCertificateSocketFactory")),
         Rule.Type(Category.NETWORK, "Wi-Fi Aware and Wi-Fi Direct connections", under("android/net/wifi/aware/", "android/net/wifi/p2p/")),
+        Rule.Member(
+            Category.NETWORK, "raw sockets through android.system.Os",
+            setOf("android/system/Os"), setOf("socket", "connect", "bind", "listen", "accept", "sendto", "sendmsg", "recvfrom", "recvmsg"),
+        ),
+        Rule.Type(Category.NETWORK, "local sockets (netd and dnsproxyd, a DNS path)", under("android/net/LocalSocket")),
+        Rule.Type(Category.NETWORK, "RTP streams", under("android/net/rtp/")),
+        Rule.Member(
+            Category.NETWORK, "media fetched from a URL in-process",
+            setOf("android/media/MediaPlayer", "android/media/MediaExtractor", "android/media/MediaMetadataRetriever", "android/widget/VideoView"),
+            setOf("setDataSource", "setVideoURI", "setVideoPath"),
+        ),
         Rule.Type(Category.NETWORK, "DownloadManager", classOrNested("android/app/DownloadManager")),
         Rule.Type(Category.NETWORK, "WebView", under("android/webkit/WebView")),
         Rule.Type(
@@ -88,6 +100,7 @@ object Egress {
         Rule.Type(Category.SHELL, "the Shizuku API", under("rikka/shizuku/", "moe/shizuku/")),
         Rule.Type(Category.SHELL, "child processes", classOrNested("java/lang/ProcessBuilder")),
         Rule.Member(Category.SHELL, "child processes", setOf("java/lang/Runtime"), setOf("exec")),
+        Rule.Member(Category.SHELL, "child processes", setOf("android/system/Os"), setOf("execv", "execve")),
     )
 
     /** One refused-unless-allowed reference found in a class. */
@@ -112,7 +125,11 @@ object Egress {
         }
     }
 
-    private val classNameShape = Regex("""^[A-Za-z_$][\w$]*([./][A-Za-z_$][\w$]*)+$""")
+    /**
+     * A string that reads as a class name: dotted or slashed segments, the last one starting with a capital
+     * ("java.net.Socket"), so a property name such as "java.net.preferIPv4Stack" or a package name is not one.
+     */
+    private val classNameShape = Regex("""^([A-Za-z_$][\w$]*[./])+[A-Z][\w$]*$""")
 
     fun typeRuleFor(type: String): Rule.Type? = rules.filterIsInstance<Rule.Type>().firstOrNull { it.matches(type) }
 
@@ -186,10 +203,11 @@ object Egress {
                     if (!patternShape.matches(pattern)) fail("not a pattern")
                     val category = categoryOf(pattern) ?: fail("the pattern names nothing the egress check refuses")
                     // A tunnel module (or the app) may hold network grants only where it may hold INTERNET; core modules
-                    // are libraries of those four and are granted type by type.
+                    // are libraries of those four and are granted type by type, never a whole category.
                     if (category == Category.NETWORK && !module.startsWith("core/") && module !in Permissions.internetAllowedIn) {
                         fail("$module may not be granted network APIs; only ${Permissions.internetAllowedIn.sorted()} and core modules may")
                     }
+                    if (module.startsWith("core/") && pattern.startsWith("@")) fail("core modules are granted type by type, not $pattern")
                     Grant(module, pattern, i + 1, category)
                 }
                 return Allowlist(grants)
@@ -201,6 +219,14 @@ object Egress {
             }
         }
     }
+
+    /** Grants of [module] that match none of its [findings]: stale lines, or a typo for another module. */
+    fun unusedGrants(module: String, findings: List<Finding>, allowlist: Allowlist): List<Allowlist.Grant> =
+        allowlist.grantsFor(module).filter { g -> findings.none { Allowlist.matches(g.pattern, it) } }
+
+    /** Grants naming a module that is not in the build. */
+    fun unknownModuleGrants(allowlist: Allowlist, modules: Set<String>): List<Allowlist.Grant> =
+        allowlist.grants.filter { it.module !in modules }
 
     /** The findings [allowlist] does not grant to [module]. */
     fun refused(module: String, findings: List<Finding>, allowlist: Allowlist): List<Finding> =
@@ -225,6 +251,18 @@ abstract class VerifyModuleEgressTask : DefaultTask() {
     @get:Input
     abstract val modulePath: Property<String>
 
+    /** The tasks whose outputs are [classDirs]; empty means a renamed compile task, and the check fails closed. */
+    @get:Input
+    abstract val classProducers: ListProperty<String>
+
+    /** True when the module has main sources, so finding no class file means the check is looking in the wrong place. */
+    @get:Input
+    abstract val hasMainSources: Property<Boolean>
+
+    /** Every module directory in the build, so a grant for a module that does not exist is refused. */
+    @get:Input
+    abstract val knownModules: ListProperty<String>
+
     @get:OutputFile
     abstract val report: RegularFileProperty
 
@@ -232,6 +270,12 @@ abstract class VerifyModuleEgressTask : DefaultTask() {
     fun verify() {
         val module = modulePath.get()
         val allowlist = Egress.Allowlist.read(allowFile.get().asFile)
+        Egress.unknownModuleGrants(allowlist, knownModules.get().toSet()).takeIf { it.isNotEmpty() }?.let { bad ->
+            throw GradleException(bad.joinToString("\n") { "${Egress.ALLOW_FILE}:${it.line}: no module ${it.module} in this build" })
+        }
+        if (classProducers.get().isEmpty()) {
+            throw GradleException("$module: the egress check found no compile task to read classes from (renamed by a plugin update, or a flavor?); it fails closed.")
+        }
         val classFiles = classDirs.asFileTree.matching { include("**/*.class") }.files
             .filter { it.name != "module-info.class" && !it.invariantSeparatorsPath.contains("/META-INF/versions/") }
             .sortedBy { it.invariantSeparatorsPath }
@@ -242,12 +286,19 @@ abstract class VerifyModuleEgressTask : DefaultTask() {
                 throw GradleException("$module: the egress check cannot read $file (${e.message}); it fails closed.", e)
             }
         }
+        if (classFiles.isEmpty() && hasMainSources.get()) {
+            throw GradleException("$module has main sources but ${classProducers.get()} produced no class file for the egress check; it fails closed.")
+        }
         val refused = Egress.refused(module, findings, allowlist)
         if (refused.isNotEmpty()) throw GradleException(Egress.failureMessage(module, refused))
 
-        val used = findings.mapNotNull { allowlist.grantFor(module, it) }.toSet()
-        val unused = allowlist.grantsFor(module) - used
-        unused.forEach { logger.warn("${Egress.ALLOW_FILE}:${it.line}: $module '${it.pattern}' matched nothing in ${name}'s classes.") }
+        Egress.unusedGrants(module, findings, allowlist).takeIf { it.isNotEmpty() }?.let { unused ->
+            throw GradleException(
+                unused.joinToString("\n", postfix = "\nRemove the stale line (a gate change) or fix the module name.") {
+                    "${Egress.ALLOW_FILE}:${it.line}: $module '${it.pattern}' matches nothing in $name's classes"
+                },
+            )
+        }
         report.get().asFile.apply { parentFile.mkdirs() }.writeText(
             buildString {
                 append("$module: ${classFiles.size} classes, ${findings.size} granted references\n")

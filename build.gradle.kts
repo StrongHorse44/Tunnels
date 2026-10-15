@@ -40,12 +40,18 @@ tasks.register("verifyPermissions") {
 val egressAllowFile = layout.projectDirectory.file(Egress.ALLOW_FILE)
 val egressVariants = listOf("Debug", "Release")
 
+val egressModules = provider { subprojects.map { it.projectDir.relativeTo(rootDir).path.replace('\\', '/') } }
+
 subprojects {
     val module = projectDir.relativeTo(rootDir).path.replace('\\', '/')
-    fun registerEgress(name: String, classes: Any) = tasks.register<VerifyModuleEgressTask>(name) {
+    val mainSources = fileTree("src/main") { include("**/*.kt", "**/*.java", "**/*.aidl") }
+    fun registerEgress(name: String, classes: Any, producers: Provider<List<String>>) = tasks.register<VerifyModuleEgressTask>(name) {
         group = "verification"
         description = "Checks $module's compiled main classes against ${Egress.ALLOW_FILE}."
         classDirs.from(classes)
+        classProducers.set(producers)
+        hasMainSources.set(provider { !mainSources.isEmpty })
+        knownModules.set(egressModules)
         allowFile.set(egressAllowFile)
         modulePath.set(module)
         report.set(layout.buildDirectory.file("reports/egress/$name.txt"))
@@ -54,7 +60,8 @@ subprojects {
     plugins.withType<JavaPlugin> {
         // Plain-Kotlin modules. (No Android module applies the java plugin; the guard keeps one from failing the build.)
         if ("verifyEgress" !in tasks.names) {
-            val verify = registerEgress("verifyEgress", extensions.getByType<SourceSetContainer>().getByName("main").output.classesDirs)
+            val main = extensions.getByType<SourceSetContainer>().getByName("main")
+            val verify = registerEgress("verifyEgress", main.output.classesDirs, provider { listOf("sourceSets.main (${main.classesTaskName})") })
             tasks.named("assemble") { dependsOn(verify) }
             tasks.named("check") { dependsOn(verify) }
         }
@@ -65,7 +72,8 @@ subprojects {
             val perVariant = egressVariants.map { v ->
                 // The variant's Kotlin and Java (AIDL, Room) compile tasks; their outputs are its main classes.
                 val compiled = tasks.matching { it.name == "compile${v}Kotlin" || it.name == "compile${v}JavaWithJavac" }
-                registerEgress("verifyEgress$v", compiled).also { verify ->
+                // An empty set (AGP or KGP renamed a task, or flavors were added) fails the check instead of passing it.
+                registerEgress("verifyEgress$v", compiled, provider { compiled.names.toList() }).also { verify ->
                     tasks.matching { it.name == "assemble$v" }.configureEach { dependsOn(verify) }
                 }
             }
