@@ -52,6 +52,8 @@ hold the same value). Then:
 - Note the certificate fingerprint, which is public:
   `keytool -list -v -keystore tunnels-release.jks -alias tunnels` (the `SHA256:` line). It is pinned in
   `gate/baseline.release.json` (`signing.cert_sha256`, lower-case hex without colons).
+  0.1.14 is signed with a new release key (certificate pin updated); an install signed with the old key must be
+  uninstalled and reinstalled from this release after an export.
 - Put the keystore in the `signing` environment (below). Do not paste it anywhere else, do not print the
   password or the base64 text into a chat or a log.
 
@@ -71,13 +73,14 @@ needs no environment setting to change.
 
 | Environment | Holds | Reviewers | Used by |
 | --- | --- | --- | --- |
-| `signing` | four secrets: `KEYSTORE_BASE64`, `KEY_ALIAS`, `KEYSTORE_PASSWORD`, `KEY_PASSWORD` | none, by design | the `sign` job of `release.yml`, and nothing else |
+| `signing` | four secrets: `KEYSTORE_BASE64`, `KEY_ALIAS`, `KEYSTORE_PASSWORD`, `KEY_PASSWORD` | `StrongHorse44` (required, since 2026-10-15) | the `sign` job of `release.yml`, and nothing else |
 | `publish` | no secrets | `StrongHorse44` (required) | the final job of `release.yml`: the owner's approval |
 
-**What actually protects the key.** `signing` has no reviewer, so that a release needs one approval (at
-`publish`), not two. The control on the key is therefore **who can push to the integration branch and to
-`main`**: a merge that changes `VERSION` on the integration branch, or a manual run with `publish` ticked from
-either branch, signs the commit it ran on without asking anyone. The workflow file on those branches is reviewed
+**What actually protects the key.** A release needs two approvals from the owner: one at `sign`, which lets the
+`sign` job read the keystore, and one at `publish`. The signed artifact exists only after the first. The control
+on the key is the `sign` approval together with **who can push to the integration branch and to `main`**: a
+merge that changes `VERSION` on the integration branch, or a manual run with `publish` ticked from either
+branch, signs the commit it ran on once the owner approves `sign`. The workflow file on those branches is reviewed
 code, and the `sign` job runs no repository code; nothing else can read the secrets. Also:
 
 - A `VERSION` merge starts a publishing run. **The program overseer may merge a reviewed, green pull request
