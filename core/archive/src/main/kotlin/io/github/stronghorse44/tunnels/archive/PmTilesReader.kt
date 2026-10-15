@@ -111,9 +111,7 @@ internal class PmTilesReader(private val file: File) : ArchiveReader {
                     walk(header.leafOffset + d.offset, d.length, depth + 1)
                 } else {
                     checkWithin(d.offset, d.length, header.tileDataLength, "tile")
-                    if (out.size + d.runLength > MAX_TILES) {
-                        throw ArchiveException(ArchiveError.LimitExceeded("more than $MAX_TILES tiles; Tunnels lists up to $MAX_TILES"))
-                    }
+                    checkRunLength(d.runLength, out.size)
                     for (k in 0 until d.runLength) out += Tile(d.tileId + k, d.offset, d.length)
                 }
             }
@@ -171,6 +169,17 @@ internal class PmTilesReader(private val file: File) : ArchiveReader {
         private const val COMPRESSION_GZIP = 2
         private const val COMPRESSION_BROTLI = 3
         private const val COMPRESSION_ZSTD = 4
+
+        /**
+         * A tile run must hold at least one tile and fit in what is left of [MAX_TILES], checked before anything is
+         * allocated: written as `runLength in 1..(MAX_TILES - listed)`, so a run near Long.MAX_VALUE cannot overflow the sum
+         * past the cap (audit L2), and a negative varint is refused as well.
+         */
+        internal fun checkRunLength(runLength: Long, listed: Int) {
+            if (runLength !in 1..(MAX_TILES - listed)) {
+                throw ArchiveException(ArchiveError.LimitExceeded("more than $MAX_TILES tiles; Tunnels lists up to $MAX_TILES"))
+            }
+        }
 
         private fun le64(b: ByteArray, at: Int): Long {
             var v = 0L

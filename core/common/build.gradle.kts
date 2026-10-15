@@ -22,6 +22,8 @@ kotlin {
 dependencies {
     api(project(":core:model"))
     api(project(":core:metro"))
+    // IncomingUris (audit L1): plain Kotlin, unit-tested there.
+    implementation(project(":core:engine"))
     api(platform(libs.compose.bom))
     api(libs.compose.ui)
     api(libs.compose.material3)

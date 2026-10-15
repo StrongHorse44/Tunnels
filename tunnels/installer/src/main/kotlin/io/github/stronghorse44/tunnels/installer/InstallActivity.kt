@@ -43,7 +43,7 @@ class InstallActivity : ComponentActivity() {
         if (stagedPath != null) {
             vm.openStaged(File(stagedPath))
         } else {
-            Staging.incomingUri(intent)?.let(vm::open)
+            Staging.incomingUri(this, intent)?.let(vm::open)
         }
     }
 

@@ -7,6 +7,7 @@ import io.github.stronghorse44.tunnels.archive.ArchiveException
 import io.github.stronghorse44.tunnels.archive.ArchiveFormat
 import io.github.stronghorse44.tunnels.archive.Archives
 import io.github.stronghorse44.tunnels.archive.DirectorySink
+import io.github.stronghorse44.tunnels.archive.ExtractLimits
 import io.github.stronghorse44.tunnels.install.Bundles
 import io.github.stronghorse44.tunnels.install.PackageShape
 import java.io.File
@@ -33,7 +34,8 @@ object PackageStager {
                 val outDir = File(file.parentFile, "splits").apply { mkdirs() }
                 val sink = DirectorySink(outDir)
                 try {
-                    Archives.open(file, file.name).use { it.extract(chosen.map { e -> e.index }.toSet(), sink) }
+                    // Into Tunnels' own cache, so the tighter staging limits (audit L2), not a picked folder's.
+                    Archives.open(file, file.name).use { it.extract(chosen.map { e -> e.index }.toSet(), sink, ExtractLimits.STAGING) }
                 } catch (e: ArchiveException) {
                     throw IOException(describe(e.error), e)
                 }

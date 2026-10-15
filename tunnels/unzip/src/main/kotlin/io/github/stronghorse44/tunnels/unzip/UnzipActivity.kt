@@ -16,7 +16,7 @@ class UnzipActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        if (savedInstanceState == null) Staging.incomingUri(intent)?.let(vm::open)
+        if (savedInstanceState == null) Staging.incomingUri(this, intent)?.let(vm::open)
         setContent { TunnelsTheme { AppLockGate { UnzipScreen(vm, onBack = ::finish) } } }
     }
 
@@ -28,6 +28,6 @@ class UnzipActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        Staging.incomingUri(intent)?.let(vm::open)
+        Staging.incomingUri(this, intent)?.let(vm::open)
     }
 }

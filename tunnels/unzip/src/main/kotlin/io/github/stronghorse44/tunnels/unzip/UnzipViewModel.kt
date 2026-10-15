@@ -3,6 +3,7 @@ package io.github.stronghorse44.tunnels.unzip
 import android.app.Application
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
@@ -14,6 +15,7 @@ import io.github.stronghorse44.tunnels.archive.ArchiveFormat
 import io.github.stronghorse44.tunnels.archive.ArchiveLayout
 import io.github.stronghorse44.tunnels.archive.Archives
 import io.github.stronghorse44.tunnels.archive.DirectorySink
+import io.github.stronghorse44.tunnels.archive.ExtractLimits
 import io.github.stronghorse44.tunnels.archive.ExtractResult
 import io.github.stronghorse44.tunnels.archive.SafePath
 import io.github.stronghorse44.tunnels.archive.StripFirstSegmentSink
@@ -136,6 +138,13 @@ class UnzipViewModel(private val app: Application, private val saved: SavedState
         } catch (e: ArchiveException) {
             onError(e.error)
             false
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            // A hostile archive (an out-of-memory listing, a decoder bug) never crashes the app (audit L2).
+            Log.w(TAG, "listing failed: ${e.javaClass.simpleName}")
+            _state.value = UnzipState.Failed(COULD_NOT_READ, "It may be damaged, or not what its name says.")
+            false
         }
     }
 
@@ -224,6 +233,9 @@ class UnzipViewModel(private val app: Application, private val saved: SavedState
                 onError(e.error)
             } catch (e: Exception) {
                 _state.value = UnzipState.Failed("Extraction failed", e.message ?: e.javaClass.simpleName)
+            } catch (e: Throwable) {
+                Log.w(TAG, "extraction failed: ${e.javaClass.simpleName}")
+                _state.value = UnzipState.Failed(COULD_NOT_READ, "It may be damaged, or not what its name says. Files extracted so far were kept.")
             }
         }
     }
@@ -236,7 +248,7 @@ class UnzipViewModel(private val app: Application, private val saved: SavedState
                 withContext(Dispatchers.IO) {
                     val dir = Staging.newDir(app)
                     val sink = DirectorySink(dir)
-                    Archives.open(file.file, file.displayName, password).use { it.extract(setOf(entry.index), sink) }
+                    Archives.open(file.file, file.displayName, password).use { it.extract(setOf(entry.index), sink, ExtractLimits.STAGING) }
                     SafePath.segments(entry.path)?.let(sink::resolve)?.takeIf { it.isFile }
                 }
             }.getOrNull()
@@ -284,6 +296,8 @@ class UnzipViewModel(private val app: Application, private val saved: SavedState
     }
 
     companion object {
+        private const val TAG = "TunnelsUnzip"
+        private const val COULD_NOT_READ = "Couldn't read this file"
         private const val KEY_PATH = "staged_path"
         private const val KEY_NAME = "staged_name"
         private const val KEY_SELECTED = "selected"

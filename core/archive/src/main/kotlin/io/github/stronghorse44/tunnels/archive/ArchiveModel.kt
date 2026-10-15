@@ -25,7 +25,15 @@ data class ExtractLimits(
     /** Max expansion of written bytes over compressed bytes, checked once past [ratioFloorBytes]. */
     val maxRatio: Long = 1_000,
     val ratioFloorBytes: Long = 64L shl 20,
-)
+) {
+    companion object {
+        /**
+         * For extraction into Tunnels' own cache (an app bundle's splits, one APK out of an archive): 2 GiB in all and at
+         * most 200x expansion, tighter than the defaults, which are for a folder the user picked (audit L2).
+         */
+        val STAGING = ExtractLimits(maxTotalBytes = 2L shl 30, maxRatio = 200)
+    }
+}
 
 data class SkippedEntry(val path: String, val reason: String)
 

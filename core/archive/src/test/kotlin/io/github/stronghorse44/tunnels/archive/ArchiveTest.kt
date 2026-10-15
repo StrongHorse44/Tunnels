@@ -146,6 +146,31 @@ class ArchiveTest {
     }
 
     @Test
+    fun stagingExtractionUsesTighterLimits() {
+        // Bundles and single APKs go into Tunnels' own cache: 2 GiB and 200x, not the 16 GiB and 1000x a picked folder gets.
+        assertEquals(2L shl 30, ExtractLimits.STAGING.maxTotalBytes)
+        assertEquals(200L, ExtractLimits.STAGING.maxRatio)
+        assertTrue(ExtractLimits.STAGING.maxTotalBytes < ExtractLimits().maxTotalBytes)
+        assertTrue(ExtractLimits.STAGING.maxRatio < ExtractLimits().maxRatio)
+        assertEquals(256 * 1024, SevenZReader.MAX_MEMORY_KIB)
+    }
+
+    @Test
+    fun sevenZDecoderMemoryIsCapped() {
+        // SevenZOutputFile's LZMA2 default needs about 8 MiB to decode: under a 1 MiB cap that is LimitExceeded, not OOM.
+        val f = tmp.newFile("big-dict.7z")
+        SevenZOutputFile(f).use { z ->
+            z.putArchiveEntry(z.createArchiveEntry(tmp.newFile("a.txt").apply { writeText("hello") }, "a.txt"))
+            z.write("hello".toByteArray())
+            z.closeArchiveEntry()
+        }
+        expectError<ArchiveError.LimitExceeded> {
+            SevenZReader(f, null, maxMemoryKiB = 1024).use { it.extract(null, DirectorySink(tmp.newFolder())) }
+        }
+        SevenZReader(f, null).use { assertEquals(1, it.extract(null, DirectorySink(tmp.newFolder())).files) }
+    }
+
+    @Test
     fun unknownAndRarRejected() {
         val junk = tmp.newFile("junk.bin").apply { writeText("not an archive at all") }
         expectError<ArchiveError.Unsupported> { Archives.open(junk, junk.name) }
