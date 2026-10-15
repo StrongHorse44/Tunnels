@@ -73,8 +73,18 @@ sealed interface FindingAction {
     /** A Settings screen, by `android.provider.Settings` action string. */
     data class OpenSettings(val action: String, override val label: String) : FindingAction
 
-    /** An action the tunnel performs itself (e.g. Deep mode revoking a permission). Returns a one-line result. */
-    class Perform(override val label: String, val destructive: Boolean = false, val run: suspend () -> String) : FindingAction
+    /**
+     * An action the tunnel performs itself (e.g. Deep mode revoking a permission). Returns a one-line result.
+     * [destructive]: it changes state, so the screen scans again afterwards (and styles it as such). [reversible]: a
+     * destructive action the user can undo at once (a toggle: Silence and Restore, Mute and Unmute), which runs on one
+     * tap; every other destructive action asks first (`ActionConfirmation`).
+     */
+    class Perform(
+        override val label: String,
+        val destructive: Boolean = false,
+        val reversible: Boolean = false,
+        val run: suspend () -> String,
+    ) : FindingAction
 }
 
 data class Finding(

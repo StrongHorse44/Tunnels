@@ -14,9 +14,9 @@ import io.github.stronghorse44.tunnels.engine.ActionConfirmation
 import io.github.stronghorse44.tunnels.model.FindingAction
 
 /**
- * [run] behind the one generic confirmation (audit L7): a destructive [FindingAction.Perform] first asks
- * "<label>? This changes the app's state." with Cancel and <label> ([ActionConfirmation]); every other action runs at
- * once. The dialog is emitted where this is called. "Close it" keeps its own two-tap flow (it is not marked destructive).
+ * [run] behind the one generic confirmation (audit L7, review Q6): an irreversible destructive [FindingAction.Perform]
+ * or an uninstall first asks "<label>? This changes settings on your phone." with Cancel and <label>
+ * ([ActionConfirmation]); reversible toggles and every other action run at once. The dialog is emitted where this is called. "Close it" keeps its own two-tap flow (it is not marked destructive).
  */
 @Composable
 fun rememberConfirmedAction(run: (FindingAction) -> Unit): (FindingAction) -> Unit {

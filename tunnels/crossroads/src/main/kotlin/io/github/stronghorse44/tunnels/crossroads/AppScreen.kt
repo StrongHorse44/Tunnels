@@ -30,10 +30,13 @@ import io.github.stronghorse44.tunnels.model.FindingAction
 import io.github.stronghorse44.tunnels.model.MetroLine
 import io.github.stronghorse44.tunnels.runtime.FindingCard
 import io.github.stronghorse44.tunnels.runtime.ToolScaffold
+import io.github.stronghorse44.tunnels.runtime.rememberConfirmedAction
 
 @Composable
 fun AppScreen(vm: AppViewModel, onBack: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
+    // Uninstall asks first, like every irreversible action (audit L7, review Q6).
+    val confirmed = rememberConfirmedAction(vm::run)
     val tint = LineColors.of(MetroLine.INSPECT)
     val dossier = state.dossier
     ToolScaffold(title = dossier?.label ?: state.packageName, subtitle = state.packageName, tint = tint, onBack = onBack) { padding ->
@@ -47,7 +50,7 @@ fun AppScreen(vm: AppViewModel, onBack: () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (state.installed) {
                     OutlinedButton(onClick = { vm.run(FindingAction.OpenAppDetails(state.packageName)) }) { Text("App info") }
-                    if (!state.system) OutlinedButton(onClick = { vm.run(FindingAction.RequestUninstall(state.packageName)) }) { Text("Uninstall", color = StatusColors.warn) }
+                    if (!state.system) OutlinedButton(onClick = { confirmed(FindingAction.RequestUninstall(state.packageName)) }) { Text("Uninstall", color = StatusColors.warn) }
                 }
             }
             state.message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = StatusColors.warn) }

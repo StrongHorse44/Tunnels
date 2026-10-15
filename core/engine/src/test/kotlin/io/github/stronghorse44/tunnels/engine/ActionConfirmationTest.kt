@@ -10,7 +10,7 @@ class ActionConfirmationTest {
     fun destructivePerformAsksFirst() {
         val revoke = FindingAction.Perform("Revoke network", destructive = true) { "done" }
         val prompt = ActionConfirmation.prompt(revoke)
-        assertEquals("Revoke network? This changes the app's state.", prompt?.question)
+        assertEquals("Revoke network? This changes settings on your phone.", prompt?.question)
         assertEquals("Revoke network", prompt?.confirm)
         assertEquals("Cancel", prompt?.cancel)
     }
@@ -19,7 +19,18 @@ class ActionConfirmationTest {
     fun otherActionsRunAtOnce() {
         assertNull(ActionConfirmation.prompt(FindingAction.Perform("Close it") { "asks for a second tap itself" }))
         assertNull(ActionConfirmation.prompt(FindingAction.OpenAppDetails("a.b")))
-        assertNull(ActionConfirmation.prompt(FindingAction.RequestUninstall("a.b")))
         assertNull(ActionConfirmation.prompt(FindingAction.OpenSettings("android.settings.SETTINGS", "Settings")))
+    }
+
+    @Test
+    fun uninstallAsksFirst() {
+        assertEquals("Uninstall? This changes settings on your phone.", ActionConfirmation.prompt(FindingAction.RequestUninstall("a.b"))?.question)
+    }
+
+    @Test
+    fun reversibleTogglesRunOnOneTap() {
+        // Emissions' Silence and Turn off, Surroundings' mutes: destructive (the screen rescans) but reversible, no dialog.
+        assertNull(ActionConfirmation.prompt(FindingAction.Perform("Silence", destructive = true, reversible = true) { "" }))
+        assertNull(ActionConfirmation.prompt(FindingAction.Perform("Mute all 3", destructive = true, reversible = true) { "" }))
     }
 }
