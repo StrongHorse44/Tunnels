@@ -381,18 +381,17 @@ class DecoderClientTest {
         val unprotected = test(LyingDecoderService::class.java, policy)
         val third = status { unprotected.decodeImage(file("third.png", f.readBytes()), ImageKind.WEBP) }
         Log.i(TAG, "a region with its protection taken away: $third")
-        if (third == DecodeStatus.INTERNAL) {
-            Log.i(TAG, "this phone did not let the service change the region's protection")
-        } else {
-            assertEquals(DecodeStatus.BAD_REPLY, third)
-        }
+        // Strict: on the API 36 emulator the service can take the protection away and the host's mapping then fails.
+        assertEquals(DecodeStatus.BAD_REPLY, third)
         assertEquals("never read", 0, unprotected.regionMaps.get())
 
         // Exception headers the generated proxy would have acted on (EX_PARCELABLE, a StrictMode reply header): the host
         // reads the first int only, so each is BAD_REPLY and nothing of the service's is unparcelled or thrown here.
-        val parcelable = test(ExceptionHeaderDecoderService::class.java, policy)
+        // Their own policy: five counted bad replies on one policy would pause the reader for the rest of this test.
+        val headers = policy()
+        val parcelable = test(ExceptionHeaderDecoderService::class.java, headers)
         assertEquals(DecodeStatus.BAD_REPLY, status { parcelable.decodeImage(file("exc1.png", f.readBytes()), ImageKind.PNG) })
-        val strictMode = test(ExceptionHeaderDecoderService::class.java, policy)
+        val strictMode = test(ExceptionHeaderDecoderService::class.java, headers)
         assertEquals(DecodeStatus.BAD_REPLY, status { strictMode.decodeImage(file("exc2.png", f.readBytes()), ImageKind.JPEG) })
         assertEquals("never read", 0, parcelable.regionMaps.get() + strictMode.regionMaps.get())
 
