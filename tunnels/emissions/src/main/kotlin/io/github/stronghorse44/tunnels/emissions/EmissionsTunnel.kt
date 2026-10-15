@@ -53,7 +53,7 @@ class EmissionsTunnel(private val context: Context) : TunnelModule, TunnelUi {
         val granted = ShizukuStatus.cached(context).granted
         return buildList {
             if (granted && emitters.isNotEmpty()) {
-                add(FindingAction.Perform("Turn off", destructive = true) { silencer.turnOff(emitters) })
+                add(FindingAction.Perform("Turn off", destructive = true, reversible = true) { silencer.turnOff(emitters) })
             }
             addAll(EmissionsRules.settingsActions(draft))
         }

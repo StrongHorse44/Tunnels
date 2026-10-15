@@ -33,7 +33,7 @@ class ConvertActivity : ComponentActivity() {
     }
 
     private fun handle(intent: Intent?) {
-        val uri = Staging.incomingUri(intent)
+        val uri = Staging.incomingUri(this, intent)
         if (uri != null) {
             vm.open(uri)
             return

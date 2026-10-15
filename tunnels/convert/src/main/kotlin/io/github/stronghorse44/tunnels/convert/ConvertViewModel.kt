@@ -3,6 +3,7 @@ package io.github.stronghorse44.tunnels.convert
 import android.app.Application
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
@@ -93,10 +94,19 @@ class ConvertViewModel(private val app: Application, private val saved: SavedSta
 
     private suspend fun inspect() {
         val file = staged ?: return
-        val (detected, size) = withContext(Dispatchers.IO) {
-            val head = ByteArray(Formats.HEAD)
-            val n = file.file.inputStream().use { input -> input.readNBytes(head, 0, head.size) }
-            Formats.detect(head.copyOf(n), file.displayName) to file.file.length()
+        val (detected, size) = try {
+            withContext(Dispatchers.IO) {
+                val head = ByteArray(Formats.HEAD)
+                val n = file.file.inputStream().use { input -> input.readNBytes(head, 0, head.size) }
+                Formats.detect(head.copyOf(n), file.displayName) to file.file.length()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            // Never a crash on a file Tunnels was handed (audit L2).
+            Log.w(TAG, "inspect failed: ${e.javaClass.simpleName}")
+            _state.value = ConvertState.Failed(COULD_NOT_READ, "It may be damaged, or not what its name says.")
+            return
         }
         format = detected
         val tooBig = size > ConvertLimits.DEFAULT.maxInputBytes
@@ -179,6 +189,11 @@ class ConvertViewModel(private val app: Application, private val saved: SavedSta
             } catch (e: Exception) {
                 withContext(Dispatchers.IO) { if (!isFolder) deleteQuietly(dest) }
                 _state.value = ConvertState.Failed("Conversion failed", e.message ?: e.javaClass.simpleName)
+            } catch (e: Throwable) {
+                // An out-of-memory decode or a decoder bug on a hostile file: say so instead of crashing (audit L2).
+                Log.w(TAG, "conversion failed: ${e.javaClass.simpleName}")
+                withContext(Dispatchers.IO + NonCancellable) { if (!isFolder) deleteQuietly(dest) }
+                _state.value = ConvertState.Failed(COULD_NOT_READ, "It may be damaged, or not what its name says.")
             }
         }
     }
@@ -234,6 +249,15 @@ class ConvertViewModel(private val app: Application, private val saved: SavedSta
         job = viewModelScope.launch { inspect() }
     }
 
+    /**
+     * The screen is gone for good: the staged copy goes with it, shared text included (audit L9). A copy is a plaintext
+     * duplicate of the owner's file and must not wait for the next app start.
+     */
+    override fun onCleared() {
+        discard()
+        super.onCleared()
+    }
+
     /** Deletes the staged copy. Called when the screen is really closing, not when it's merely recreated. */
     fun discard() {
         staged?.let { Staging.discard(app, it.file) }
@@ -243,6 +267,8 @@ class ConvertViewModel(private val app: Application, private val saved: SavedSta
     }
 
     companion object {
+        private const val TAG = "TunnelsConvert"
+        private const val COULD_NOT_READ = "Couldn't read this file"
         private const val KEY_PATH = "staged_path"
         private const val KEY_NAME = "staged_name"
         private const val KEY_TARGET = "target"

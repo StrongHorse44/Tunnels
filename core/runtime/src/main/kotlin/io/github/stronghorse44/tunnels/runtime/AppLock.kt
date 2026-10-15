@@ -51,6 +51,18 @@ object AppLock {
     fun setEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, enabled).apply()
         _locked.value = false
+        synchronized(live) { live.toList() }.forEach { activity -> activity.runOnUiThread { applyRecents(activity, enabled) } }
+    }
+
+    /** Activities alive now, so switching the lock on hides the Recents thumbnail of the screen it was switched on from. */
+    private val live: MutableSet<Activity> = java.util.Collections.newSetFromMap(java.util.WeakHashMap())
+
+    /**
+     * While the lock is on, Recents shows no thumbnail of any Tunnels screen (audit L6): the snapshot is taken as the app
+     * goes to the background, long before the lock re-arms, so it would show what the lock hides.
+     */
+    private fun applyRecents(activity: Activity, lockOn: Boolean) {
+        runCatching { activity.setRecentsScreenshotEnabled(!lockOn) }
     }
 
     /** True when the device has a credential set, so the lock can actually be used. */
@@ -75,11 +87,16 @@ object AppLock {
                 if (--startedActivities == 0) backgroundedAt = System.currentTimeMillis()
             }
 
-            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
-            override fun onActivityResumed(activity: Activity) = Unit
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
+                synchronized(live) { live += activity }
+                applyRecents(activity, isEnabled(app))
+            }
+            override fun onActivityResumed(activity: Activity) = applyRecents(activity, isEnabled(app))
             override fun onActivityPaused(activity: Activity) = Unit
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
-            override fun onActivityDestroyed(activity: Activity) = Unit
+            override fun onActivityDestroyed(activity: Activity) {
+                synchronized(live) { live -= activity }
+            }
         })
     }
 

@@ -1,5 +1,6 @@
 package io.github.stronghorse44.tunnels.lan
 
+import io.github.stronghorse44.tunnels.engine.Presence
 import io.github.stronghorse44.tunnels.model.Observation
 import io.github.stronghorse44.tunnels.model.RuleContext
 import io.github.stronghorse44.tunnels.model.Severity
@@ -82,7 +83,7 @@ class DeviceNotesTest {
         assertEquals(Presence.MAX_ENTRIES, many.entries.size)
 
         assertEquals(Presence.Book.EMPTY, Presence.Book.parse("v2;1;2"))
-        assertEquals(emptyMap<String, Presence.Entry>(), Presence.Book.parse("v1;1;2;bad key=1,2,3,4,5;ip:1.2.3.4=1,2,3").entries)
+        assertEquals(emptyMap<String, Presence.Entry>(), Presence.Book.parse("v1;1;2;bad key=1,2,3,4,5;ip:1.2.3.4=1,2,3", DeviceKeys::isKey).entries)
     }
 
     @Test

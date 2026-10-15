@@ -225,7 +225,7 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
      * Cancels the mute on each of [subjects] (an identity and, if the whole family was muted, the family).
      * Destructive only in the sense that it rescans, so the warning can come back at once.
      */
-    fun unmuteAction(vararg subjects: String): FindingAction = FindingAction.Perform("Unmute", destructive = true) {
+    fun unmuteAction(vararg subjects: String): FindingAction = FindingAction.Perform("Unmute", destructive = true, reversible = true) {
         try {
             val store = TunnelsStore.get(context)
             subjects.forEach { store.recordEvent(SurroundingsKeys.MUTE_LEDGER, SurroundingsKeys.EVENT_UNMUTE, it, "unmuted") }
@@ -239,14 +239,14 @@ class SurroundingsTunnel(private val context: Context) : TunnelModule, TunnelUi 
      * Mutes one Wi-Fi access point or device, or one Bluetooth device, for [SurroundingsKeys.MUTE_DAYS] days; it stays
      * listed without a finding.
      */
-    fun wifiMuteAction(subject: String): FindingAction = FindingAction.Perform(LABEL_MUTE_WIFI, destructive = true) { muteWifi(listOf(subject)) }
+    fun wifiMuteAction(subject: String): FindingAction = FindingAction.Perform(LABEL_MUTE_WIFI, destructive = true, reversible = true) { muteWifi(listOf(subject)) }
 
     /** Mutes several access points or Bluetooth devices at once (the lists' "Mute all"); rescans so their findings clear. */
     fun wifiMuteAllAction(subjects: List<String>): FindingAction =
-        FindingAction.Perform("Mute all ${subjects.size}", destructive = true) { muteWifi(subjects) }
+        FindingAction.Perform("Mute all ${subjects.size}", destructive = true, reversible = true) { muteWifi(subjects) }
 
     /** Cancels the mute on one access point or device (Wi-Fi or Bluetooth); rescans so its finding can come back at once. */
-    fun wifiUnmuteAction(subject: String, name: String): FindingAction = FindingAction.Perform("Unmute", destructive = true) {
+    fun wifiUnmuteAction(subject: String, name: String): FindingAction = FindingAction.Perform("Unmute", destructive = true, reversible = true) {
         try {
             TunnelsStore.get(context).recordEvent(SurroundingsKeys.MUTE_LEDGER, SurroundingsKeys.EVENT_UNMUTE, subject, "unmuted")
             "Unmuted \"$name\"."

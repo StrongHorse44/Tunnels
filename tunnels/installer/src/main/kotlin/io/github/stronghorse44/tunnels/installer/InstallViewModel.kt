@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
@@ -15,6 +16,7 @@ import io.github.stronghorse44.tunnels.install.PreInstallReport
 import io.github.stronghorse44.tunnels.model.TunnelCatalog
 import io.github.stronghorse44.tunnels.store.EventEntity
 import io.github.stronghorse44.tunnels.store.TunnelsStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -30,6 +32,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 
 sealed interface InstallState {
     data object Idle : InstallState
@@ -122,13 +125,22 @@ class InstallViewModel(private val app: Application, private val saved: SavedSta
 
     private suspend fun inspect(file: File) {
         _state.value = InstallState.Working("Inspecting…")
-        _state.value = runCatching {
+        _state.value = try {
             withContext(Dispatchers.IO) {
                 val pkg = PackageStager.prepare(app, file)
                 val info = ApkInspector.inspect(app, pkg.base, pkg.apks)
                 InstallState.Ready(info, PreInstallChecks.evaluate(info.facts, info.installed, ApkInspector.device(app)), pkg)
             }
-        }.getOrElse { InstallState.Failed("Can't read this package", it.message ?: "Unknown error") }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: IOException) {
+            // PackageStager's own messages say what is wrong with the package.
+            InstallState.Failed("Can't read this package", e.message ?: "Unknown error")
+        } catch (e: Throwable) {
+            // A hostile file (an out-of-memory parse, a decoder bug) never crashes the app (audit L2).
+            Log.w(TAG, "inspect failed: ${e.javaClass.simpleName}")
+            InstallState.Failed(COULD_NOT_READ, "It may be damaged, or not what its name says.")
+        }
     }
 
     fun install() {
@@ -197,6 +209,8 @@ class InstallViewModel(private val app: Application, private val saved: SavedSta
     }
 
     private companion object {
+        const val TAG = "TunnelsInstaller"
+        const val COULD_NOT_READ = "Couldn't read this file"
         const val KEY_PATH = "staged_path"
         const val KEY_OWNS = "owns_staged"
         const val KEY_SESSION = "session_id"

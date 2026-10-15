@@ -47,6 +47,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.stronghorse44.tunnels.archive.ArchiveEntry
 import io.github.stronghorse44.tunnels.common.GlassPanel
+import io.github.stronghorse44.tunnels.common.SecureDialog
+import io.github.stronghorse44.tunnels.common.SecureWindow
 import io.github.stronghorse44.tunnels.common.LineColors
 import io.github.stronghorse44.tunnels.common.StatusColors
 import io.github.stronghorse44.tunnels.common.TunnelScaffold
@@ -222,8 +224,11 @@ private fun ListingContent(
 @Composable
 private fun PasswordDialog(s: UnzipState.NeedsPassword, onSubmit: (String) -> Unit, onDismiss: () -> Unit) {
     var value by remember { mutableStateOf("") }
+    // No screenshot, recording or Recents thumbnail while a password is typed (audit L6).
+    SecureWindow()
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = SecureDialog,
         title = { Text("Password") },
         text = {
             Column {

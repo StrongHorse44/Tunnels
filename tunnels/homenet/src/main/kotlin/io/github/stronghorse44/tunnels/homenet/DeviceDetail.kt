@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.stronghorse44.tunnels.common.GlassColors
 import io.github.stronghorse44.tunnels.common.StatusColors
+import io.github.stronghorse44.tunnels.engine.Presence
 import io.github.stronghorse44.tunnels.lan.DeviceCensus
 import io.github.stronghorse44.tunnels.lan.DeviceIdentity
 import io.github.stronghorse44.tunnels.lan.HostKind
@@ -41,7 +42,6 @@ import io.github.stronghorse44.tunnels.lan.LookCloser
 import io.github.stronghorse44.tunnels.lan.PortCatalog
 import io.github.stronghorse44.tunnels.lan.PortClues
 import io.github.stronghorse44.tunnels.lan.Greetings
-import io.github.stronghorse44.tunnels.lan.Presence
 import io.github.stronghorse44.tunnels.lan.Watch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

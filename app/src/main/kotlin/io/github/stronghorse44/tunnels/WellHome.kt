@@ -31,10 +31,12 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +60,7 @@ import androidx.compose.ui.unit.sp
 import io.github.stronghorse44.tunnels.common.DepthBackground
 import io.github.stronghorse44.tunnels.common.GlassColors
 import io.github.stronghorse44.tunnels.common.GlassPanel
+import io.github.stronghorse44.tunnels.common.StatusColors
 import io.github.stronghorse44.tunnels.common.StratumColors
 import io.github.stronghorse44.tunnels.common.WellView
 import io.github.stronghorse44.tunnels.convert.ConvertActivity
@@ -72,9 +75,13 @@ import io.github.stronghorse44.tunnels.runtime.TunnelSummary
 import io.github.stronghorse44.tunnels.runtime.TunnelsRuntime
 import io.github.stronghorse44.tunnels.runtime.severityColor
 import io.github.stronghorse44.tunnels.store.EventEntity
+import io.github.stronghorse44.tunnels.store.StoreUnavailableException
 import io.github.stronghorse44.tunnels.store.TunnelsStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.DateFormat
+import java.util.Date
 
 private val Mono = FontFamily.Monospace
 
@@ -99,10 +106,25 @@ fun WellHome(
     var placeholder by remember { mutableStateOf<TunnelInfo?>(null) }
     val netOn = networkAllowed(context)
     val version = remember { versionName(context) }
-    val runtime by produceState<TunnelsRuntime?>(null) {
-        value = runCatching { TunnelsRuntime.get(context) }.getOrNull()
+    // A store that cannot be opened now fails closed: nothing is deleted, and the home says so (audit M5).
+    var storeUnavailable by remember { mutableStateOf(false) }
+    // "Reset the store" only once the failure has survived a restart (review Q3), behind a confirmation.
+    var resetOffered by remember { mutableStateOf(false) }
+    var confirmReset by remember { mutableStateOf(false) }
+    var opened by remember { mutableStateOf(0) }
+    val runtime by produceState<TunnelsRuntime?>(null, opened) {
+        val opening = runCatching { TunnelsRuntime.get(context) }
+        val unavailable = opening.exceptionOrNull() is StoreUnavailableException
+        storeUnavailable = unavailable
+        resetOffered = unavailable && withContext(Dispatchers.IO) { TunnelsStore.resetOffered(context) }
+        value = opening.getOrNull()
     }
     val store = runtime?.store
+    var resetNotice by remember { mutableStateOf<TunnelsStore.ResetNotice?>(null) }
+    LaunchedEffect(store) {
+        resetNotice = if (store == null) null else withContext(Dispatchers.IO) { store.resetNotice(context) }
+    }
+    val scope = rememberCoroutineScope()
     val summaries by produceState<Map<String, TunnelSummary>>(emptyMap(), store) {
         store?.dao?.findingCounts()?.collect { value = TunnelSummary.from(it) }
     }
@@ -144,6 +166,17 @@ fun WellHome(
                     fontFamily = Mono, fontSize = 10.sp, letterSpacing = 0.6.sp, color = GlassColors.dim,
                 )
             }
+            if (storeUnavailable) {
+                Spacer(Modifier.height(8.dp))
+                Text(TunnelsStore.UNAVAILABLE_MESSAGE + ".", color = StatusColors.blocker, fontSize = 13.sp)
+                if (resetOffered) {
+                    Text(
+                        "It still fails after a restart. Resetting starts an empty store; the old one is kept aside, unreadable.",
+                        color = GlassColors.dim, fontSize = 12.sp,
+                    )
+                    TextButton(onClick = { confirmReset = true }) { Text("Reset the store", color = StatusColors.blocker) }
+                }
+            }
             Spacer(Modifier.height(10.dp))
             HomeWell(summaries, ::live, ::enter, openFindings)
             Spacer(Modifier.height(6.dp))
@@ -154,6 +187,57 @@ fun WellHome(
             Console(version, netOn, keyLevel, lastInstall, lastUnzip, lastConvert, onOpenUpdates, onOpenBreaches, onOpenConvert)
             Spacer(Modifier.navigationBarsPadding().height(12.dp))
         }
+    }
+
+    if (confirmReset) {
+        AlertDialog(
+            onDismissRequest = { confirmReset = false },
+            title = { Text("Reset the store?") },
+            text = {
+                Text(
+                    "Tunnels starts a new, empty store: findings, snapshots, settings, second-phone pins and confirmed networks " +
+                        "are gone from the app. The old store is kept aside, unreadable, for 30 days.",
+                    color = GlassColors.dim,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmReset = false
+                    scope.launch {
+                        withContext(Dispatchers.IO) { runCatching { TunnelsStore.resetAfterFailure(context) } }
+                        opened++
+                    }
+                }) { Text("Reset the store", color = StatusColors.blocker) }
+            },
+            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("Cancel") } },
+        )
+    }
+
+    val notice = resetNotice
+    if (notice != null && store != null) {
+        val day = remember(notice) { DateFormat.getDateInstance(DateFormat.LONG).format(Date(notice.at.toEpochMilli())) }
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Store reset") },
+            text = {
+                Text(
+                    if (notice.byUser) {
+                        "You reset the store on $day; the earlier data is set aside and unreadable. It stays on the phone " +
+                            "until you tap OK or for 30 days."
+                    } else {
+                        TunnelsStore.RESET_MESSAGE + " (on $day). Android no longer had the key that opened it, so Tunnels started " +
+                            "a new, empty store. The old one stays on the phone, unreadable, until you tap OK or for 30 days."
+                    },
+                    color = GlassColors.dim,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    resetNotice = null
+                    scope.launch(Dispatchers.IO) { store.dismissResetNotice(context) }
+                }) { Text("OK") }
+            },
+        )
     }
 
     placeholder?.let { t ->

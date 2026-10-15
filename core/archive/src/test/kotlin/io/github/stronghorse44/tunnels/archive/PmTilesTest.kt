@@ -75,13 +75,44 @@ class PmTilesTest {
         expectError<ArchiveError.LimitExceeded> { Archives.open(f, f.name) }
     }
 
+    @Test(timeout = 10_000)
+    fun runLengthNearLongMaxIsRefusedBeforeAnyAllocation() {
+        // The audit's 150-byte probe: one ordinary tile, then a run of Long.MAX_VALUE. out.size + runLength overflowed
+        // to a negative number, passed the cap, and the loop allocated tiles until the heap ran out.
+        val root = gzip(directory(listOf(Dir(0, 1, 0, 1), Dir(1, Long.MAX_VALUE, 0, 1))))
+        val f = write("probe.pmtiles", root, ByteArray(0), ByteArray(0), "x".toByteArray(), tileType = 2)
+        assertTrue("probe is small: ${f.length()} bytes", f.length() < 200)
+        expectError<ArchiveError.LimitExceeded> { Archives.open(f, f.name) }
+    }
+
+    @Test(timeout = 10_000)
+    fun runLengthMustBeAtLeastOne() {
+        // A ten-byte varint decodes to a negative run length; it used to slip past the cap and list nothing.
+        val root = gzip(directory(listOf(Dir(0, 1, 0, 1), Dir(1, -1, 0, 1))))
+        val f = write("negative.pmtiles", root, ByteArray(0), ByteArray(0), "x".toByteArray(), tileType = 2)
+        expectError<ArchiveError.LimitExceeded> { Archives.open(f, f.name) }
+    }
+
+    @Test
+    fun runLengthFitsInWhatIsLeftOfTheTileCap() {
+        // The overflow case: listed + runLength < 0 in Long arithmetic is refused, and so is anything past the cap.
+        assertTrue(1L + Long.MAX_VALUE < 0)
+        expectError<ArchiveError.LimitExceeded> { PmTilesReader.checkRunLength(Long.MAX_VALUE, 1) }
+        expectError<ArchiveError.LimitExceeded> { PmTilesReader.checkRunLength(Long.MIN_VALUE, 0) }
+        expectError<ArchiveError.LimitExceeded> { PmTilesReader.checkRunLength(0, 0) }
+        expectError<ArchiveError.LimitExceeded> { PmTilesReader.checkRunLength(1, 200_000) }
+        expectError<ArchiveError.LimitExceeded> { PmTilesReader.checkRunLength(2, 199_999) }
+        PmTilesReader.checkRunLength(1, 199_999)
+        PmTilesReader.checkRunLength(200_000, 0)
+    }
+
     private class Dir(val tileId: Long, val runLength: Long, val offset: Long, val length: Long)
 
     private fun directory(entries: List<Dir>): ByteArray {
         val out = ByteArrayOutputStream()
         fun varint(v: Long) {
             var x = v
-            while (x >= 0x80) { out.write(((x and 0x7f) or 0x80).toInt()); x = x ushr 7 }
+            while ((x ushr 7) != 0L) { out.write(((x and 0x7f) or 0x80).toInt()); x = x ushr 7 }
             out.write(x.toInt())
         }
         varint(entries.size.toLong())

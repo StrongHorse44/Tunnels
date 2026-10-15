@@ -16,8 +16,10 @@ class TunnelsApp : Application() {
     override fun onCreate() {
         super.onCreate()
         AppLock.install(this)
+        // Every start empties the staging area (audit L9): renamed away now, before any screen stages a file, deleted below.
+        runCatching { Staging.clearOnStart(this) }
         scope.launch {
-            Staging.clearStale(this@TunnelsApp)
+            runCatching { Staging.clearTrash(this@TunnelsApp) }
             runCatching { TunnelsRuntime.get(this@TunnelsApp).store.maintain() }
             // Background checks the user switched on: re-arm the job if the system lost it.
             runCatching { WatchScheduler.ensure(this@TunnelsApp) }

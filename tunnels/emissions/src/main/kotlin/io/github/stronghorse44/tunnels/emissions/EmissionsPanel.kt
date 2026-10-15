@@ -131,12 +131,12 @@ private fun SilenceCard(tunnel: EmissionsTunnel, r: EmissionsReading, remembered
             if (r.shell == ShellAccess.READY) {
                 if (report.on.isNotEmpty() || r.unknown.isNotEmpty()) {
                     PrismButton("Silence", onClick = {
-                        screen.perform(FindingAction.Perform("Silence", destructive = true) { tunnel.silencer.silence() })
+                        screen.perform(FindingAction.Perform("Silence", destructive = true, reversible = true) { tunnel.silencer.silence() })
                     })
                 }
                 if (remembered.isNotEmpty()) {
                     PrismButton("Restore", onClick = {
-                        screen.perform(FindingAction.Perform("Restore", destructive = true) { tunnel.silencer.restore() })
+                        screen.perform(FindingAction.Perform("Restore", destructive = true, reversible = true) { tunnel.silencer.restore() })
                     })
                 }
             } else if (report.on.isNotEmpty()) {
@@ -213,7 +213,7 @@ private fun TransmitterRow(tunnel: EmissionsTunnel, e: Emitter, r: EmissionsRead
         when {
             reading.state == EmitterState.ON && r.shell == ShellAccess.READY && ShellPlan.silenceStep(e, r) != null ->
                 TextButton(onClick = {
-                    screen.perform(FindingAction.Perform("Turn off ${e.title}", destructive = true) { tunnel.silencer.turnOff(listOf(e)) })
+                    screen.perform(FindingAction.Perform("Turn off ${e.title}", destructive = true, reversible = true) { tunnel.silencer.turnOff(listOf(e)) })
                 }) { Text("Turn off") }
             reading.state == EmitterState.ON || reading.state == EmitterState.UNKNOWN ->
                 TextButton(onClick = { screen.perform(FindingAction.OpenSettings(route.action, route.label)) }) { Text("Open") }

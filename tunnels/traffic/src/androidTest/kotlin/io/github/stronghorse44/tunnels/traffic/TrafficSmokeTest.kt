@@ -86,7 +86,7 @@ class TrafficSmokeTest {
         val cm = context.getSystemService(android.net.ConnectivityManager::class.java)!!
         val resolvers = VpnStatus.resolversOf(cm, VpnStatus.underlyingNetwork(cm))
         assertTrue(resolvers.isNotEmpty())
-        assertEquals(listOf(VpnStatus.FALLBACK_RESOLVER), VpnStatus.resolversOf(cm, null))
+        assertTrue("no network, no resolver: never a public fallback (audit L3)", VpnStatus.resolversOf(cm, null).isEmpty())
         VpnStatus.privateDnsHost(context) // strict mode or not, it must not throw
         assertFalse("blocking is off until the user turns it on", DnsVpnService.policy.value.enabled)
     }

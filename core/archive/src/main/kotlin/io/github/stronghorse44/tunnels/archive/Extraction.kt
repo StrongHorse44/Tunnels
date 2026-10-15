@@ -72,6 +72,10 @@ internal inline fun <T> translating(encrypted: Boolean, password: CharArray?, bl
     block()
 } catch (e: ArchiveException) {
     throw e
+} catch (e: org.apache.commons.compress.MemoryLimitException) {
+    throw ArchiveException(ArchiveError.LimitExceeded("unpacking it needs more memory than Tunnels allows"), e)
+} catch (e: org.tukaani.xz.MemoryLimitException) {
+    throw ArchiveException(ArchiveError.LimitExceeded("unpacking it needs more memory than Tunnels allows"), e)
 } catch (e: org.apache.commons.compress.PasswordRequiredException) {
     throw ArchiveException(ArchiveError.PasswordRequired, e)
 } catch (e: net.lingala.zip4j.exception.ZipException) {
