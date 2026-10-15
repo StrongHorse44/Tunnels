@@ -1,0 +1,34 @@
+# Egress allowlist: which modules' compiled code may name a network or shell API (CLAUDE.md hard rule 1; audit M2).
+#
+# Every assemble runs verifyEgress on each module's main classes (Egress.kt, wired in the root build.gradle.kts) and
+# fails on any reference to a network API (java.net sockets and URLs, javax.net, NIO socket channels, Network.bindSocket
+# and friends, android.net.http, NSD, VpnService, DnsResolver, DownloadManager, WebView, HTTP client libraries, host
+# name lookups) or a shell API (Deep mode's ShizukuShell, its AIDL service and ShellRunner, the Shizuku API, child
+# processes) that no line below grants to that module. Value types (URI, URLEncoder/URLDecoder, IDN, InetAddress and
+# its subclasses without name lookups, android.net.Network as a handle, android.net.Uri) are allowed everywhere.
+#
+# One grant per line: <module dir> <pattern>  # why
+#   @network / @shell        every rule of that category
+#   java/net/Socket          one type (internal form), every reference to it
+#   javax/net/*              every type under a prefix
+#   java/net/InetAddress.getByName   one member a member rule refuses
+# Only the four modules that may hold INTERNET (Permissions.internetAllowedIn) and core modules can be granted network
+# APIs; the check refuses any other network line. This file is under buildSrc/, so changing it is a gate change: the
+# owner merges it (RJ, 2026-10-15).
+
+# The four network modules (hard rule 1).
+tunnels/traffic     @network   # DNS sessions: VpnService, the forwarder's UDP sockets, DoH (approved 2026-10-01)
+tunnels/homenet     @network   # Home network sessions: probe sockets bound to the confirmed network, NSD, SSDP, TLS (approved 2026-10-01)
+tunnels/updater     @network   # user-started update checks and downloads from the project's own GitHub releases (approved 2026-10-01)
+tunnels/breaches    @network   # one user-started download of the public breach list (approved 2026-10-03, RJ's Q7)
+
+# Core libraries of those modules, type by type. core/lan opens nothing itself: BindGuard and ProbeBinder take the
+# sockets tunnels/homenet opens and bind them to the confirmed network. (core/dns, core/updates and core/breaches name
+# only value types today and need no line.)
+core/lan            java/net/Socket           # BindGuard.bindTcp, ProbeBinder.bind: homenet's TCP probes
+core/lan            java/net/DatagramSocket   # BindGuard.bindUdp, ProbeBinder.bind: homenet's UDP probes
+
+# Deep mode's Shizuku shell runs as the shell user, outside the GrapheneOS Network toggle.
+tunnels/deepmode    @shell     # the Shizuku API, ShizukuShell, the IDeepShell user service and its ShellRunner (sh, inside the shell uid)
+tunnels/emissions   io/github/stronghorse44/tunnels/deepmode/ShizukuShell           # Silence/Restore and the probe run commands through Deep mode
+tunnels/emissions   io/github/stronghorse44/tunnels/deepmode/ShizukuShell$Session   # the bound shell those commands run in
