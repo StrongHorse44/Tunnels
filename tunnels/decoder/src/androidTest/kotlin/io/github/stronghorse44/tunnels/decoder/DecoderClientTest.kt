@@ -280,12 +280,16 @@ class DecoderClientTest {
     @Test
     fun heicAnswersAgree() {
         val t = real().selfTest()
+        // Whatever canDecode did (on the API 36 emulator the sealed process dies on HEIC), no reader process is left.
+        assertGone("${context.packageName}:decoder")
         val heic = asset("gradient.heic")
         val decoded = try {
             real().decodeImage(heic, ImageKind.HEIC)
         } catch (e: DecodeFailure) {
             Log.i(TAG, "HEIC in the sealed process: canDecode ${t.heicStatus}, decodeImage ${e.status}")
-            assertEquals("canDecode and decodeImage agree", DecodeStatus.UNSUPPORTED, t.heicStatus)
+            // The API 36 emulator's sealed process dies decoding the built-in sample (CRASHED): HEIC is then refused,
+            // never decoded anywhere else. A timeout or any other answer still fails.
+            assertTrue("canDecode says this process can't read HEIC: ${t.heicStatus}", t.heicStatus == DecodeStatus.UNSUPPORTED || t.heicStatus == DecodeStatus.CRASHED)
             assertEquals(DecodeStatus.UNSUPPORTED, e.status)
             return
         }
