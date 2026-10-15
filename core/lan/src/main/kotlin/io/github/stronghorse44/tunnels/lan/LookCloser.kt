@@ -453,7 +453,7 @@ object LookCloser {
          * A quiet device (RJ, 2026-10-11): it refused (nearly) every door tried, so it is awake and hides behind no
          * firewall, yet runs no service; it gave no name and said nothing, and the scan heard nothing from it; and its
          * ping is Unix-like. Android phones and tablets answer this way, and so do e-readers, game consoles, VR headsets
-         * and cloud-only gadgets (RJ's home showed the narrower "likely Android" can be wrong). It names no kind: it is said
+         * and cloud-only gadgets (a test network showed the narrower "likely Android" can be wrong). It names no kind: it is said
          * as a guess on the screen, and the list keeps the device under "Not identified".
          */
         val quiet: Boolean

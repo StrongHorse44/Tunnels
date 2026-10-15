@@ -8,7 +8,7 @@ import io.github.stronghorse44.tunnels.model.Severity
 /**
  * Findings for transmitters left on where they are easy to forget. All are state findings: they clear when the
  * transmitter goes off. A radio in use (Wi-Fi, Bluetooth, cellular) is never a finding by itself. Readings that are
- * not confirmed on RJ's phone ([EmitterReading.confirmed]) never raise one. Each evidence ends with its Settings path.
+ * not confirmed on the owner's phone ([EmitterReading.confirmed]) never raise one. Each evidence ends with its Settings path.
  */
 object EmissionsRules {
     const val AIRPLANE_LEAK = "EMISSION_AIRPLANE_LEAK"

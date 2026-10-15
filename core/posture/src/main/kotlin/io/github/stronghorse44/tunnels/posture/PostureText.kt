@@ -6,7 +6,7 @@ object PostureText {
     const val NEEDS_SHIZUKU_END = "Nothing has been read."
     const val NOT_SCANNED = "Scan Deep mode to read posture."
 
-    /** Items whose timer was not found in Settings on RJ's build (step 0): no instruction to change them. */
+    /** Items whose timer was not found in Settings on the owner's build (step 0): no instruction to change them. */
     private val NOT_IN_SETTINGS = setOf(PostureKeys.WIFI_AUTO_OFF, PostureKeys.BT_AUTO_OFF, PostureKeys.NFC_AUTO_OFF)
 
     fun needsShizuku(reason: String) = "Posture needs Shizuku: $reason. $NEEDS_SHIZUKU_END"

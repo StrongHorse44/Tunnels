@@ -3,7 +3,7 @@ package io.github.stronghorse44.tunnels.emissions
 /**
  * One transmitter's change through the Shizuku shell. [commands] are alternatives: the first one whose output does not
  * read as an error ([ShellOutput.failed]) wins, the rest are not run. [confirmed] is false until the command has been
- * seen to work on RJ's phone; it is run anyway (a wrong command only prints an error) and the result is always checked
+ * seen to work on the owner's phone; it is run anyway (a wrong command only prints an error) and the result is always checked
  * by reading the state again.
  */
 data class ShellStep(val emitter: Emitter, val commands: List<String>, val confirmed: Boolean = false)

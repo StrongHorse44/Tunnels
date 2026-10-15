@@ -90,10 +90,9 @@
 > A device that refuses (nearly) every door, gives no name, announces nothing and pings like Unix is said to be "a quiet
 > device: a phone, tablet, e-reader, game console or cloud-only gadget", as a guess with why and the router-list check;
 > the list keeps it under "Not identified" (2026-10-11: first "likely Android", broadened once a home network with no
-> other Android device showed it can be wrong). That device was then confirmed to be the owner's test server on the LAN, a
-> Chromebook: ChromeOS refuses every
-> door unless its Linux apps' ports are forwarded and answers neither name question, so the guess names "a Chromebook or
-> Linux computer" too.
+> other Android device showed it can be wrong). The quiet device on that network was then confirmed to be the owner's test
+> server on the LAN, a Chromebook: ChromeOS refuses every door unless its Linux apps' ports are forwarded and answers
+> neither name question, so the guess names "a Chromebook or Linux computer" too.
 > **Mine by address (2026-10-11):** a quiet device (no other token, announced nothing, gave no name, opened none of the
 > scanned doors) on a scan whose discovery, port and network stages were complete, and that the port scan tried, gets
 > an `a` census token: a salted hash of "quiet" and its address. Mine (by address), in its detail, on its row and on its
@@ -156,7 +155,7 @@ This is the full spec for Tunnels, a native Android app for the owner's Graphene
 Before writing code:
 1. Save this spec as docs/HANDOFF.md.
 2. Create CLAUDE.md with the hard rules from "Principles" and "Guardrails" so they persist across sessions.
-3. Propose the Phase 0 plan: module layout, the TunnelModule interface, the Finding and Snapshot models, the diff engine, and the SQLCipher + Keystore setup. Wait for my approval.
+3. Propose the Phase 0 plan: module layout, the TunnelModule interface, the Finding and Snapshot models, the diff engine, and the SQLCipher + Keystore setup. Wait for the owner's approval.
 
 Then build Phase 0 only:
 - Kotlin, Jetpack Compose, Room + SQLCipher, no third-party SDKs that touch the network
@@ -164,7 +163,7 @@ Then build Phase 0 only:
 - GitHub Actions workflow that builds a signed release APK on tag
 - Strata home screen (Surface, Topsoil, Bedrock, Core, plus Explore) with placeholder tunnels
 
-Stop after Phase 0 so I can install and test on the device. Flag anything in this spec you think is wrong or not possible without root.
+Stop after Phase 0 so the owner can install and test on the device. Flag anything in this spec you think is wrong or not possible without root.
 
 ## Overview
 Tunnels digs into layers of the phone and its surroundings most people never see. Each layer is a "tunnel": apps and permissions, embedded trackers, the trust store, the hardware's integrity report, network traffic, nearby radios, the home network.
@@ -273,7 +272,7 @@ Each phase ends with a signed APK tested on the GrapheneOS test phone before the
 - [ ] Application ID and repo name
 - [ ] A commercial VPN app vs Traffic: one VPN at a time. Pause the VPN app during sessions, or never run both?
 - [ ] Are GrapheneOS Network/Sensors toggle states readable via requestedPermissionsFlags?
-- [ ] Private Space vs secondary user on my build, and how a file moves between them
+- [ ] Private Space vs secondary user on the owner's build, and how a file moves between them
 - [ ] Tracker signature source: Exodus Privacy's database, check license before bundling
 - [ ] Distribution: GitHub Releases only, or Obtainium too? Where the signing key lives
 - [ ] minSdk: set to what the GrapheneOS test phone runs

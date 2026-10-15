@@ -276,6 +276,8 @@ class PostureParserTest {
         assertEquals("15 min", reboot("900000").value)
         val allConfirmed = PostureKeys.ITEMS.map { it.copy(confirmed = true) }
         fun lock(ms: String) = read(secure = "lock_screen_lock_after_timeout=$ms", items = allConfirmed).of(PostureKeys.LOCK_DELAY)
+        assertEquals(PostureState.WEAK, read(global = "private_dns_mode=off").of(PostureKeys.PRIVATE_DNS).state)
+        assertEquals("off", read(global = "private_dns_mode=off").of(PostureKeys.PRIVATE_DNS).value)
         assertEquals(PostureState.GOOD, lock("5000").state)
         assertEquals("5 s", lock("5000").value)
         assertEquals(PostureState.WEAK, lock("60000").state)

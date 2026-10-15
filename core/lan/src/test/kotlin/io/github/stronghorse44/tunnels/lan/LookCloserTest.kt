@@ -125,9 +125,9 @@ class LookCloserTest {
         assertEquals(OsHint.UNIX_LIKE, kept.os)
         assertEquals(kept, LookCloser.Summary.parse(kept.encode()))
 
-        val phone = LookCloser.Findings(open = listOf(62078), mdnsName = "RJs-iPhone", ttl = 64)
+        val phone = LookCloser.Findings(open = listOf(62078), mdnsName = "Anas-iPhone", ttl = 64)
         assertEquals(HostKind.PHONE, phone.kind)
-        assertEquals(listOf("RJs-iPhone"), phone.names)
+        assertEquals(listOf("Anas-iPhone"), phone.names)
         val windows = LookCloser.Findings(netbiosName = "LIVINGROOM-PC", workgroup = "WORKGROUP", ttl = 128)
         assertEquals(HostKind.COMPUTER, windows.kind)
         assertEquals(HostKind.UNKNOWN, LookCloser.Findings().kind)

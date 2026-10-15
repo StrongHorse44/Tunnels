@@ -60,7 +60,7 @@ class PostureRulesTest {
     }
 
     @Test
-    fun twelveHoursIsGood() {
+    fun eightHoursIsGood() {
         assertEquals(emptyList<FindingDraft>(), drafts(scan(global = "settings_reboot_after_timeout=28800000")).filter { it.kind == "POSTURE_AUTO_REBOOT" })
         assertTrue(drafts(scan(global = "settings_reboot_after_timeout=64800000")).none { it.kind == "POSTURE_AUTO_REBOOT" })
     }

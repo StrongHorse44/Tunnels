@@ -10,7 +10,7 @@ network, the updater and the breach list fetch for Linx), used only during sessi
 
 ## Security status
 
-Tunnels is built by its owner for his own phone and published so others can read the code. It has written hard rules and a design spec ([CLAUDE.md](CLAUDE.md), [docs/HANDOFF.md](docs/HANDOFF.md)) but no separate threat-model document. Permissions are enforced per module and checked in CI, there are JVM and device tests, and every pull request gets an independent review before it merges. It has **not** had a third-party security audit. Treat it as use-at-your-own-risk software: it inspects your phone and your own network and stores summaries in an encrypted database, and it is not a password manager or a vault. Read the code before trusting a finding, and report problems through issues.
+Tunnels is built by its owner for his own phone and published so others can read the code. It has written hard rules and a design spec ([CLAUDE.md](CLAUDE.md), [docs/HANDOFF.md](docs/HANDOFF.md)) but no separate threat-model document. Permissions are enforced per module and checked in CI, there are JVM and emulator tests, and since October 2026 every pull request is reviewed by a separate agent session before it merges. It has **not** had a third-party security audit. Treat it as use-at-your-own-risk software: it inspects your phone and your own network and stores summaries in an encrypted database, and it is not a password manager or a vault. Read the code before trusting a finding, and report problems through issues; there is no private reporting route yet.
 
 ## Tunnels
 
