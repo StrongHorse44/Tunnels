@@ -11,9 +11,7 @@ import android.net.VpnService
 import io.github.stronghorse44.tunnels.dns.Resolvers
 import io.github.stronghorse44.tunnels.dns.VpnPresence
 import java.net.DatagramSocket
-import java.net.Inet6Address
 import java.net.InetAddress
-import java.net.NetworkInterface
 
 /**
  * Read-only questions about the device's VPN and DNS state. Every call swallows system errors.
@@ -110,15 +108,13 @@ object VpnStatus {
         runCatching { cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true }.getOrDefault(false)
 
     /**
-     * Resolvers of [network]: IPv4 first, then global IPv6, then link-local IPv6 scoped to the network's interface
+     * Resolvers of [network]: IPv4 first, then global IPv6, then link-local IPv6 that carry their scope id
      * ([Resolvers.select]). Empty when the network names none, or its properties cannot be read: there is no public
      * fallback (audit L3), and the session then refuses to start or ends with [Resolvers.NONE].
      */
     fun resolversOf(cm: ConnectivityManager, network: Network?): List<InetAddress> {
         val props = network?.let { runCatching { cm.getLinkProperties(it) }.getOrNull() } ?: return emptyList()
-        val servers = runCatching { props.dnsServers }.getOrNull().orEmpty()
-        val iface = runCatching { props.interfaceName?.let(NetworkInterface::getByName) }.getOrNull()
-        return Resolvers.select(servers) { v6 -> iface?.let { Inet6Address.getByAddress(null, v6.address, it) } }
+        return Resolvers.select(runCatching { props.dnsServers }.getOrNull().orEmpty())
     }
 
     /**

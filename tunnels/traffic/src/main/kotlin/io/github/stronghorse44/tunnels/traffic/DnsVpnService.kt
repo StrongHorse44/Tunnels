@@ -13,6 +13,7 @@ import android.net.LinkProperties
 import android.net.Network
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.util.Log
 import io.github.stronghorse44.tunnels.dns.BlockPolicy
 import io.github.stronghorse44.tunnels.dns.Blocklists
@@ -80,6 +81,8 @@ class DnsVpnService : VpnService() {
     private var startedAt = 0L
     /** Counts sessions, so a stop's deferred clean-up never touches a session started after it. */
     private var serial = 0
+    /** Since when the network has had no resolver during this session, or null ([Resolvers.Grace]). */
+    @Volatile private var noResolver: Resolvers.Grace.Episode? = null
     private val subjects = ConcurrentHashMap<Int, String>()
     private var lastShown: SessionTotals? = null
 
@@ -109,6 +112,7 @@ class DnsVpnService : VpnService() {
         serial++
         // The foreground notification must be up quickly after startForegroundService().
         startForeground(NOTIFICATION_ID, notification(SessionTotals()), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        noResolver = null
         scope.launch {
             // The user's blocking choices, read before the tunnel opens so the first lookup already follows them.
             withContext(Dispatchers.IO) { runCatching { TunnelsStore.get(this@DnsVpnService).setting(BlockPolicy.KEY) }.getOrNull() }
@@ -254,8 +258,8 @@ class DnsVpnService : VpnService() {
      */
     private fun followDefaultNetwork(cm: ConnectivityManager) {
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) = adopt(cm, network)
-            override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) = adopt(cm, network)
+            override fun onAvailable(network: Network) = adopt(cm, network, linkChange = false)
+            override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) = adopt(cm, network, linkChange = true)
             override fun onLost(network: Network) {
                 // Nothing to forward to until a network comes back; apps cannot resolve without one either.
                 _state.update { it.copy(resolver = null) }
@@ -270,17 +274,31 @@ class DnsVpnService : VpnService() {
     }
 
     /** Runs on the connectivity thread: only volatile and atomic state is touched. */
-    private fun adopt(cm: ConnectivityManager, network: Network) {
+    private fun adopt(cm: ConnectivityManager, network: Network, linkChange: Boolean) {
         val fwd = forwarder ?: return
         val physical = if (VpnStatus.isVpn(cm, network)) VpnStatus.underlyingNetwork(cm) else network
         val resolvers = VpnStatus.resolversOf(cm, physical)
         if (resolvers != fwd.resolvers) fwd.resolvers = resolvers
-        if (resolvers.isEmpty()) {
-            // The network names no resolver: end the session rather than send lookups anywhere else (audit L3).
-            scope.launch { stopSession("${Resolvers.NONE} The session ended and lookups go back to the system.") }
+        // No resolver (audit L3, review Q2): the forwarder drops plain lookups, nothing is sent anywhere, and the
+        // session ends unless one appears within 15 s or by the next link-properties change.
+        val now = SystemClock.elapsedRealtime()
+        val before = noResolver
+        val episode = Resolvers.Grace.update(before, resolvers.isEmpty(), linkChange, now)
+        noResolver = episode
+        if (episode == null) {
+            _state.update { it.copy(resolver = resolverLabel(resolvers)) }
             return
         }
-        _state.update { it.copy(resolver = resolverLabel(resolvers)) }
+        _state.update { it.copy(resolver = null) }
+        if (Resolvers.Grace.shouldEnd(episode, now)) {
+            scope.launch { stopSession(NO_RESOLVER_ENDED) }
+        } else if (before == null) {
+            val session = serial
+            scope.launch {
+                delay(Resolvers.Grace.GRACE_MS)
+                if (serial == session && Resolvers.Grace.shouldEnd(noResolver, SystemClock.elapsedRealtime())) stopSession(NO_RESOLVER_ENDED)
+            }
+        }
     }
 
     /** The encrypted provider when one is chosen, otherwise the network resolver's address. */
@@ -401,6 +419,8 @@ class DnsVpnService : VpnService() {
         const val ACTION_STOP = "io.github.stronghorse44.tunnels.traffic.action.STOP_SESSION"
         const val CHANNEL_ID = "traffic_session"
         private const val NOTIFICATION_ID = 3101
+        /** The network has had no resolver for the grace period ([Resolvers.Grace]). */
+        const val NO_RESOLVER_ENDED = "${Resolvers.NONE} The session ended and lookups go back to the system."
         const val FORWARDER_FAILED_MESSAGE = "The DNS forwarder stopped unexpectedly; the session was ended so lookups work again."
 
         /** Sessions end on their own after this long. */

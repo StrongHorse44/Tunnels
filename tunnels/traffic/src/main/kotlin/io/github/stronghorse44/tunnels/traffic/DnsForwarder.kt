@@ -241,6 +241,8 @@ class DnsForwarder(
      */
     private fun forwardPlain(p: IpPacket.Udp, query: DnsMessage, resolver: InetAddress, queuedAt: Long) {
         if (!running) return
+        // Waited past its window in the queue: the app has given up on it, so nothing is opened or sent.
+        if (System.currentTimeMillis() - queuedAt >= PENDING_MS) return
         var opened: DatagramSocket? = null
         val socket = try {
             DatagramSocket().also { s ->

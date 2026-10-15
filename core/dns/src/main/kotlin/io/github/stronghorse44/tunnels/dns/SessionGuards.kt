@@ -40,18 +40,40 @@ object Resolvers {
     const val NONE = "No DNS resolver on this network."
 
     /**
-     * IPv4 first, then global IPv6, then link-local IPv6 with their scope: kept when they already carry one, else given
-     * one by [scope] (the network's interface), else dropped, since a link-local address without a scope cannot be sent to.
+     * IPv4 first, then global IPv6, then link-local IPv6 that carry their scope (LinkProperties hands them out with the
+     * interface's scope id). A link-local address without a scope cannot be sent to and is dropped; no interface lookup
+     * is made to give it one (that would add `java.net.NetworkInterface`, a network type the release gate does not list).
      */
-    fun select(servers: List<InetAddress>, scope: (Inet6Address) -> Inet6Address? = { null }): List<InetAddress> {
+    fun select(servers: List<InetAddress>): List<InetAddress> {
         val out = ArrayList<InetAddress>()
         servers.filterIsInstance<Inet4Address>().filterNot { it.isAnyLocalAddress }.forEach(out::add)
         servers.filterIsInstance<Inet6Address>().filterNot { it.isLinkLocalAddress || it.isAnyLocalAddress }.forEach(out::add)
-        for (v6 in servers.filterIsInstance<Inet6Address>().filter { it.isLinkLocalAddress }) {
-            val scoped = if (v6.scopeId != 0 || v6.scopedInterface != null) v6 else runCatching { scope(v6) }.getOrNull()
-            if (scoped != null && (scoped.scopeId != 0 || scoped.scopedInterface != null)) out += scoped
-        }
+        servers.filterIsInstance<Inet6Address>().filter { it.isLinkLocalAddress && it.scopeId != 0 }.forEach(out::add)
         return out.distinct()
+    }
+
+    /**
+     * What a running session does after the resolver list it follows came back empty (review Q2): it keeps going and
+     * drops plain lookups (nothing is sent anywhere) for [GRACE_MS], and ends only if no resolver appears by then or by
+     * the next link-properties change that is still empty. A non-empty list ends the episode. A session never starts
+     * without a resolver: that check is separate and has no grace.
+     */
+    object Grace {
+        const val GRACE_MS = 15_000L
+
+        /** One run of updates with an empty list: since when, and how many link-properties changes came after it began. */
+        data class Episode(val since: Long, val laterLinkChanges: Int = 0)
+
+        /** The episode after an update whose list is [empty]; null once a resolver is back. */
+        fun update(episode: Episode?, empty: Boolean, linkChange: Boolean, now: Long): Episode? = when {
+            !empty -> null
+            episode == null -> Episode(now)
+            linkChange -> episode.copy(laterLinkChanges = episode.laterLinkChanges + 1)
+            else -> episode
+        }
+
+        fun shouldEnd(episode: Episode?, now: Long): Boolean =
+            episode != null && (episode.laterLinkChanges > 0 || now - episode.since >= GRACE_MS)
     }
 }
 

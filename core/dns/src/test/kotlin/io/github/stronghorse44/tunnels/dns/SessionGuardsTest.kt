@@ -2,6 +2,7 @@ package io.github.stronghorse44.tunnels.dns
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.net.Inet6Address
@@ -55,7 +56,7 @@ class SessionGuardsTest {
     fun noUsableResolverMeansNoneNotAPublicFallback() {
         assertEquals(emptyList<InetAddress>(), Resolvers.select(emptyList()))
         // Link-local IPv6 without a scope cannot be sent to and nothing can scope it: none, so the session refuses.
-        assertEquals(emptyList<InetAddress>(), Resolvers.select(listOf(ip("fe80::1"))))
+        assertEquals(emptyList<InetAddress>(), Resolvers.select(listOf(ip("fe80::1"))))  // no scope: dropped
         assertFalse(Resolvers.select(listOf(ip("fe80::1"))).contains(ip("1.1.1.1")))
         assertTrue(Resolvers.NONE.startsWith("No DNS resolver on this network"))
     }
@@ -63,9 +64,35 @@ class SessionGuardsTest {
     @Test
     fun resolversKeepIpv4FirstThenGlobalIpv6ThenScopedLinkLocal() {
         val scoped = Inet6Address.getByAddress(null, ip("fe80::53").address, 7)
-        val picked = Resolvers.select(listOf(ip("2001:db8::53"), ip("fe80::53"), ip("192.168.1.1")), scope = { scoped })
+        val picked = Resolvers.select(listOf(ip("2001:db8::53"), scoped, ip("fe80::99"), ip("192.168.1.1")))
         assertEquals(listOf(ip("192.168.1.1"), ip("2001:db8::53"), scoped), picked)
         assertEquals(7, (picked.last() as Inet6Address).scopeId)
+    }
+
+    @Test
+    fun noResolverGraceEndsAfterFifteenSeconds() {
+        var e = Resolvers.Grace.update(null, empty = true, linkChange = false, now = 1_000)
+        assertFalse(Resolvers.Grace.shouldEnd(e, 1_000))
+        assertFalse(Resolvers.Grace.shouldEnd(e, 1_000 + Resolvers.Grace.GRACE_MS - 1))
+        assertTrue(Resolvers.Grace.shouldEnd(e, 1_000 + Resolvers.Grace.GRACE_MS))
+        e = Resolvers.Grace.update(e, empty = true, linkChange = false, now = 5_000)
+        assertEquals(1_000L, e?.since)
+    }
+
+    @Test
+    fun noResolverGraceEndsAtTheNextEmptyLinkChange() {
+        val first = Resolvers.Grace.update(null, empty = true, linkChange = true, now = 1_000)
+        assertFalse("the change that empties the list starts the grace", Resolvers.Grace.shouldEnd(first, 1_000))
+        val next = Resolvers.Grace.update(first, empty = true, linkChange = true, now = 2_000)
+        assertTrue(Resolvers.Grace.shouldEnd(next, 2_000))
+    }
+
+    @Test
+    fun aResolverComingBackEndsTheGrace() {
+        val e = Resolvers.Grace.update(null, empty = true, linkChange = false, now = 1_000)
+        val back = Resolvers.Grace.update(e, empty = false, linkChange = true, now = 3_000)
+        assertNull(back)
+        assertFalse(Resolvers.Grace.shouldEnd(back, 100_000))
     }
 
     @Test
