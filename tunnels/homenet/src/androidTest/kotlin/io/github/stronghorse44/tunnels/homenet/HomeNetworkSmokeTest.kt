@@ -107,7 +107,7 @@ class HomeNetworkSmokeTest {
         )
         assertEquals(listOf(LanGuides.MINE_LABEL, LanGuides.FIX_LABEL, LanGuides.ROUTER_ADMIN_LABEL, LanGuides.WIFI_SETTINGS_LABEL), stranger.map { it.label })
         // A quiet device matched by its address: Mine says so.
-        val quietToken = DeviceIdentity.token("00".repeat(32), "a", "quiet\n192.168.1.183")
+        val quietToken = DeviceIdentity.token("00".repeat(32), "a", "quiet\n192.168.1.250")
         val quiet = module.actionsFor(
             FindingDraft(module.id, DeviceCensus.subject("Unnamed device", quietToken), LanRules.UNKNOWN_DEVICE, Severity.NOTICE, "e", sticky = true),
         )
@@ -129,7 +129,7 @@ class HomeNetworkSmokeTest {
 
         // A port opened to the internet: Close it first (a second tap confirms), then the steps and the router's page.
         val opening = module.actionsFor(
-            FindingDraft(module.id, "192.168.1.183 · TCP 8554 to the internet", LanRules.PORT_OPENED, Severity.WARN, "e"),
+            FindingDraft(module.id, "192.168.1.250 · TCP 8554 to the internet", LanRules.PORT_OPENED, Severity.WARN, "e"),
         )
         assertEquals(listOf(LanGuides.CLOSE_OPENING_LABEL, LanGuides.FIX_LABEL, LanGuides.ROUTER_ADMIN_LABEL, LanGuides.WIFI_SETTINGS_LABEL), opening.map { it.label })
         assertTrue(opening.none { it is FindingAction.Perform && it.destructive })

@@ -31,7 +31,7 @@ Have I Been Pwned's breach data is offered under Creative Commons Attribution 4.
 
 > Breach data from Have I Been Pwned by Troy Hunt (haveibeenpwned.com), CC BY 4.0. Reduced by Tunnels to names, titles, domains, dates, counts, flags and data classes.
 
-What was confirmed (from RJ's browser, 2026-10-06; the program repo's `facts/hibp.md`): the all-breaches endpoint needs no
+What was confirmed (from a browser, 2026-10-06; the program repo's `facts/hibp.md`): the all-breaches endpoint needs no
 API key and no sign-in; every request needs a user agent (a missing one is answered with HTTP 403); the answer is a JSON array
 of objects with the fields `HibpCatalogue` reads (and a few more, which it ignores); the data class `Passwords` exists; and the
 licence is CC BY 4.0 with attribution that names Have I Been Pwned as the source. The licence asks for a link to the site;

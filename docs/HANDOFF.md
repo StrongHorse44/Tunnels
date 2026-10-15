@@ -89,8 +89,9 @@
 > unidentified device by it at the next scan. Also: open its web page, open the router admin, and steps to track it down.
 > A device that refuses (nearly) every door, gives no name, announces nothing and pings like Unix is said to be "a quiet
 > device: a phone, tablet, e-reader, game console or cloud-only gadget", as a guess with why and the router-list check;
-> the list keeps it under "Not identified" (RJ, 2026-10-11: first "likely Android", broadened once RJ's home, with no
-> other Android device, showed it can be wrong). RJ then confirmed .183 is a Chromebook server: ChromeOS refuses every
+> the list keeps it under "Not identified" (2026-10-11: first "likely Android", broadened once a home network with no
+> other Android device showed it can be wrong). That device was then confirmed to be the owner's test server on the LAN, a
+> Chromebook: ChromeOS refuses every
 > door unless its Linux apps' ports are forwarded and answers neither name question, so the guess names "a Chromebook or
 > Linux computer" too.
 > **Mine by address (2026-10-11):** a quiet device (no other token, announced nothing, gave no name, opened none of the
@@ -99,7 +100,7 @@
 > finding, puts it on the list; it stays listed while a quiet device is at that address, and a device that announces
 > itself or opens a door there is judged again (RJ: address + still quiet, everywhere Mine is). Another quiet device at the
 > same address would pass, so the screen asks to reserve the address in the router. Notes kept by address move to it.
-> **Apple discovery (2026-10-11):** RJ's iPhone, MacBook and Apple Watch never showed up: the scan listened for no Apple
+> **Apple discovery (2026-10-11):** An iPhone, a laptop and a watch on the test network never showed up: the scan listened for no Apple
 > announcement but AirPlay and file sharing. It now also browses `_companion-link._tcp` (the device's own name, kept),
 > `_apple-mobdev2._tcp` (iPhones and iPads; its instance name holds the Wi-Fi hardware address and is never kept) and
 > `_rdlink._tcp` (name not kept); no name holding a hardware address is kept from any type (`MdnsTypes.nameToKeep`).
@@ -150,7 +151,7 @@
 > See [EMISSIONS.md](EMISSIONS.md).
 
 ## Instructions for Claude Code
-This is the full spec for Tunnels, a native Android app for my GrapheneOS Pixel 10.
+This is the full spec for Tunnels, a native Android app for the owner's GrapheneOS phone.
 
 Before writing code:
 1. Save this spec as docs/HANDOFF.md.
@@ -241,7 +242,7 @@ GitHub Actions builds a signed release APK on tag.
 - **Phase 3:** Traffic (VpnService, getConnectionOwnerUid, adds INTERNET). DNS logging per app first, then per-connection. Sessions only.
 - **Phase 4:** Surroundings. BLE tracker detection, Wi-Fi security and evil twins, cell tower changes. BLUETOOTH_SCAN, NEARBY_WIFI_DEVICES, ACCESS_FINE_LOCATION; background location as separate opt-in. Satellites (Explore) rides along.
 - **Phase 5:** Home network. Own-network gate, then LAN discovery (NsdManager, SSDP with MulticastLock), then TCP connect port scan, then router checks (UPnP, DNS rewriting).
-- **Phase 6:** Deep mode via Shizuku. Sensor/mic/camera/clipboard access history (appops), hidden Settings keys (apps targeting API 31+ can't read them otherwise), plus the GrapheneOS posture of those keys (B07, `core:posture`): a fixed allowlist read from the same shell, each item good, weak, unknown or n/a, with a Settings deep link for each weak one. On RJ's build (step 0, 2026-10-05) the USB-C port mode has no readable property, so it is a reminder row like the duress PIN; its `getprop` read stays in `core:posture` behind `confirmed = false`, as do the Wi-Fi, Bluetooth and NFC auto-off timers (no key appeared).
+- **Phase 6:** Deep mode via Shizuku. Sensor/mic/camera/clipboard access history (appops), hidden Settings keys (apps targeting API 31+ can't read them otherwise), plus the GrapheneOS posture of those keys (B07, `core:posture`): a fixed allowlist read from the same shell, each item good, weak, unknown or n/a, with a Settings deep link for each weak one. On the test phone's build (step 0, 2026-10-05) the USB-C port mode has no readable property, so it is a reminder row like the duress PIN; its `getprop` read stays in `core:posture` behind `confirmed = false`, as do the Wi-Fi, Bluetooth and NFC auto-off timers (no key appeared).
 - **Explore:** Satellites (GnssStatus, GNSS measurements), Sensors (SensorManager), Cameras (CameraCharacteristics). No actions, curiosity only.
 - **Backlog:** NFC (display only, never stored), ultrasonic beacon listener, SDR (receive-only, public broadcasts), OBD-II, packet path, leak test, breach footprint.
 
@@ -257,7 +258,7 @@ GitHub Actions builds a signed release APK on tag.
 - [ ] GitHub Actions builds a signed release APK on tag
 
 ## Build order
-Each phase ends with a signed APK tested on the Pixel 10 before the next starts.
+Each phase ends with a signed APK tested on the GrapheneOS test phone before the next starts.
 
 0. Foundation: repo, Gradle (Kotlin DSL, version catalog), Compose, strata home, SQLCipher + Keystore, Finding/Snapshot models, TunnelModule interface, diff engine, CI release build
 1. Inspector: Permissions -> APK excavation -> Hardening -> Trust store -> Silicon -> Doors -> System packages, each wired into Snapshots. This is v1.
@@ -270,9 +271,9 @@ Each phase ends with a signed APK tested on the Pixel 10 before the next starts.
 
 ## Open questions
 - [ ] Application ID and repo name
-- [ ] Surfshark vs Traffic: one VPN at a time. Pause Surfshark during sessions, or never run both?
+- [ ] A commercial VPN app vs Traffic: one VPN at a time. Pause the VPN app during sessions, or never run both?
 - [ ] Are GrapheneOS Network/Sensors toggle states readable via requestedPermissionsFlags?
 - [ ] Private Space vs secondary user on my build, and how a file moves between them
 - [ ] Tracker signature source: Exodus Privacy's database, check license before bundling
 - [ ] Distribution: GitHub Releases only, or Obtainium too? Where the signing key lives
-- [ ] minSdk: set to what the Pixel 10 runs
+- [ ] minSdk: set to what the GrapheneOS test phone runs

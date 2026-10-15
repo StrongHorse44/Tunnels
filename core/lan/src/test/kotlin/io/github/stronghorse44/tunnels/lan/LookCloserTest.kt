@@ -38,7 +38,7 @@ class LookCloserTest {
         assertNull(Greetings.httpTitle("<html><body>no title</body></html>"))
         assertNull(Greetings.httpTitle("<title>   </title>"))
         assertEquals("DS-2CD2143G2-I", Greetings.authRealm(mapOf("www-authenticate" to "Digest realm=\"DS-2CD2143G2-I\", nonce=\"x\"")))
-        assertEquals("https://192.168.1.183/", Greetings.redirect(302, mapOf("location" to "https://192.168.1.183/")))
+        assertEquals("https://192.168.1.250/", Greetings.redirect(302, mapOf("location" to "https://192.168.1.250/")))
         assertNull(Greetings.redirect(200, mapOf("location" to "/x")))
         assertEquals(Greetings.MAX_TEXT, Greetings.clean("x".repeat(500))!!.length)
         assertEquals("a b", Greetings.clean("a\u0000\n\t b\u0007"))
@@ -144,7 +144,7 @@ class LookCloserTest {
     @Test
     fun aDeviceThatRefusesEveryDoorQuietlyIsAQuietDeviceOfNoKind() {
         val all = PortCatalog.closer.map { it.port }
-        // 192.168.1.183 as RJ saw it (2026-10-11): every door refused, no name, TTL 64, nothing announced.
+        // A device on the home network that refused every door, gave no name, pinged with TTL 64 and announced nothing.
         val quiet = LookCloser.Findings(refused = all, ttl = 64)
         assertTrue(quiet.quiet)
         // A guess on the screen only: the list keeps it under "Not identified".
@@ -163,7 +163,7 @@ class LookCloserTest {
         assertFalse(LookCloser.Findings(open = listOf(80), refused = all - 80, ttl = 64).quiet)
         assertFalse(LookCloser.Findings(refused = all).quiet)
         assertTrue(LanGuides.QUIET_WHY.contains("e-readers") && LanGuides.QUIET_GUESS.contains("phone"))
-        // RJ's 192.168.1.183 turned out to be a Chromebook server (2026-10-11): ChromeOS answers exactly this way.
+        // A Chromebook running Linux apps is one such device: ChromeOS answers exactly this way.
         assertTrue(LanGuides.QUIET_GUESS.contains("Chromebook") && LanGuides.QUIET_WHY.contains("forward their ports"))
     }
 
@@ -174,15 +174,15 @@ class LookCloserTest {
         val summary = LanSummary.from(
             listOf(
                 o(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_GATE, LanKeys.GATE_CONFIRMED),
-                o("192.168.1.183", LanKeys.HOST_KIND, HostKind.UNKNOWN.label),
-                o("192.168.1.183", LanKeys.HOST_FOUND_BY, LanKeys.FOUND_BY_SWEEP),
-                o("192.168.1.183", LanKeys.HOST_SWEEP_ANSWER, LanSweep.answer(80, open = false)),
-                o("192.168.1.183", LanKeys.HOST_CLOSER, kept.encode()),
+                o("192.168.1.250", LanKeys.HOST_KIND, HostKind.UNKNOWN.label),
+                o("192.168.1.250", LanKeys.HOST_FOUND_BY, LanKeys.FOUND_BY_SWEEP),
+                o("192.168.1.250", LanKeys.HOST_SWEEP_ANSWER, LanSweep.answer(80, open = false)),
+                o("192.168.1.250", LanKeys.HOST_CLOSER, kept.encode()),
                 o("192.168.1.20", LanKeys.HOST_KIND, HostKind.TV.label),
                 o("192.168.1.20", LanKeys.HOST_CLOSER, kept.encode()),
             ),
         )
-        val unknown = summary.hosts.first { it.ip == "192.168.1.183" }
+        val unknown = summary.hosts.first { it.ip == "192.168.1.250" }
         assertEquals(HostKind.CAMERA, unknown.kind)
         assertEquals("garage-cam", unknown.title)
         assertEquals("80/refused", unknown.sweepAnswer)
