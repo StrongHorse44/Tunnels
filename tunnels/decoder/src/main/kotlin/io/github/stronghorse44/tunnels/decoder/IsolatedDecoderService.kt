@@ -47,7 +47,8 @@ class IsolatedDecoderService : Service() {
             var bits = 0
             if (Process.isIsolated()) bits = bits or SelfCheckBits.ISOLATED
             // Both mean "cannot see": the data directory cannot be listed and its databases folder cannot be found.
-            val hidden = dataDir != null && runCatching { File(dataDir).list() == null && !File(dataDir, "databases").exists() }.getOrDefault(false)
+            val dir = dataDir
+            val hidden = dir != null && runCatching { File(dir).list() == null && !File(dir, "databases").exists() }.getOrDefault(false)
             if (hidden) bits = bits or SelfCheckBits.NO_APP_DATA
             return bits
         }
