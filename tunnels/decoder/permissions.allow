@@ -1,0 +1,2 @@
+# Permissions the decoder module may declare, one per line. CI fails on anything else.
+# None: the sealed decoder declares and holds no permission. It runs in an isolated process (its own throwaway uid).
