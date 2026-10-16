@@ -27,6 +27,8 @@ dependencies {
     implementation(project(":core:runtime"))
     implementation(project(":core:store"))
     implementation(project(":core:devicecheck"))
+    // The "Sealed file reader" check binds the sealed decoder for a self test (audit M6).
+    implementation(project(":tunnels:decoder"))
     implementation(project(":core:attestation"))
     implementation(project(":core:posture"))
     implementation(project(":core:watchrules"))

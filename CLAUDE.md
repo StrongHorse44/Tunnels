@@ -82,8 +82,10 @@ everything, so uninstall wipes all data and nothing goes to cloud backup.
   list, INTERNET allowed; held in memory only and handed to Linx through a not-exported content provider; rule 1,
   `docs/BREACHES.md`)
 - `core:convert` + `tunnels:convert` offline file converter (RTF/DOCX/ODT/text readers, format detection, page geometry in
-  plain Kotlin; PDF writing and rendering with the platform's `PdfDocument`/`PdfRenderer`; no permission, opened from the
-  home console)
+  plain Kotlin; PDF writing with the platform's `PdfDocument`; images and PDF pages are decoded in `tunnels:decoder`; no
+  permission, opened from the home console)
+- `core:decoder` + `tunnels:decoder` the sealed decoder: an isolatedProcess service (no permission, no app data, a fresh
+  process per job) that decodes images and renders PDF pages for Convert; depends on `core:decoder` only
 - `core:crossrules` + `tunnels:crossroads` Crossroads, a derived tunnel (joins other tunnels' data; a bead in the well)
 - `core:watchrules` + `tunnels:watch` findings inbox and opt-in background checks (JobScheduler, offline tunnels only)
 - `core:devicecheck` + `tunnels:devicecheck` device checks: confirms on the phone the readings Tunnels relies on
@@ -108,6 +110,9 @@ Google's Maven is not reachable from the cloud dev container: Android modules on
 - Don't claim capabilities that need root. Prefer Settings deep links and
   system confirmation flows (e.g. uninstall intent) over pretending to act
   directly on other apps.
+- Native decoders (`ImageDecoder`, `PdfRenderer`, `BitmapFactory`, `loadIcon` and the like) never run in the main
+  process on a file Tunnels was handed: they run in `tunnels:decoder`'s isolated service, and when that is unavailable
+  the file is refused, never decoded in-process (audit M6).
 
 ## Build conventions (all agents)
 

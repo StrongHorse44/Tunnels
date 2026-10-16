@@ -25,6 +25,8 @@ class DeviceChecksSmokeTest {
         assertTrue(byId.containsKey("private_dns") && byId.containsKey("vpn"))
         assertEquals(CheckStatus.TODO, byId.getValue("posture_readings").status) // Deep mode was never scanned in this test app
         assertEquals(CheckStatus.NOTE, byId.getValue("private_dns_setting").status)
+        // The sealed decoder is merged into this test app too: its self test binds a fresh isolated process (audit M6).
+        assertEquals(CheckStatus.PASS, byId.getValue("sealed_reader").status)
         assertTrue(groups.any { it.title == "By hand" })
         assertTrue(ChecksSummary.line(groups).isNotBlank())
     }

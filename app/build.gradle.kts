@@ -128,6 +128,8 @@ dependencies {
     implementation(project(":tunnels:backups"))
     implementation(project(":tunnels:emissions"))
 
+    // DecoderManifestTest binds the real app's sealed decoder (audit M6); the app ships it through tunnels:convert.
+    androidTestImplementation(project(":tunnels:decoder"))
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.core)

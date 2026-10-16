@@ -281,6 +281,20 @@
     },
     {
       "type": "service",
+      "name": "io.github.stronghorse44.tunnels.decoder.IsolatedDecoderService",
+      "exported": false,
+      "permission": null,
+      "read_permission": null,
+      "write_permission": null,
+      "grant_uri_permissions": null,
+      "authorities": [],
+      "foreground_service_type": null,
+      "actions": [],
+      "categories": [],
+      "data": []
+    },
+    {
+      "type": "service",
       "name": "io.github.stronghorse44.tunnels.emissions.EmissionsTileService",
       "exported": true,
       "permission": "android.permission.BIND_QUICK_SETTINGS_TILE",

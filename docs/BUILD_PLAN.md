@@ -37,6 +37,7 @@ compile and test locally.
 | — | `tunnels:updater` (INTERNET allowed: user-started update checks) | `core:updates` | — |
 | — | `tunnels:breaches` (INTERNET allowed: user-started breach list for Linx) | `core:breaches` | — |
 | — | `tunnels:convert` (file converter, opened from the home console; no permission) | `core:convert` (RTF, DOCX, ODT and text readers, format detection, conversion table, pagination) | — |
+| — | `tunnels:decoder` (the sealed decoder: an isolatedProcess service that decodes images and renders PDF pages for Convert, a fresh process per job, and its host client; no permission; audit M6) | `core:decoder` (wire codes, limits, frame sizing, reply checks, failure policy) | — |
 | — | `tunnels:crossroads` (derived: joins other tunnels, no system reads) | `core:crossrules` | crossroads |
 | — | `tunnels:watch` (findings inbox, background checks, notification) | `core:watchrules` | — |
 | — | `tunnels:devicecheck` (device checks screen) | `core:devicecheck` | — |

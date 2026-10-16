@@ -59,14 +59,6 @@ class TextAndGeometryTest {
         assertEquals(32f, icon.width, 0.01f)
     }
 
-    @Test fun renderSizeCapsPixels() {
-        assertEquals(1239 to 1754, PageGeometry.renderSize(595, 842))
-        val (w, h) = PageGeometry.renderSize(14400, 14400, 150, 16_000_000L)
-        assertTrue(w.toLong() * h <= 16_000_000L)
-        assertEquals(1, PageGeometry.sampleSize(4000, 3000))
-        assertEquals(2, PageGeometry.sampleSize(8000, 6000, 24_000_000L))
-    }
-
     @Test fun headingSizes() {
         assertEquals(12f, PageGeometry.fontSize(0, null))
         assertEquals(9f, PageGeometry.fontSize(0, 9f))

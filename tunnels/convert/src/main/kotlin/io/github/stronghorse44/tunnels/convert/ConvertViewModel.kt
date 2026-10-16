@@ -10,6 +10,9 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import io.github.stronghorse44.tunnels.common.StagedFile
 import io.github.stronghorse44.tunnels.common.Staging
+import io.github.stronghorse44.tunnels.decoder.DecodeFailure
+import io.github.stronghorse44.tunnels.decoder.DecodeStatus
+import io.github.stronghorse44.tunnels.decoder.DecoderClient
 import io.github.stronghorse44.tunnels.store.TunnelsStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -105,7 +108,7 @@ class ConvertViewModel(private val app: Application, private val saved: SavedSta
         } catch (e: Throwable) {
             // Never a crash on a file Tunnels was handed (audit L2).
             Log.w(TAG, "inspect failed: ${e.javaClass.simpleName}")
-            _state.value = ConvertState.Failed(COULD_NOT_READ, "It may be damaged, or not what its name says.")
+            _state.value = ConvertState.Failed(COULD_NOT_READ, MAY_BE_DAMAGED)
             return
         }
         format = detected
@@ -146,24 +149,29 @@ class ConvertViewModel(private val app: Application, private val saved: SavedSta
             }
             _state.value = ConvertState.Converting(file.displayName, target, 0, 0)
             var folder: DocumentFile? = null
+            // One sealed decoder client per conversion; cancelling the conversion aborts its job (audit M6).
+            val client = DecoderClient(app)
             try {
-                val (outName, detail) = withContext(Dispatchers.IO) {
-                    if (isFolder) {
-                        val root = DocumentFile.fromTreeUri(app, dest)?.createDirectory(Conversions.baseName(file.displayName) + " pages")
-                            ?: throw IOException("Couldn't create a folder there. Pick another location.")
-                        folder = root
-                        val pages = PdfPages.render(
-                            file.file,
-                            target,
-                            openPage = { i, count -> create(root, target, Conversions.pageName(file.displayName, i + 1, count, target)) },
-                            isCancelled = { !isActive },
-                            progress = { done, total -> _state.value = ConvertState.Converting(file.displayName, target, done, total) },
-                        )
-                        (root.name ?: "") to "$pages ${if (pages == 1) "page" else "pages"}"
-                    } else {
-                        val out = app.contentResolver.openOutputStream(dest, "wt") ?: throw IOException("Couldn't write there.")
-                        val detail = out.use { convertOne(file, target, it) }
-                        (DocumentFile.fromSingleUri(app, dest)?.name ?: Conversions.outputName(file.displayName, target)) to detail
+                val (outName, detail) = abortOnCancel(client) {
+                    withContext(Dispatchers.IO) {
+                        if (isFolder) {
+                            val root = DocumentFile.fromTreeUri(app, dest)?.createDirectory(Conversions.baseName(file.displayName) + " pages")
+                                ?: throw IOException("Couldn't create a folder there. Pick another location.")
+                            folder = root
+                            val pages = PdfPages.render(
+                                client,
+                                file.file,
+                                target,
+                                openPage = { i, count -> create(root, target, Conversions.pageName(file.displayName, i + 1, count, target)) },
+                                isCancelled = { !isActive },
+                                progress = { done, total -> _state.value = ConvertState.Converting(file.displayName, target, done, total) },
+                            )
+                            (root.name ?: "") to "$pages ${if (pages == 1) "page" else "pages"}"
+                        } else {
+                            val out = app.contentResolver.openOutputStream(dest, "wt") ?: throw IOException("Couldn't write there.")
+                            val detail = out.use { convertOne(client, file, target, it) }
+                            (DocumentFile.fromSingleUri(app, dest)?.name ?: Conversions.outputName(file.displayName, target)) to detail
+                        }
                     }
                 }
                 val uri = folder?.uri ?: dest
@@ -186,6 +194,14 @@ class ConvertViewModel(private val app: Application, private val saved: SavedSta
             } catch (e: ConvertException) {
                 withContext(Dispatchers.IO) { if (!isFolder) deleteQuietly(dest) else folder?.takeIf { it.listFiles().isEmpty() }?.delete() }
                 _state.value = failure(e.error)
+            } catch (e: DecodeFailure) {
+                // The sealed decoder's own status, never its text: the screen gets a fixed message (audit M6).
+                withContext(Dispatchers.IO + NonCancellable) { if (!isFolder) deleteQuietly(dest) else folder?.takeIf { it.listFiles().isEmpty() }?.delete() }
+                if (e.status == DecodeStatus.CANCELLED) {
+                    _state.value = ConvertState.Failed("Cancelled", if (isFolder) "Pages written so far were kept." else "The partly written file was removed.")
+                    throw CancellationException("Cancelled")
+                }
+                _state.value = decodeFailure(e.status)
             } catch (e: Exception) {
                 withContext(Dispatchers.IO) { if (!isFolder) deleteQuietly(dest) }
                 _state.value = ConvertState.Failed("Conversion failed", e.message ?: e.javaClass.simpleName)
@@ -193,13 +209,13 @@ class ConvertViewModel(private val app: Application, private val saved: SavedSta
                 // An out-of-memory decode or a decoder bug on a hostile file: say so instead of crashing (audit L2).
                 Log.w(TAG, "conversion failed: ${e.javaClass.simpleName}")
                 withContext(Dispatchers.IO + NonCancellable) { if (!isFolder) deleteQuietly(dest) }
-                _state.value = ConvertState.Failed(COULD_NOT_READ, "It may be damaged, or not what its name says.")
+                _state.value = ConvertState.Failed(COULD_NOT_READ, MAY_BE_DAMAGED)
             }
         }
     }
 
     /** Converts into one output stream. Returns a short detail for the result ("3 pages"), or "". */
-    private suspend fun convertOne(file: StagedFile, target: OutputFormat, out: OutputStream): String {
+    private suspend fun convertOne(client: DecoderClient, file: StagedFile, target: OutputFormat, out: OutputStream): String {
         val name = file.displayName
         return when {
             format.isDocument -> {
@@ -219,7 +235,7 @@ class ConvertViewModel(private val app: Application, private val saved: SavedSta
                 }
             }
             format.isImage -> {
-                if (target == OutputFormat.PDF) Images.toPdf(file.file, out) else Images.toImage(file.file, target, out)
+                if (target == OutputFormat.PDF) Images.toPdf(client, file.file, format, out) else Images.toImage(client, file.file, format, target, out)
                 ""
             }
             else -> throw ConvertException(ConvertError.Unsupported(Conversions.refusal(format) ?: "${format.label} can't become ${target.label}."))
@@ -239,6 +255,26 @@ class ConvertViewModel(private val app: Application, private val saved: SavedSta
         is ConvertError.Unsupported -> ConvertState.Failed("Can't convert this", error.detail)
         is ConvertError.Damaged -> ConvertState.Failed("File looks damaged", error.detail)
         is ConvertError.LimitExceeded -> ConvertState.Failed("Stopped for safety", error.detail)
+    }
+
+    /** What the screen says for each way the sealed decoder can fail: fixed strings only (audit M6). */
+    private fun decodeFailure(status: DecodeStatus): ConvertState.Failed = when (status) {
+        DecodeStatus.TIMEOUT -> ConvertState.Failed(COULD_NOT_READ, "Reading it took too long, so Tunnels stopped.")
+        DecodeStatus.REFUSED_FILE -> ConvertState.Failed(COULD_NOT_READ, "It stopped Tunnels' file reader twice, so Tunnels won't try again. Open the file again to retry.")
+        DecodeStatus.PAUSED -> ConvertState.Failed(COULD_NOT_READ, "Tunnels' file reader failed several times in a row, so it's paused until Tunnels restarts.")
+        DecodeStatus.UNSUPPORTED ->
+            if (format == InputFormat.HEIC) {
+                ConvertState.Failed(CANT_CONVERT, "This phone can't read HEIC photos inside Tunnels' sealed reader, and Tunnels doesn't read them anywhere else.")
+            } else {
+                ConvertState.Failed(COULD_NOT_READ, MAY_BE_DAMAGED)
+            }
+        DecodeStatus.PASSWORD -> ConvertState.Failed(CANT_CONVERT, "This PDF is password-protected. Remove the password in a PDF app first.")
+        DecodeStatus.TOO_LARGE -> ConvertState.Failed("Stopped for safety", "It's larger than Tunnels converts.")
+        DecodeStatus.UNAVAILABLE -> ConvertState.Failed(CANT_CONVERT, "Tunnels' sealed file reader didn't start, so nothing was read. Restart Tunnels and try again.")
+        DecodeStatus.BUSY -> ConvertState.Failed(CANT_CONVERT, "Tunnels' file reader is busy with another file. Try again in a moment.")
+        DecodeStatus.CANCELLED -> ConvertState.Failed("Cancelled", "Nothing more was converted.")
+        DecodeStatus.OK, DecodeStatus.DAMAGED, DecodeStatus.CRASHED, DecodeStatus.BAD_REPLY, DecodeStatus.INTERNAL, DecodeStatus.BAD_REQUEST ->
+            ConvertState.Failed(COULD_NOT_READ, MAY_BE_DAMAGED)
     }
 
     fun cancel() {
@@ -269,6 +305,8 @@ class ConvertViewModel(private val app: Application, private val saved: SavedSta
     companion object {
         private const val TAG = "TunnelsConvert"
         private const val COULD_NOT_READ = "Couldn't read this file"
+        private const val MAY_BE_DAMAGED = "It may be damaged, or not what its name says."
+        private const val CANT_CONVERT = "Can't convert this"
         private const val KEY_PATH = "staged_path"
         private const val KEY_NAME = "staged_name"
         private const val KEY_TARGET = "target"

@@ -6,9 +6,6 @@ import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.content.pm.Signature
 import android.os.Build
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.core.graphics.drawable.toBitmap
 import io.github.stronghorse44.tunnels.install.ApkFacts
 import io.github.stronghorse44.tunnels.install.DeviceFacts
 import io.github.stronghorse44.tunnels.install.InstalledFacts
@@ -17,9 +14,12 @@ import java.io.IOException
 import java.security.MessageDigest
 import java.util.zip.ZipFile
 
+/**
+ * What the Installer shows about an APK. There is no icon: decoding the APK's own icon would run the platform's native
+ * image decoders on the file in this process, so the header shows a grey placeholder instead (audit M6, RJ's M6-Q2).
+ */
 data class ApkInfo(
     val label: String,
-    val icon: ImageBitmap?,
     val facts: ApkFacts,
     val installed: InstalledFacts?,
     val totalBytes: Long,
@@ -39,7 +39,6 @@ object ApkInspector {
         app.publicSourceDir = base.path
 
         val label = runCatching { app.loadLabel(pm).toString() }.getOrDefault(info.packageName)
-        val icon = runCatching { app.loadIcon(pm).toBitmap(144, 144).asImageBitmap() }.getOrNull()
         val signers = info.signingInfo?.apkContentsSigners.toListOrEmpty().map(::sha256).toSet()
         val lineage = info.signingInfo?.signingCertificateHistory.toListOrEmpty().map(::sha256).toSet() + signers
 
@@ -56,7 +55,7 @@ object ApkInspector {
             lineageSha256 = lineage,
             requestedPermissions = info.requestedPermissions?.toList().orEmpty(),
         )
-        return ApkInfo(label, icon, facts, installed(context, info.packageName), all.sumOf { it.length() }, all.size)
+        return ApkInfo(label, facts, installed(context, info.packageName), all.sumOf { it.length() }, all.size)
     }
 
     fun installed(context: Context, packageName: String): InstalledFacts? {

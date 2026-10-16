@@ -47,6 +47,7 @@ include(
     ":core:breaches",
     ":core:convert",
     ":core:emissions",
+    ":core:decoder",
     ":tunnels:installer",
     ":tunnels:unzip",
     ":tunnels:convert",
@@ -73,4 +74,5 @@ include(
     ":tunnels:backups",
     ":tunnels:breaches",
     ":tunnels:emissions",
+    ":tunnels:decoder",
 )

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Misbehaving decoders for DecoderClientTest, in the test APK only: sealed like the real one, in their own
+         ":decodertest" process. Each one breaks the protocol in one way (crash, hang, lie). -->
+    <application>
+        <service
+            android:name="io.github.stronghorse44.tunnels.decoder.CrashingDecoderService"
+            android:exported="false"
+            android:isolatedProcess="true"
+            android:process=":decodertest" />
+        <service
+            android:name="io.github.stronghorse44.tunnels.decoder.HangingDecoderService"
+            android:exported="false"
+            android:isolatedProcess="true"
+            android:process=":decodertest" />
+        <service
+            android:name="io.github.stronghorse44.tunnels.decoder.LyingDecoderService"
+            android:exported="false"
+            android:isolatedProcess="true"
+            android:process=":decodertest" />
+        <service
+            android:name="io.github.stronghorse44.tunnels.decoder.ExceptionHeaderDecoderService"
+            android:exported="false"
+            android:isolatedProcess="true"
+            android:process=":decodertest" />
+    </application>
+</manifest>

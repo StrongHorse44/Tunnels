@@ -219,4 +219,38 @@ class DeviceChecksTest {
         assertEquals(CheckStatus.NOTE, DeviceChecks.privateDnsAgrees(provider, PrivateDns.Off, now.minus(Duration.ofHours(5)), now).status)
         assertEquals(CheckStatus.FAIL, DeviceChecks.privateDnsAgrees(provider, PrivateDns.Off, now, now).status)
     }
+
+    @Test
+    fun theSealedReaderPassesOnlyWhenIsolatedWithNoAppData() {
+        val heic = DeviceChecks.sealedReader(isolated = true, noAppData = true, heic = true)
+        assertEquals(CheckStatus.PASS, heic.status)
+        assertEquals("Sealed file reader", heic.title)
+        assertEquals(
+            "Photos and PDFs are read in a sealed process with no permissions and no access to Tunnels' data. HEIC photos can be read there.",
+            heic.detail,
+        )
+        assertEquals(null, heic.action)
+
+        val noHeic = DeviceChecks.sealedReader(isolated = true, noAppData = true, heic = false)
+        assertEquals(CheckStatus.PASS, noHeic.status)
+        assertEquals(
+            "Photos and PDFs are read in a sealed process with no permissions and no access to Tunnels' data. This phone can't read HEIC " +
+                "photos there, so Convert refuses them.",
+            noHeic.detail,
+        )
+
+        val failText = "The sealed reader didn't start or isn't sealed, so Convert won't read photos or PDFs."
+        for ((isolated, noAppData, h) in listOf(Triple(false, false, null), Triple(true, false, true), Triple(false, true, false), Triple(false, false, true))) {
+            val r = DeviceChecks.sealedReader(isolated, noAppData, h)
+            assertEquals("$isolated $noAppData $h", CheckStatus.FAIL, r.status)
+            assertEquals(failText, r.detail)
+            assertEquals(null, r.action)
+        }
+
+        // A conversion holding the reader is a note, not a failure.
+        val busy = DeviceChecks.sealedReader(isolated = false, noAppData = false, heic = null, busy = true)
+        assertEquals(CheckStatus.NOTE, busy.status)
+        assertEquals("Tunnels' file reader is busy with a conversion. Try again in a moment.", busy.detail)
+        assertEquals(null, busy.action)
+    }
 }

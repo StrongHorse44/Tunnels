@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- No permissions. The sealed decoder: images and PDF pages for Convert are decoded here, in an isolated process
+         (its own throwaway uid, no permissions, no access to Tunnels' files, no network). Only Tunnels can bind it. -->
+    <application>
+        <service
+            android:name=".IsolatedDecoderService"
+            android:exported="false"
+            android:isolatedProcess="true"
+            android:process=":decoder" />
+    </application>
+</manifest>

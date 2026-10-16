@@ -5,7 +5,6 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -163,12 +162,8 @@ private fun IdleContent(history: List<EventEntity>, onPick: () -> Unit) {
 @Composable
 private fun AppHeader(info: ApkInfo) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        val icon = info.icon
-        if (icon != null) {
-            Image(icon, contentDescription = null, modifier = Modifier.size(56.dp).clip(RoundedCornerShape(14.dp)))
-        } else {
-            Box(Modifier.size(56.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceVariant))
-        }
+        // Always the grey placeholder: the APK's icon is not decoded (audit M6).
+        Box(Modifier.size(56.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceVariant))
         Spacer(Modifier.width(14.dp))
         Column {
             Text(info.label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
