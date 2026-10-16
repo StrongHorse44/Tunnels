@@ -8,7 +8,6 @@ import android.provider.OpenableColumns
 import io.github.stronghorse44.tunnels.export.ExportCleanup
 import io.github.stronghorse44.tunnels.export.ExportFailure
 import io.github.stronghorse44.tunnels.export.ExportResult
-import io.github.stronghorse44.tunnels.export.ImportSummary
 import io.github.stronghorse44.tunnels.export.Inspected
 import io.github.stronghorse44.tunnels.export.LegacyImport
 import io.github.stronghorse44.tunnels.export.TunnelsBundle
@@ -22,15 +21,14 @@ import java.io.FileNotFoundException
 
 /**
  * Export and import of the Tunnels bundle through documents the system file picker gave (no permission needed). The
- * logic is in core:export; this is the Android part: the picked document's streams, deleting a failed export, moving an
- * older build's plaintext confirmed-networks file into the store, and the store. Every function blocks or suspends: call
+ * logic is in core:export; this is the Android part: the picked document's streams, deleting a failed export, and the
+ * store. Confirmed networks are not carried any more (audit L8, L8-Q4; see [StoreBundles.gather]). Every function blocks or suspends: call
  * them off the main thread. The passphrase is the caller's CharArray; it is never stored, logged or put in saved state,
  * and the caller zeroes it.
  */
 class DataTransfer(
     context: Context,
     private val dao: TunnelsDao,
-    private val networks: ConfirmedNetworks = ConfirmedNetworks(context, dao),
     /** Applied after an import that carried background-check settings, so the job follows them at once (tests pass a no-op). */
     private val applyWatchSettings: (WatchSettings) -> Unit = { WatchScheduler.apply(context.applicationContext, it) },
 ) {
@@ -44,7 +42,7 @@ class DataTransfer(
     suspend fun export(uri: Uri, passphrase: CharArray, createdMs: Long): ExportResult {
         var opened = false
         try {
-            val data = StoreBundles.gather(dao, networks.all())
+            val data = StoreBundles.gather(dao)
             return TunnelsExport.run(
                 data, passphrase, createdMs, appVersion(),
                 open = {
@@ -79,19 +77,20 @@ class DataTransfer(
     /**
      * Reads [uri] completely (an FWX bundle or an old TSNAPE1 export, told apart by its first bytes), verifies it and
      * stages it in memory; only then does one transaction write it ([StoreBundles.commit]). Any failure before that
-     * leaves the phone as it was: FwxException for the file, ImportCommitFailed for the write.
+     * leaves the phone as it was: FwxException for the file, ImportCommitFailed for the write. Confirmed networks an older
+     * file carries are counted in the report and not merged.
      */
-    suspend fun import(uri: Uri, passphrase: CharArray): ImportSummary {
+    suspend fun import(uri: Uri, passphrase: CharArray): ImportReport {
         val data = when (inspect(uri)) {
             Inspected.Legacy -> LegacyImport.read(readLegacy(uri), passphrase)
             is Inspected.Fwx -> (resolver.openInputStream(uri) ?: throw FileNotFoundException("the file couldn't be opened")).use {
                 TunnelsBundle.read(BufferedInputStream(it, 64 * 1024), passphrase)
             }
         }
-        val summary = StoreBundles.commit(dao, networks, data)
+        val summary = StoreBundles.commit(dao, data)
         // The settings are committed; a failure to re-arm the job must not read as a failed import (the next start re-arms it).
         data.settings[WatchSettings.KEY]?.let { value -> runCatching { applyWatchSettings(WatchSettings.decode(value)) } }
-        return summary
+        return ImportReport(summary, StoreBundles.networksLeftOut(data))
     }
 
     /** The whole old-format file, at most [LegacyImport.MAX_FILE_BYTES]: its single-shot cipher needs it all in memory. */

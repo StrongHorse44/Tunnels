@@ -133,6 +133,20 @@
 > device gave it when it joined; that name becomes a census token (`h`), so the device can be put on the list. One the router
 > does not name is listed by its address and raises one finding per device, as before (RJ's choice). Off until switched on in
 > Home network; runs only during a scan the user starts, only on a confirmed network, every probe inside it.
+> **The router's second factor (2026-10-16, audit L8, RJ's OQ192):** the gate no longer trusts addresses alone. A
+> confirmed Wi-Fi is also recognised by its router: the gateway's UPnP root-device UUID (one unicast SSDP search to the
+> gateway, and one standard multicast search only when it ignores that) and the public key of its HTTPS admin page (a
+> handshake broken off at the certificate), asked at confirmation and fresh before every scan, Look closer and Close it,
+> before anything else is sent, within 3 s, gateway only. Any stored factor seen again is this router; Close it needs the
+> UPnP id itself. Another router, or a silent one, is a state on the network card with a button, never a finding. A router
+> that gives neither can be confirmed by address only: every scan and look then asks "Is this your own Wi-Fi?" and Close it
+> is never sent. Records are keyed tokens (HMAC-SHA256 under the non-exportable Keystore key `tunnels.homenet.network`) in
+> `homenet.networks.v2`, at most 32; old confirmations ask once more before any scan; exports stop carrying confirmed
+> networks; the device list's tag and tokens keep their unkeyed SHA-256 so nothing resets. The limit, stated in the app: an
+> attacker on a LAN can copy both factors; what that gains is Tunnels scanning their own network. Same release: the
+> Installer warns ("Signed with a publicly known key", install still possible) for an APK signed with one of AOSP's nine
+> public test keys or Tunnels' retired debug key, with "Don't install" and, when the installed copy holds the same key,
+> "Uninstall installed copy" (`core/install` `PublicSigningKeys`).
 > **Breach list for Linx (2026-10, B11-T):** a fourth network module, `tunnels/breaches` (rule 1, RJ's Q7): on a tap, "breaches ›"
 > on the home console downloads the public Have I Been Pwned breach list (one HTTPS request to the one host, a User-Agent and no
 > account, address, domain or key; CC BY 4.0), reduces it to names, titles, domains, dates, counts, flags and data classes, holds

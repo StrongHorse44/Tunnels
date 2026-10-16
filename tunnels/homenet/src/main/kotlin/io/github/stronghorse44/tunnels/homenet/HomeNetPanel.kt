@@ -46,6 +46,7 @@ import io.github.stronghorse44.tunnels.common.StatusColors
 import io.github.stronghorse44.tunnels.lan.CensusMessages
 import io.github.stronghorse44.tunnels.lan.DeviceCensus
 import io.github.stronghorse44.tunnels.lan.DeviceIdentity
+import io.github.stronghorse44.tunnels.lan.GateTexts
 import io.github.stronghorse44.tunnels.lan.LanGuides
 import io.github.stronghorse44.tunnels.lan.LanHost
 import io.github.stronghorse44.tunnels.lan.LanKeys
@@ -79,12 +80,23 @@ fun HomeNetPanel(
     LifecycleResumeEffect(Unit) { generation++; onPauseOrDispose { } }
     val wifi = remember(generation, state.scan.running) { runCatching { gate.current() }.getOrDefault(WifiState.OFFLINE) }
     val fingerprint = remember(wifi) { runCatching { wifi.fingerprint }.getOrNull() }
-    // The confirmed list is in the encrypted store: read and written off the main thread. null = still reading.
-    var confirmed by remember(generation, fingerprint?.hash) { mutableStateOf<Boolean?>(if (fingerprint == null) false else null) }
+    // The confirmed networks are in the encrypted store: read and written off the main thread. null = still reading.
+    var status by remember(generation, fingerprint?.hash) { mutableStateOf<NetworkStatus?>(if (fingerprint == null) NetworkStatus.NOT_CONFIRMED else null) }
     var saveFailed by remember(generation, fingerprint?.hash) { mutableStateOf(false) }
+    // What the last confirmation said ("Your router identified itself…", "The Wi-Fi changed…"), and whether one is running.
+    var cardNote by remember(fingerprint?.hash) { mutableStateOf<String?>(null) }
+    var confirming by remember(fingerprint?.hash) { mutableStateOf(false) }
+    // The router identified itself in no way: the "Confirm by address only" dialog (L8-Q2).
+    var offerAddressOnly by remember(fingerprint?.hash) { mutableStateOf(false) }
+    // False when the router could not even be asked (no IPv4 router address inside the network).
+    var silentWasAsked by remember(fingerprint?.hash) { mutableStateOf(true) }
+    // "Is this your own Wi-Fi?" before a scan of an address-only network.
+    var askScan by remember(fingerprint?.hash) { mutableStateOf(false) }
+    var confirmForgetAll by remember { mutableStateOf(false) }
     LaunchedEffect(generation, fingerprint?.hash) {
-        if (fingerprint != null) confirmed = withContext(Dispatchers.IO) { gate.isConfirmed(fingerprint) }
+        if (fingerprint != null) status = withContext(Dispatchers.IO) { gate.status(fingerprint) }
     }
+    val confirmed = status == NetworkStatus.ROUTER || status == NetworkStatus.ADDRESS_ONLY
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     // The opt-in sweep's switch, read from the encrypted store. null = still reading.
@@ -118,21 +130,41 @@ fun HomeNetPanel(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // "This is my network", "Confirm" and "It's my new router": ask the router who it is, then save (spec 2.5).
+        val onConfirm: () -> Unit = {
+            fingerprint?.let { fp ->
+                scope.launch {
+                    confirming = true
+                    cardNote = null
+                    val outcome = gate.confirmWithRouter(fp)
+                    confirming = false
+                    when (outcome) {
+                        is ConfirmOutcome.Confirmed -> cardNote = GateTexts.confirmed(outcome.upnp, outcome.tls)
+                        is ConfirmOutcome.RouterSilent -> {
+                            silentWasAsked = outcome.asked
+                            offerAddressOnly = true
+                        }
+                        ConfirmOutcome.WifiChanged -> cardNote = GateTexts.WIFI_CHANGED
+                        ConfirmOutcome.Full -> cardNote = GateTexts.FULL
+                        ConfirmOutcome.Failed -> cardNote = GateTexts.SAVE_FAILED
+                        ConfirmOutcome.AddressOnly -> Unit
+                    }
+                    status = withContext(Dispatchers.IO) { gate.status(fp) }
+                }
+            }
+        }
+        // A scan of an address-only network asks first; the answer is a one-shot permit for the next minute.
+        val onScan: () -> Unit = { if (status == NetworkStatus.ADDRESS_ONLY) askScan = true else actions.scan() }
         NetworkCard(
             wifi = wifi,
             fingerprint = fingerprint,
-            confirmed = confirmed,
+            status = status,
+            identity = summary.identity?.takeIf { tag != null && tag == fingerprint?.prefixTag },
+            note = cardNote,
+            confirming = confirming,
             scanning = state.scan.running,
             scanLabel = state.scan.label,
-            onConfirm = {
-                fingerprint?.let { fp ->
-                    scope.launch {
-                        val saved = withContext(Dispatchers.IO) { gate.confirm(fp) }
-                        confirmed = saved
-                        saveFailed = !saved
-                    }
-                }
-            },
+            onConfirm = onConfirm,
             onForget = {
                 fingerprint?.let { fp ->
                     scope.launch {
@@ -142,14 +174,16 @@ fun HomeNetPanel(
                         // So do its device notes.
                         if (saved) notes.forget(fp.prefixTag)
                         // If the list could not be changed the network may still be confirmed: read it again rather than guess.
-                        confirmed = withContext(Dispatchers.IO) { gate.isConfirmed(fp) }
+                        status = withContext(Dispatchers.IO) { gate.status(fp) }
+                        cardNote = null
                         saveFailed = !saved
                     }
                 }
             },
-            onScan = actions::scan,
+            onForgetAll = { confirmForgetAll = true },
+            onScan = onScan,
         )
-        if (confirmed == true) {
+        if (confirmed) {
             SweepCard(sweepOn, summary, scanning = state.scan.running) { on ->
                 scope.launch {
                     runCatching { SweepSetting.set(context, on) }
@@ -167,10 +201,24 @@ fun HomeNetPanel(
         }
         if (summary.gate == LanKeys.GATE_UNCONFIRMED) {
             GlassPanel(Modifier.fillMaxWidth(), tint = StatusColors.warn) {
-                Text(
-                    "The last scan stopped at the gate: " + gateReasonText(summary.gateReason),
-                    Modifier.padding(14.dp), style = MaterialTheme.typography.bodyMedium,
-                )
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("The last scan stopped at the gate: " + GateTexts.gateReason(summary.gateReason), style = MaterialTheme.typography.bodyMedium)
+                    // Each state has its button (rule 7): none of these is a finding.
+                    if (fingerprint != null && !state.scan.running && !confirming) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            when (summary.gateReason) {
+                                LanKeys.REASON_ROUTER_MISMATCH -> OutlinedButton(onClick = onConfirm) { Text("It's my new router") }
+                                LanKeys.REASON_ROUTER_SILENT, LanKeys.REASON_ROUTER_NOT_ASKED -> {
+                                    OutlinedButton(onClick = onScan, enabled = confirmed) { Text("Try again") }
+                                    TextButton(onClick = onConfirm) { Text("Confirm again") }
+                                }
+                                LanKeys.REASON_RECONFIRM, LanKeys.REASON_KEY_CHANGED -> OutlinedButton(onClick = onConfirm) { Text("Confirm") }
+                                LanKeys.REASON_ADDRESS_ONLY -> OutlinedButton(onClick = onScan, enabled = confirmed) { Text("Scan") }
+                                else -> Unit
+                            }
+                        }
+                    }
+                }
             }
         }
         if (summary.scanned) {
@@ -191,6 +239,87 @@ fun HomeNetPanel(
         DeviceDetailDialog(
             host, state.module as? HomeNetworkTunnel, scanning = state.scan.running, isGateway = host.ip == summary.router?.ip,
             notes = notesView?.takeIf { it.tag == tag }, onNotesChanged = { notesGeneration++ }, onDismiss = { detailIp = null },
+            askFirst = status == NetworkStatus.ADDRESS_ONLY,
+            onPermit = { fingerprint?.let(gate::permitAddressOnly) },
+        )
+    }
+    if (offerAddressOnly && fingerprint != null) {
+        AlertDialog(
+            onDismissRequest = { offerAddressOnly = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            title = { Text(GateTexts.SILENT_ROUTER_TITLE) },
+            text = {
+                // "Confirm again" on a network that has a router check: confirming by address only replaces it (review L2).
+                val replaces = if (status == NetworkStatus.ROUTER) " " + GateTexts.REPLACES_ROUTER_CHECK else ""
+                Text(
+                    (if (silentWasAsked) GateTexts.SILENT_ROUTER_TEXT else GateTexts.NOT_ASKED_ROUTER_TEXT) + replaces,
+                    style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        offerAddressOnly = false
+                        val fp = fingerprint
+                        scope.launch {
+                            cardNote = when (gate.confirmAddressOnly(fp)) {
+                                ConfirmOutcome.AddressOnly -> GateTexts.ADDRESS_ONLY
+                                ConfirmOutcome.WifiChanged -> GateTexts.WIFI_CHANGED
+                                ConfirmOutcome.Full -> GateTexts.FULL
+                                else -> GateTexts.SAVE_FAILED
+                            }
+                            status = withContext(Dispatchers.IO) { gate.status(fp) }
+                        }
+                    },
+                ) { Text(GateTexts.CONFIRM_ADDRESS_ONLY) }
+            },
+            dismissButton = { TextButton(onClick = { offerAddressOnly = false }) { Text("Cancel") } },
+        )
+    }
+    if (askScan && fingerprint != null) {
+        AlertDialog(
+            onDismissRequest = { askScan = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            title = { Text(GateTexts.ASK_TITLE) },
+            text = { Text(GateTexts.ASK_TEXT, style = MaterialTheme.typography.bodySmall, color = GlassColors.dim) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        askScan = false
+                        gate.permitAddressOnly(fingerprint)
+                        actions.scan()
+                    },
+                ) { Text("Scan") }
+            },
+            // Cancel sends nothing.
+            dismissButton = { TextButton(onClick = { askScan = false }) { Text("Cancel") } },
+        )
+    }
+    if (confirmForgetAll) {
+        AlertDialog(
+            onDismissRequest = { confirmForgetAll = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            title = { Text("Forget every confirmed network?") },
+            text = {
+                Text(
+                    "Tunnels forgets every Wi-Fi you confirmed on this phone, which also clears a list it cannot read. Confirm your own " +
+                        "Wi-Fi again afterwards.",
+                    style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmForgetAll = false
+                        scope.launch {
+                            val saved = withContext(Dispatchers.IO) { gate.forgetAll() }
+                            saveFailed = !saved
+                            generation++
+                        }
+                    },
+                ) { Text("Forget all", color = StatusColors.blocker) }
+            },
+            dismissButton = { TextButton(onClick = { confirmForgetAll = false }) { Text("Keep them") } },
         )
     }
     confirmClose?.let { m ->
@@ -292,13 +421,19 @@ private fun mine(census: CensusStore, host: LanHost) = FindingAction.Perform(Lan
 private fun NetworkCard(
     wifi: WifiState,
     fingerprint: NetworkFingerprint?,
-    confirmed: Boolean?,
+    status: NetworkStatus?,
+    /** How the last scan of this network recognised it ([LanKeys.IDENTITY_ROUTER] or [LanKeys.IDENTITY_ADDRESS]). */
+    identity: String?,
+    note: String?,
+    confirming: Boolean,
     scanning: Boolean,
     scanLabel: String,
     onConfirm: () -> Unit,
     onForget: () -> Unit,
+    onForgetAll: () -> Unit,
     onScan: () -> Unit,
 ) {
+    val confirmed = status == NetworkStatus.ROUTER || status == NetworkStatus.ADDRESS_ONLY
     GlassPanel(Modifier.fillMaxWidth(), tint = line) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Your network", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -317,41 +452,82 @@ private fun NetworkCard(
                 }
                 else -> {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(10.dp).clip(CircleShape).background(if (confirmed == true) StatusColors.ok else StatusColors.warn))
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(if (confirmed) StatusColors.ok else StatusColors.warn))
                         Spacer(Modifier.width(8.dp))
                         Text(fingerprint.ssid ?: "Wi-Fi network", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
                         Text(fingerprint.prefixTag, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = GlassColors.dim)
                     }
                     Text(fingerprint.label, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = GlassColors.dim)
-                    if (confirmed == null) {
-                        Text("Checking…", style = MaterialTheme.typography.bodySmall, color = GlassColors.dim)
-                    } else if (confirmed) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Confirmed as your network.", style = MaterialTheme.typography.bodySmall, color = StatusColors.ok, modifier = Modifier.weight(1f))
-                            TextButton(onClick = onForget, enabled = !scanning) { Text("Forget", color = GlassColors.dim) }
+                    val confirmLabel = if (confirming) GateTexts.ASKING_ROUTER else null
+                    when (status) {
+                        null -> Text("Checking…", style = MaterialTheme.typography.bodySmall, color = GlassColors.dim)
+                        NetworkStatus.ROUTER, NetworkStatus.ADDRESS_ONLY -> {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    if (status == NetworkStatus.ROUTER) "Confirmed as your network." else "Confirmed as your network. ${GateTexts.ADDRESS_ONLY}",
+                                    style = MaterialTheme.typography.bodySmall, color = StatusColors.ok, modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = onForget, enabled = !scanning && !confirming) { Text("Forget", color = GlassColors.dim) }
+                            }
+                            Text(
+                                if (status == NetworkStatus.ROUTER) {
+                                    "Before every scan, Look closer and Close it, Tunnels first asks your router who it is, and sends nothing " +
+                                        "more unless it is the router you confirmed."
+                                } else {
+                                    "Your router doesn't identify itself, so Tunnels asks \"${GateTexts.ASK_TITLE}\" before every scan and " +
+                                        "Look closer, and never asks this router to close an opening."
+                                },
+                                style = MaterialTheme.typography.labelSmall, color = GlassColors.dim,
+                            )
+                            when (identity) {
+                                LanKeys.IDENTITY_ROUTER -> "Last scan: your router identified itself."
+                                LanKeys.IDENTITY_ADDRESS -> "Last scan: recognised by address only, after you said it is your Wi-Fi."
+                                else -> null
+                            }?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = GlassColors.dim) }
                         }
-                    } else {
-                        Text(
-                            "Only scan a network you own or administer. Scanning someone else's network can be illegal. " +
-                                "Tunnels asks once per network and remembers only a hash of the setup shown above.",
-                            style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
-                        )
-                        OutlinedButton(onClick = onConfirm) { Text("This is my network") }
+                        NetworkStatus.RECONFIRM, NetworkStatus.KEY_CHANGED -> {
+                            Text(
+                                if (status == NetworkStatus.RECONFIRM) GateTexts.RECONFIRM else GateTexts.KEY_CHANGED,
+                                style = MaterialTheme.typography.bodySmall, color = StatusColors.warn,
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedButton(onClick = onConfirm, enabled = !confirming && !scanning) { Text(confirmLabel ?: "Confirm") }
+                                Spacer(Modifier.width(8.dp))
+                                // Forget without confirming (review L1): nothing is sent; the old line or record goes.
+                                TextButton(onClick = onForget, enabled = !scanning && !confirming) { Text("Forget", color = GlassColors.dim) }
+                            }
+                        }
+                        NetworkStatus.UNAVAILABLE -> {
+                            Text(GateTexts.STORE_UNAVAILABLE, style = MaterialTheme.typography.bodySmall, color = StatusColors.warn)
+                            TextButton(onClick = onForgetAll, enabled = !scanning) { Text("Forget all networks", color = StatusColors.blocker) }
+                        }
+                        NetworkStatus.NOT_CONFIRMED -> {
+                            Text(
+                                "Only scan a network you own or administer. Scanning someone else's network can be illegal. " +
+                                    "Tunnels asks once per network, asks your router who it is, and remembers only keyed hashes of the " +
+                                    "setup shown above and of your router's answer.",
+                                style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
+                            )
+                            OutlinedButton(onClick = onConfirm, enabled = !confirming && !scanning) { Text(confirmLabel ?: "This is my network") }
+                        }
                     }
+                    note?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     Text(
                         (if (fingerprint.ssid == null) "Android hides the Wi-Fi name from apps without location access, so " else "") +
-                            "Tunnels recognises a network by its router, DHCP and DNS addresses. Two networks with the same setup look " +
-                            "the same to it: check which Wi-Fi you are on before scanning.",
+                            "Tunnels recognises a network by its router, DHCP and DNS addresses and by what its router says about itself " +
+                            "(its UPnP id or its admin page's key). Someone on a network can copy those, so check which Wi-Fi you are on " +
+                            "before scanning.",
                         style = MaterialTheme.typography.labelSmall, color = GlassColors.dim,
                     )
                     Spacer(Modifier.height(2.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Button(onClick = onScan, enabled = confirmed == true && !scanning) { Text(if (scanning) "Scanning…" else "Scan my network") }
+                        Button(onClick = onScan, enabled = confirmed && !scanning && !confirming) { Text(if (scanning) "Scanning…" else "Scan my network") }
                         Spacer(Modifier.width(12.dp))
                         StageRow(scanning, scanLabel)
                     }
                     Text(
-                        "About a minute: finds devices (mDNS, SSDP), checks ${PortCatalog.ports.size} common ports on each, then tests the router for UPnP and DNS rewriting.",
+                        "About a minute: asks your router who it is, finds devices (mDNS, SSDP), checks ${PortCatalog.ports.size} common " +
+                            "ports on each, then tests the router for UPnP and DNS rewriting.",
                         style = MaterialTheme.typography.labelSmall, color = GlassColors.dim,
                     )
                 }
@@ -362,7 +538,7 @@ private fun NetworkCard(
 
 @Composable
 private fun StageRow(scanning: Boolean, label: String) {
-    val stages = listOf(LanScanner.STAGE_DISCOVERY, LanScanner.STAGE_PORTS, LanScanner.STAGE_ROUTER)
+    val stages = listOf(LanScanner.STAGE_IDENTITY, LanScanner.STAGE_DISCOVERY, LanScanner.STAGE_PORTS, LanScanner.STAGE_ROUTER)
     val active = stages.indexOfFirst { label.contains(it) }
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         stages.forEachIndexed { i, stage ->
@@ -603,13 +779,4 @@ private fun HostRow(host: LanHost, notes: NotesView?, onMine: (LanHost) -> Unit,
             }
         }
     }
-}
-
-private fun gateReasonText(reason: String?): String = when (reason) {
-    LanKeys.REASON_NO_WIFI -> "the phone was not on Wi-Fi."
-    LanKeys.REASON_NETWORK_UNKNOWN -> "the network's router and address were not readable."
-    LanKeys.REASON_NOT_CONFIRMED -> "this network had not been confirmed as yours."
-    LanKeys.REASON_STORE_UNAVAILABLE -> "Tunnels' encrypted store could not be read, so it could not tell whether this network is yours."
-    LanKeys.REASON_NO_PERMISSION -> "the Nearby devices permission was missing."
-    else -> "the network could not be verified as yours."
 }

@@ -14,6 +14,8 @@ import io.github.stronghorse44.tunnels.lan.LanKeys
 import io.github.stronghorse44.tunnels.lan.LanRules
 import io.github.stronghorse44.tunnels.lan.NetworkFingerprint
 import io.github.stronghorse44.tunnels.lan.NetworkMigration
+import io.github.stronghorse44.tunnels.lan.NetworkRecordBook
+import io.github.stronghorse44.tunnels.lan.NetworkRecordCodec
 import io.github.stronghorse44.tunnels.model.Finding
 import io.github.stronghorse44.tunnels.model.FindingAction
 import io.github.stronghorse44.tunnels.model.FindingDraft
@@ -371,24 +373,30 @@ class HomeNetworkSmokeTest {
     }
 
     @Test
-    fun gateRemembersOnlyHashes() = runBlocking {
-        val gate = NetworkGate(context)
+    fun gateRemembersOnlyKeyedTokens() = runBlocking {
+        val uuid = "3a2f9c00-1111-4b4b-8c8c-0123456789ab"
+        val gate = NetworkGate(
+            context,
+            identity = object : RouterIdentitySource {
+                override suspend fun probe(state: WifiState) = SeenRouter(listOf(uuid), null, probed = true, lost = false)
+            },
+        )
         assertTrue(gate.forgetAll())
         assertEquals(0, gate.confirmedCount())
         val home = NetworkFingerprint.of("192.168.1.1", "192.168.1.1", listOf("192.168.1.1"), "192.168.1.0/24", ssid = "Test Net")!!
         val other = NetworkFingerprint.of("192.168.0.1", "192.168.0.1", listOf("192.168.0.1"), "192.168.0.0/24")!!
-        assertFalse(gate.isConfirmed(home))
-        assertTrue(gate.confirm(home))
-        assertTrue(gate.isConfirmed(home))
-        assertFalse(gate.isConfirmed(other))
+        assertEquals(NetworkStatus.NOT_CONFIRMED, gate.status(home))
+        assertTrue(gate.confirmOn(WifiState.OFFLINE, home) { true } is ConfirmOutcome.Confirmed)
+        assertEquals(NetworkStatus.ROUTER, gate.status(home))
+        assertEquals(NetworkStatus.NOT_CONFIRMED, gate.status(other))
         assertEquals(1, gate.confirmedCount())
-        // The hashes live in the encrypted settings table, nowhere else.
-        val row = TunnelsStore.get(context).setting(ConfirmedNetworkCodec.KEY)!!
-        assertEquals(setOf(home.hash), ConfirmedNetworkCodec.decode(row))
-        assertTrue(row.lines().none { it.contains("192.168") || it.contains("Test") })
+        // Keyed tokens live in the encrypted settings table, nowhere else; the old row stays empty.
+        val row = TunnelsStore.get(context).setting(NetworkRecordCodec.KEY)!!
+        assertTrue(row.lines().none { it.contains("192.168") || it.contains("Test") || it.contains(uuid) || it.contains(home.hash) })
+        assertEquals(emptySet<String>(), ConfirmedNetworkCodec.decode(TunnelsStore.get(context).setting(ConfirmedNetworkCodec.KEY)))
         assertFalse("no plaintext preferences file", plaintextFile(ConfirmedNetworkBook.LEGACY_PREFS).exists())
         assertTrue(gate.forget(home))
-        assertFalse(gate.isConfirmed(home))
+        assertEquals(NetworkStatus.NOT_CONFIRMED, gate.status(home))
         assertTrue(gate.forgetAll())
     }
 
@@ -409,9 +417,10 @@ class HomeNetworkSmokeTest {
         assertTrue(moved.toString(), moved == NetworkMigration.Moved(1) || moved == NetworkMigration.NothingToMove)
         assertFalse("the plaintext file is deleted", plaintextFile(ConfirmedNetworkBook.LEGACY_PREFS).exists())
         assertEquals(setOf(home.hash), ConfirmedNetworkCodec.decode(store.setting(ConfirmedNetworkCodec.KEY)))
-        assertTrue(gate.isConfirmed(home))
-        assertFalse(gate.isConfirmed(other))
-        assertEquals(1, gate.confirmedCount())
+        // An old confirmation asks for one more (L8-Q3): it is never a v2 record by itself.
+        assertEquals(NetworkStatus.RECONFIRM, gate.status(home))
+        assertEquals(NetworkStatus.NOT_CONFIRMED, gate.status(other))
+        assertEquals(0, gate.confirmedCount())
         assertEquals("a second run has nothing to move", NetworkMigration.NothingToMove, gate.migrate())
         assertTrue(gate.forgetAll())
     }
@@ -428,9 +437,10 @@ class HomeNetworkSmokeTest {
                 override fun write(text: String) = throw java.io.IOException("store unavailable")
                 override fun update(transform: (String?) -> String) = throw UnsatisfiedLinkError("libsqlcipher.so missing")
             }
-            val gate = NetworkGate(context, ConfirmedNetworkBook(broken, PrefsNetworkFile(context, name)))
-            assertFalse(gate.isConfirmed(home))
-            assertFalse(gate.confirm(home))
+            val book = ConfirmedNetworkBook(broken, PrefsNetworkFile(context, name))
+            val gate = NetworkGate(context, book, NetworkRecordBook(broken, book, HomenetKey()::mac))
+            assertEquals(NetworkStatus.UNAVAILABLE, gate.status(home))
+            assertEquals(ConfirmOutcome.Failed, gate.saveAddressOnly(home))
             assertEquals(0, gate.confirmedCount())
             assertTrue(gate.migrate() is NetworkMigration.Failed)
             assertTrue("the old file is untouched", plaintextFile(name).exists())

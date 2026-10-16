@@ -90,6 +90,8 @@ data class LanSummary(
     val sweep: String? = null,
     /** Hosts the sweep found that announced nothing. */
     val sweepFound: Int = 0,
+    /** [LanKeys.IDENTITY_ROUTER] or [LanKeys.IDENTITY_ADDRESS]: how the gate recognised the network; null before 0.1.16. */
+    val identity: String? = null,
 ) {
     val scanned: Boolean get() = gate == LanKeys.GATE_CONFIRMED
 
@@ -164,6 +166,7 @@ data class LanSummary(
                 durationSec = LanKeys.value(summary, LanKeys.SCAN_DURATION)?.toIntOrNull(),
                 gate = LanKeys.value(summary, LanKeys.SCAN_GATE),
                 gateReason = LanKeys.value(summary, LanKeys.SCAN_GATE_REASON),
+                identity = LanKeys.value(summary, LanKeys.SCAN_IDENTITY)?.takeIf { it == LanKeys.IDENTITY_ROUTER || it == LanKeys.IDENTITY_ADDRESS },
                 partialStages = LanKeys.items(LanKeys.value(summary, LanKeys.SCAN_PARTIAL)),
                 droppedOutOfScope = LanKeys.value(summary, LanKeys.SCAN_DROPPED_OUT_OF_SCOPE)?.toIntOrNull() ?: 0,
                 censusState = censusState,

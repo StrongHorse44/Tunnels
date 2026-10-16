@@ -719,6 +719,8 @@ class LanScanner(private val context: Context) {
 
     companion object {
         const val STAGES = 3
+        /** The gate's router identity check before the scan proper (audit L8): reported before discovery, only when it runs. */
+        const val STAGE_IDENTITY = "identity"
         const val STAGE_DISCOVERY = "discovery"
         const val STAGE_PORTS = "ports"
         const val STAGE_ROUTER = "router"

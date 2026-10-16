@@ -27,7 +27,8 @@ dependencies {
     implementation(project(":core:runtime"))
     implementation(project(":core:store"))
     implementation(project(":core:export"))
-    // The confirmed-network row (ConfirmedNetworkCodec, ConfirmedNetworkBook) is owned by core:lan, shared with Home network.
+    // Home network's confirmed-network rows (core:lan) are no longer exported or merged (audit L8); the androidTest checks that
+    // an import leaves both rows alone.
     implementation(project(":core:lan"))
     // An import that carries the background-check settings re-arms (or cancels) the scheduled job (WatchScheduler).
     implementation(project(":tunnels:watch"))

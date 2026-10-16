@@ -89,8 +89,19 @@ object LanKeys {
     const val SCAN_DURATION = "scan:durationSec"
     /** [GATE_CONFIRMED] when the own-network gate let the scan run, else [GATE_UNCONFIRMED]. */
     const val SCAN_GATE = "scan:gate"
-    /** Why the gate refused: "no-wifi", "network-unknown", "not-confirmed", "store-unavailable" ("no-permission" in older builds). */
+    /**
+     * Why the gate refused: "no-wifi", "network-unknown", "not-confirmed", "store-unavailable", "reconfirm", "key-changed",
+     * "router-mismatch", "router-silent", "router-not-asked", "address-only" ("no-permission" in older builds).
+     */
     const val SCAN_GATE_REASON = "scan:gateReason"
+    /**
+     * How the gate recognised the network of an allowed scan: [IDENTITY_ROUTER] (its router identified itself as the one
+     * confirmed) or [IDENTITY_ADDRESS] (address only, after the user answered "Is this your own Wi-Fi?"). A summary word,
+     * never a token. Absent on refused scans and in scans from before 0.1.16.
+     */
+    const val SCAN_IDENTITY = "scan:identity"
+    const val IDENTITY_ROUTER = "router"
+    const val IDENTITY_ADDRESS = "address"
     /** Comma list of stages that hit their time budget and returned partial results. */
     const val SCAN_PARTIAL = "scan:partial"
     /**
@@ -144,6 +155,20 @@ object LanKeys {
     const val REASON_NOT_CONFIRMED = "not-confirmed"
     /** The encrypted store holding the confirmed networks could not be read, so nothing can be confirmed: fail closed. */
     const val REASON_STORE_UNAVAILABLE = "store-unavailable"
+    /** Only an old confirmation (addresses only, before 0.1.16) matches: confirm once more so the router's identity is kept. */
+    const val REASON_RECONFIRM = "reconfirm"
+    /** The confirmed networks were saved under another key of this phone, so none can be recognised: confirm again. */
+    const val REASON_KEY_CHANGED = "key-changed"
+    /** The network has the confirmed addresses, but its router identified itself differently. */
+    const val REASON_ROUTER_MISMATCH = "router-mismatch"
+    /** The router did not identify itself in a way that can be compared this time. */
+    const val REASON_ROUTER_SILENT = "router-silent"
+    /** The router could not be asked who it is (nothing was sent: no IPv4 router address inside the network). */
+    const val REASON_ROUTER_NOT_ASKED = "router-not-asked"
+    /** An address-only network: the user is asked "Is this your own Wi-Fi?" before each scan and Look closer. */
+    const val REASON_ADDRESS_ONLY = "address-only"
+    /** Close it only: the router's UPnP identity was not confirmed (a match by its admin key only, or address only). */
+    const val REASON_NO_UPNP_MATCH = "router-no-upnp"
     /** No longer produced (the gate needs no permission); kept so observations stored by older builds still read. */
     const val REASON_NO_PERMISSION = "no-permission"
 

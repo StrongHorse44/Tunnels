@@ -28,6 +28,17 @@ object Ssdp {
             "ST: $st\r\n" +
             "\r\n"
 
+    /**
+     * A unicast M-SEARCH to one device (UPnP Device Architecture 1.1, 1.3.2): HOST is the device's own address and port,
+     * no MX, and only root devices are asked for. [host] is an IPv4 literal.
+     */
+    fun unicastSearch(host: String): String =
+        "M-SEARCH * HTTP/1.1\r\n" +
+            "HOST: $host:$PORT\r\n" +
+            "MAN: \"ssdp:discover\"\r\n" +
+            "ST: upnp:rootdevice\r\n" +
+            "\r\n"
+
     /** Parses a unicast M-SEARCH response or multicast NOTIFY; null for anything that is not one. */
     fun parseResponse(text: String): SsdpResponse? {
         val lines = text.split("\r\n", "\n").take(MAX_LINES)

@@ -10,15 +10,17 @@ import kotlinx.coroutines.runBlocking
 import java.io.File
 
 /**
- * The confirmed-network row in the encrypted settings table. Blocking, so call off the main thread. Opening the store
- * can throw (Keystore, SQLCipher); the book reads that as "unavailable" and fails closed.
+ * A confirmed-network row in the encrypted settings table: the old v1 row ([ConfirmedNetworkCodec.KEY], the default) or
+ * the keyed v2 row (`homenet.networks.v2`, [io.github.stronghorse44.tunnels.lan.NetworkRecordCodec.KEY]). Blocking, so
+ * call off the main thread. Opening the store can throw (Keystore, SQLCipher); the books read that as "unavailable" and
+ * fail closed.
  */
-internal class StoreNetworkTable(context: Context) : ConfirmedNetworkTable {
+internal class StoreNetworkTable(context: Context, private val key: String = ConfirmedNetworkCodec.KEY) : ConfirmedNetworkTable {
     private val app = context.applicationContext
 
-    override fun read(): String? = runBlocking { TunnelsStore.get(app).setting(ConfirmedNetworkCodec.KEY) }
+    override fun read(): String? = runBlocking { TunnelsStore.get(app).setting(key) }
 
-    override fun write(text: String) = runBlocking { TunnelsStore.get(app).putSetting(ConfirmedNetworkCodec.KEY, text) }
+    override fun write(text: String) = runBlocking { TunnelsStore.get(app).putSetting(key, text) }
 
     /**
      * The read and the write in one Room transaction. TunnelsDao has no generic transaction, but importAll with no
@@ -26,7 +28,7 @@ internal class StoreNetworkTable(context: Context) : ConfirmedNetworkTable {
      * import's merge runs in, so the two cannot overwrite each other.
      */
     override fun update(transform: (String?) -> String) = runBlocking {
-        TunnelsStore.get(app).dao.importAll(emptyList(), listOf(ConfirmedNetworkCodec.KEY)) { _, stored -> transform(stored) }
+        TunnelsStore.get(app).dao.importAll(emptyList(), listOf(key)) { _, stored -> transform(stored) }
         Unit
     }
 }
@@ -35,10 +37,9 @@ internal class StoreNetworkTable(context: Context) : ConfirmedNetworkTable {
  * The old plaintext preferences file, which only the migration touches. Reading it never creates it; deleting empties
  * it first, then removes the file, so no hash survives even if the removal fails.
  *
- * Mirror: `LegacyFile` in tunnels/snapshots `ConfirmedNetworks.kt` is the same adapter (that module cannot depend on this
- * one). Change both together. Both count `homenet_gate.xml.bak` (SharedPreferences' backup while it writes) as the file
- * and take `deleteSharedPreferences`' return value as the answer: it removes the file and its backup and reports whether
- * neither is left.
+ * It counts `homenet_gate.xml.bak` (SharedPreferences' backup while it writes) as the file and takes
+ * `deleteSharedPreferences`' return value as the answer: it removes the file and its backup and reports whether neither
+ * is left. (Snapshots' mirror of this adapter went with 0.1.16: exports and imports no longer touch confirmed networks.)
  */
 internal class PrefsNetworkFile(context: Context, private val name: String = ConfirmedNetworkBook.LEGACY_PREFS) : PlaintextNetworkFile {
     private val app = context.applicationContext
