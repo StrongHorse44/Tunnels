@@ -38,6 +38,7 @@ import io.github.stronghorse44.tunnels.lan.Labels
 import io.github.stronghorse44.tunnels.lan.LanGuides
 import io.github.stronghorse44.tunnels.lan.LanHost
 import io.github.stronghorse44.tunnels.lan.LanSweep
+import io.github.stronghorse44.tunnels.lan.GateTexts
 import io.github.stronghorse44.tunnels.lan.LookCloser
 import io.github.stronghorse44.tunnels.lan.PortCatalog
 import io.github.stronghorse44.tunnels.lan.PortClues
@@ -78,8 +79,13 @@ internal fun DeviceDetailDialog(
     notes: NotesView?,
     onNotesChanged: () -> Unit,
     onDismiss: () -> Unit,
+    /** The network is recognised by address only: Look closer asks "Is this your own Wi-Fi?" first (L8-Q2). */
+    askFirst: Boolean = false,
+    /** The user answered that question with Look closer: a one-shot permit for the next look. */
+    onPermit: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
+    var asking by remember(host.ip) { mutableStateOf(false) }
     var running by remember(host.ip) { mutableStateOf(false) }
     var step by remember(host.ip) { mutableStateOf<String?>(null) }
     var findings by remember(host.ip) { mutableStateOf<LookCloser.Findings?>(null) }
@@ -94,6 +100,42 @@ internal fun DeviceDetailDialog(
     val webPort = LookCloserProbe.HTTP_PORTS.firstOrNull { it in open }
     val tlsPort = LookCloserProbe.TLS_PORTS.firstOrNull { it in open }
 
+    // Look closer itself; asked about first on an address-only network.
+    val look: () -> Unit = look@{
+        val t = tunnel ?: return@look
+        running = true
+        error = null
+        scope.launch {
+            val known = listOfNotNull(host.name, host.vendor) + host.services
+            val outcome = t.closer.look(host.ip, known) { step = it }
+            findings = outcome.findings ?: findings
+            error = outcome.error
+            running = false
+            // The network became address-only since the panel read it: ask now.
+            if (outcome.askFirst) asking = true
+            if (outcome.findings != null && outcome.error == null) note = "Kept for 30 days. The device list places it at your next scan."
+        }
+    }
+    if (asking) {
+        AlertDialog(
+            onDismissRequest = { asking = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            title = { Text(GateTexts.ASK_TITLE) },
+            text = { Text(GateTexts.ASK_TEXT, style = MaterialTheme.typography.bodySmall, color = GlassColors.dim) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        asking = false
+                        error = null
+                        onPermit()
+                        look()
+                    },
+                ) { Text("Look closer") }
+            },
+            // Cancel sends nothing.
+            dismissButton = { TextButton(onClick = { asking = false }) { Text("Cancel") } },
+        )
+    }
     AlertDialog(
         onDismissRequest = { if (!running) onDismiss() },
         containerColor = MaterialTheme.colorScheme.surface,
@@ -209,18 +251,7 @@ internal fun DeviceDetailDialog(
             Column(horizontalAlignment = androidx.compose.ui.Alignment.End) {
                 if (tunnel != null) {
                     Button(
-                        onClick = {
-                            running = true
-                            error = null
-                            scope.launch {
-                                val known = listOfNotNull(host.name, host.vendor) + host.services
-                                val outcome = tunnel.closer.look(host.ip, known) { step = it }
-                                findings = outcome.findings ?: findings
-                                error = outcome.error
-                                running = false
-                                if (outcome.findings != null && outcome.error == null) note = "Kept for 30 days. The device list places it at your next scan."
-                            }
-                        },
+                        onClick = { if (askFirst) asking = true else look() },
                         enabled = !running && !scanning,
                     ) { Text(if (findings == null) "Look closer" else "Look again") }
                     if (webPort != null || tlsPort != null) {

@@ -7,10 +7,23 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
+import io.github.stronghorse44.tunnels.lan.AddressOnlyPermit
 import io.github.stronghorse44.tunnels.lan.ConfirmedNetworkBook
+import io.github.stronghorse44.tunnels.lan.GateRecord
 import io.github.stronghorse44.tunnels.lan.LanAddresses
 import io.github.stronghorse44.tunnels.lan.LanKeys
 import io.github.stronghorse44.tunnels.lan.NetworkFingerprint
+import io.github.stronghorse44.tunnels.lan.NetworkRecordBook
+import io.github.stronghorse44.tunnels.lan.NetworkRecordCodec
+import io.github.stronghorse44.tunnels.lan.Purpose
+import io.github.stronghorse44.tunnels.lan.RecordMode
+import io.github.stronghorse44.tunnels.lan.RouterIdentity
+import io.github.stronghorse44.tunnels.lan.SaveResult
+import io.github.stronghorse44.tunnels.lan.SeenTokens
+import io.github.stronghorse44.tunnels.lan.Verdict
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -79,28 +92,62 @@ data class WifiState(
     }
 }
 
-/** The gate's verdict before a scan. */
+/** How the gate recognised the network of an allowed scan, look or Close it. */
+enum class Identity { ROUTER, ADDRESS_ONLY }
+
+/** The gate's verdict before a scan, a look or Close it. */
 sealed interface GateDecision {
-    data class Allowed(val state: WifiState, val fingerprint: NetworkFingerprint) : GateDecision
+    data class Allowed(val state: WifiState, val fingerprint: NetworkFingerprint, val identity: Identity = Identity.ROUTER) : GateDecision
 
     /** [reason] is one of the LanKeys.REASON_* values. */
     data class Refused(val reason: String, val state: WifiState) : GateDecision
 }
 
+/** What the network card shows before anything is sent: the stored state of the current network. */
+enum class NetworkStatus { NOT_CONFIRMED, RECONFIRM, KEY_CHANGED, ROUTER, ADDRESS_ONLY, UNAVAILABLE }
+
+/** How "This is my network" (or "Confirm by address only") ended. */
+sealed interface ConfirmOutcome {
+    /** Saved; the router identified itself by its UPnP id ([upnp]) and/or its admin page key ([tls]). */
+    data class Confirmed(val upnp: Boolean, val tls: Boolean) : ConfirmOutcome
+
+    /** Saved as address only (the user's choice after [RouterSilent]). */
+    data object AddressOnly : ConfirmOutcome
+
+    /** The router identified itself in no way: nothing saved; the card offers "Confirm by address only". */
+    data object RouterSilent : ConfirmOutcome
+
+    /** The Wi-Fi changed (or went away) while Tunnels asked: nothing saved. */
+    data object WifiChanged : ConfirmOutcome
+
+    /** The cap of networks is reached: nothing saved. */
+    data object Full : ConfirmOutcome
+
+    /** Tunnels' key or encrypted store could not be used: nothing saved. */
+    data object Failed : ConfirmOutcome
+}
+
 /**
- * Own-network gate: Tunnels scans only a Wi-Fi the user confirmed as theirs, once per network. A network is
- * identified by its [NetworkFingerprint] (gateway, DHCP server, DNS servers, prefix), not by its SSID, which
- * Android hides from apps without a location permission. Confirmed fingerprints are kept as SHA-256 hashes in the
- * encrypted settings table (`homenet.confirmed_networks`, see [ConfirmedNetworkBook]); an older build kept them in a
- * plaintext preferences file, which [migrate] moves and deletes.
+ * Own-network gate: Tunnels scans only a Wi-Fi the user confirmed as theirs. A network is identified by its
+ * [NetworkFingerprint] (gateway, DHCP server, DNS servers, prefix), not by its SSID, which Android hides from apps without
+ * a location permission, **and by its router** (audit L8): the gateway's UPnP root-device id and its HTTPS admin key,
+ * asked fresh before every scan, Look closer and Close it ([admit]), before anything else is sent. Confirmed networks are
+ * keyed records in the encrypted settings table (`homenet.networks.v2`, [NetworkRecordBook], under [HomenetKey]); the old
+ * address-only hashes (`homenet.confirmed_networks`, [ConfirmedNetworkBook]) are read only to ask for one more
+ * confirmation, and an older build's plaintext preferences file is still moved and deleted by [migrate].
  *
- * The confirmation functions read the database: call them off the main thread. If the store cannot be read the gate
- * answers "not confirmed" and [check] refuses with [LanKeys.REASON_STORE_UNAVAILABLE]; it never falls back to the old file.
+ * The functions read the database: call them off the main thread. If the store or the key cannot be used the gate
+ * refuses with [LanKeys.REASON_STORE_UNAVAILABLE]; it never falls back to the old rows or the old file.
  */
 class NetworkGate(
     private val context: Context,
     private val book: ConfirmedNetworkBook = ConfirmedNetworkBook(StoreNetworkTable(context), PrefsNetworkFile(context)),
+    private val records: NetworkRecordBook = NetworkRecordBook(StoreNetworkTable(context, NetworkRecordCodec.KEY), book, HomenetKey()::mac),
+    private val identity: RouterIdentitySource = RouterIdentityProbe(context),
+    clock: () -> Long = System::currentTimeMillis,
 ) {
+    private val permit = AddressOnlyPermit(clock)
+
     /** Reads the current Wi-Fi network; cheap binder calls, safe from the main thread. */
     fun current(): WifiState {
         val cm = context.getSystemService(ConnectivityManager::class.java) ?: return WifiState.OFFLINE
@@ -151,31 +198,156 @@ class NetworkGate(
     /** Moves hashes an older build kept in plaintext preferences into the encrypted store and deletes that file. Idempotent. */
     fun migrate() = book.migrate()
 
-    fun isConfirmed(fingerprint: NetworkFingerprint): Boolean = book.isConfirmed(fingerprint.hash)
+    /** The stored state of [fingerprint]'s network; nothing is sent. */
+    fun status(fingerprint: NetworkFingerprint): NetworkStatus = try {
+        statusOf(records.lookup(fingerprint))
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Throwable) {
+        NetworkStatus.UNAVAILABLE
+    }
 
-    /** False when the confirmation could not be saved (the store is unavailable); the network then stays unconfirmed. */
-    fun confirm(fingerprint: NetworkFingerprint): Boolean = book.confirm(fingerprint.hash)
+    private fun statusOf(found: GateRecord): NetworkStatus = when {
+        !found.keyIdOk -> NetworkStatus.KEY_CHANGED
+        found.record == null -> if (found.legacy) NetworkStatus.RECONFIRM else NetworkStatus.NOT_CONFIRMED
+        found.record?.mode == RecordMode.ADDRESS -> NetworkStatus.ADDRESS_ONLY
+        else -> NetworkStatus.ROUTER
+    }
 
-    fun forget(fingerprint: NetworkFingerprint): Boolean = book.forget(fingerprint.hash)
+    /**
+     * "This is my network" (also "Confirm", "It's my new router"): asks the router who it is, then reads the network again
+     * (a changed network saves nothing). The router identified itself: saved as recognised by its router, replacing any
+     * record the network had, and its old address-only line is removed. It did not: nothing saved, [ConfirmOutcome.RouterSilent].
+     * The key is never recreated over a failure.
+     */
+    suspend fun confirmWithRouter(fingerprint: NetworkFingerprint): ConfirmOutcome = withContext(Dispatchers.IO) {
+        val state = runCatching { current() }.getOrDefault(WifiState.OFFLINE)
+        if (state.fingerprint?.hash != fingerprint.hash || state.prefixes.isEmpty()) return@withContext ConfirmOutcome.WifiChanged
+        confirmOn(state, fingerprint) { sameNetwork(state, fingerprint) }
+    }
 
-    fun forgetAll(): Boolean = book.forgetAll()
+    /** [confirmWithRouter] after the address step; [stillOn] reads the network again after the probe. */
+    internal suspend fun confirmOn(state: WifiState, fingerprint: NetworkFingerprint, stillOn: () -> Boolean): ConfirmOutcome {
+        val raw = probe(state)
+        if (raw.lost || !stillOn()) return ConfirmOutcome.WifiChanged
+        val seen = try {
+            records.tokens.seen(raw.uuids, raw.spkiSha256, raw.probed, raw.lost)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            return ConfirmOutcome.Failed
+        }
+        if (!seen.any) return ConfirmOutcome.RouterSilent
+        return when (records.confirm(fingerprint, RecordMode.ROUTER, seen)) {
+            SaveResult.SAVED -> ConfirmOutcome.Confirmed(upnp = seen.upnp.isNotEmpty(), tls = seen.tls != null)
+            SaveResult.FULL -> ConfirmOutcome.Full
+            SaveResult.FAILED -> ConfirmOutcome.Failed
+        }
+    }
+
+    /** "Confirm by address only" (L8-Q2): saved only while the phone is still on [fingerprint]'s network. */
+    suspend fun confirmAddressOnly(fingerprint: NetworkFingerprint): ConfirmOutcome = withContext(Dispatchers.IO) {
+        val state = runCatching { current() }.getOrDefault(WifiState.OFFLINE)
+        if (state.fingerprint?.hash != fingerprint.hash) return@withContext ConfirmOutcome.WifiChanged
+        saveAddressOnly(fingerprint)
+    }
+
+    internal fun saveAddressOnly(fingerprint: NetworkFingerprint): ConfirmOutcome = when (records.confirm(fingerprint, RecordMode.ADDRESS, SeenTokens())) {
+        SaveResult.SAVED -> ConfirmOutcome.AddressOnly
+        SaveResult.FULL -> ConfirmOutcome.Full
+        SaveResult.FAILED -> ConfirmOutcome.Failed
+    }
+
+    /** The user answered "Is this your own Wi-Fi?" with Scan (or Look closer): the next admission of this network, within a minute, may go ahead. */
+    fun permitAddressOnly(fingerprint: NetworkFingerprint) {
+        try {
+            permit.grant(records.tokens.net(fingerprint))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            // The key cannot be used: the admission refuses as store-unavailable anyway.
+        }
+    }
+
+    /** Forgets the network's record and its old line; false when the store could not be changed. */
+    fun forget(fingerprint: NetworkFingerprint): Boolean = records.forget(fingerprint)
+
+    /** Forgets every network (both rows emptied); also clears a row that could not be read. */
+    fun forgetAll(): Boolean = records.forgetAll()
 
     /** How many networks are confirmed; 0 when the store cannot be read. */
-    fun confirmedCount(): Int = book.count() ?: 0
+    fun confirmedCount(): Int = records.count() ?: 0
 
-    /** Decides whether a scan may run right now. Never throws; reads the store, so call it off the main thread. */
-    fun check(): GateDecision {
+    /**
+     * Decides whether a scan, a look or Close it ([purpose]) may run right now. The address step and the stored record
+     * first (nothing is sent); then, for a network recognised by its router, the identity probe to the gateway (spec
+     * 2.2), with [onProbe] called just before it; then the verdict ([RouterIdentity.judge]). A match refreshes the stored
+     * factors. Never throws but for cancellation.
+     */
+    suspend fun admit(purpose: Purpose, onProbe: () -> Unit = {}): GateDecision = withContext(Dispatchers.IO) {
         val state = runCatching { current() }.getOrDefault(WifiState.OFFLINE)
-        if (!state.onWifi) return GateDecision.Refused(LanKeys.REASON_NO_WIFI, state)
-        val fingerprint = state.fingerprint ?: return GateDecision.Refused(LanKeys.REASON_NETWORK_UNKNOWN, state)
+        if (!state.onWifi) return@withContext GateDecision.Refused(LanKeys.REASON_NO_WIFI, state)
+        val fingerprint = state.fingerprint ?: return@withContext GateDecision.Refused(LanKeys.REASON_NETWORK_UNKNOWN, state)
         // Scanning stays inside the link's prefixes; without any, there is nothing to stay inside.
-        if (state.prefixes.isEmpty()) return GateDecision.Refused(LanKeys.REASON_NETWORK_UNKNOWN, state)
+        if (state.prefixes.isEmpty()) return@withContext GateDecision.Refused(LanKeys.REASON_NETWORK_UNKNOWN, state)
+        decide(state, fingerprint, purpose, onProbe) { sameNetwork(state, fingerprint) }
+    }
+
+    /** [admit] after the address step; [stillOn] reads the network again after the probe. */
+    internal suspend fun decide(
+        state: WifiState,
+        fingerprint: NetworkFingerprint,
+        purpose: Purpose,
+        onProbe: () -> Unit = {},
+        stillOn: () -> Boolean,
+    ): GateDecision {
         // Last, so a phone that is not on a usable Wi-Fi never opens the store for this.
-        when (book.lookup(fingerprint.hash)) {
-            true -> Unit
-            false -> return GateDecision.Refused(LanKeys.REASON_NOT_CONFIRMED, state)
-            null -> return GateDecision.Refused(LanKeys.REASON_STORE_UNAVAILABLE, state)
+        val found = try {
+            records.lookup(fingerprint)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            return GateDecision.Refused(LanKeys.REASON_STORE_UNAVAILABLE, state)
         }
-        return GateDecision.Allowed(state, fingerprint)
+        val record = found.record
+        val asked = found.keyIdOk && record?.mode == RecordMode.ADDRESS && purpose != Purpose.CLOSE_IT && permit.consume(found.net)
+        val seen = if (RouterIdentity.needsProbe(record, found.keyIdOk)) {
+            onProbe()
+            val raw = probe(state)
+            val tokens = try {
+                records.tokens.seen(raw.uuids, raw.spkiSha256, raw.probed, raw.lost)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                return GateDecision.Refused(LanKeys.REASON_STORE_UNAVAILABLE, state)
+            }
+            if (stillOn()) tokens else tokens.copy(lost = true)
+        } else {
+            null
+        }
+        val verdict = RouterIdentity.judge(record, found.legacy, found.keyIdOk, seen, purpose, asked)
+        return when (verdict) {
+            Verdict.Match -> {
+                // A failed refresh keeps the admission: the match was made against the stored record.
+                if (record != null && seen != null) records.refresh(record, seen)
+                GateDecision.Allowed(state, fingerprint, Identity.ROUTER)
+            }
+            Verdict.AddressOnly -> GateDecision.Allowed(state, fingerprint, Identity.ADDRESS_ONLY)
+            else -> GateDecision.Refused(verdict.reason ?: LanKeys.REASON_NOT_CONFIRMED, state)
+        }
+    }
+
+    private suspend fun probe(state: WifiState): SeenRouter = try {
+        identity.probe(state)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Throwable) {
+        SeenRouter(emptyList(), null, probed = false, lost = false)
+    }
+
+    /** The phone is still on the same Wi-Fi with the same fingerprint as [state]. */
+    private fun sameNetwork(state: WifiState, fingerprint: NetworkFingerprint): Boolean {
+        val now = runCatching { current() }.getOrNull() ?: return false
+        return now.network == state.network && now.fingerprint?.hash == fingerprint.hash
     }
 }

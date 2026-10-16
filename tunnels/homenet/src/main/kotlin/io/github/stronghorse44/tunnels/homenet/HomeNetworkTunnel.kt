@@ -19,6 +19,7 @@ import io.github.stronghorse44.tunnels.lan.LookCloser
 import io.github.stronghorse44.tunnels.lan.MdnsTypes
 import io.github.stronghorse44.tunnels.lan.PortCatalog
 import io.github.stronghorse44.tunnels.lan.PortMappings
+import io.github.stronghorse44.tunnels.lan.Purpose
 import io.github.stronghorse44.tunnels.lan.ResolverScope
 import io.github.stronghorse44.tunnels.lan.Ssdp
 import io.github.stronghorse44.tunnels.lan.VendorHints
@@ -48,7 +49,11 @@ import java.time.LocalDate
  * networks apart by their fingerprint (gateway, DHCP, DNS, prefix), because Android hides the SSID from
  * apps without a location permission; see NetworkFingerprint.
  */
-class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
+class HomeNetworkTunnel(
+    private val context: Context,
+    /** The own-network gate; device tests pass one with a fake router. */
+    val gate: NetworkGate = NetworkGate(context),
+) : TunnelModule, TunnelUi {
     override val id: String = LanKeys.TUNNEL_ID
 
     // The own-network gate identifies a Wi-Fi by its fingerprint (gateway, DHCP, DNS, prefix), so no
@@ -57,7 +62,6 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
 
     override val rules: List<FindingRule> = LanRules.all
 
-    val gate = NetworkGate(context)
     private val scanner = LanScanner(context)
 
     /** The device census's reads and writes in the encrypted store. */
@@ -77,8 +81,9 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
 
     override suspend fun scan(progress: ScanProgress): List<Observation> {
         val started = System.nanoTime()
-        // The gate reads the encrypted store.
-        val decision = withContext(Dispatchers.IO) { gate.check() }
+        // The gate reads the encrypted store and, for a network recognised by its router, asks the gateway who it is
+        // before anything else is sent (audit L8). A refusal sends nothing more.
+        val decision = gate.admit(Purpose.SCAN) { progress.report(0, LanScanner.STAGES, LanScanner.STAGE_IDENTITY) }
         val out = ArrayList<Observation>(64)
         fun add(subject: String, key: String, value: String) {
             if (value.isNotEmpty()) out += Observation(id, subject, key, value)
@@ -198,6 +203,7 @@ class HomeNetworkTunnel(private val context: Context) : TunnelModule, TunnelUi {
         }
 
         add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_GATE, LanKeys.GATE_CONFIRMED)
+        add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_IDENTITY, if (allowed.identity == Identity.ADDRESS_ONLY) LanKeys.IDENTITY_ADDRESS else LanKeys.IDENTITY_ROUTER)
         add(LanKeys.SUBJECT_SUMMARY, LanKeys.SCAN_NETWORK, tag)
         add(LanKeys.SUBJECT_SUMMARY, LanKeys.HOSTS_TOTAL, result.hosts.size.toString())
         add(LanKeys.SUBJECT_SUMMARY, LanKeys.HOSTS_RISKY, risky.toString())

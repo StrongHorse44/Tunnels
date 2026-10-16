@@ -11,7 +11,10 @@ import java.security.MessageDigest
  * `DhcpInfo`: the default gateway, the DHCP server, the DNS servers and the address prefix. Only the SHA-256
  * of the canonical form is stored; the observation keeps its first 8 hex chars.
  *
- * Limit, stated to the user in the UI: two networks with the same router address and DNS setup look the same.
+ * Limit, stated to the user in the UI: two networks with the same router address and DNS setup look the same unless the
+ * router identifies itself (its UPnP root-device id or its admin page's HTTPS key, see [RouterIdentity]; audit L8). The
+ * gate's decision rests on the keyed record ([NetworkRecordBook]); [hash] stays unkeyed because it derives [prefixTag]
+ * and salts the device tokens, which must not change (L8-Q5).
  */
 data class NetworkFingerprint(
     /** IPv4 default gateway, else the IPv6 one. */

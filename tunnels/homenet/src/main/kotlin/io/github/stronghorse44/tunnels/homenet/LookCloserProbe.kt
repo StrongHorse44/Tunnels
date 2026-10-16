@@ -8,15 +8,18 @@ import android.system.StructMsghdr
 import android.system.StructTimeval
 import io.github.stronghorse44.tunnels.lan.BindGuard
 import io.github.stronghorse44.tunnels.lan.CertFacts
+import io.github.stronghorse44.tunnels.lan.GateTexts
 import io.github.stronghorse44.tunnels.lan.Greetings
 import io.github.stronghorse44.tunnels.lan.HttpLite
 import io.github.stronghorse44.tunnels.lan.HttpTarget
 import io.github.stronghorse44.tunnels.lan.IcmpEcho
+import io.github.stronghorse44.tunnels.lan.LanKeys
 import io.github.stronghorse44.tunnels.lan.LanScope
 import io.github.stronghorse44.tunnels.lan.LanSweep
 import io.github.stronghorse44.tunnels.lan.LookCloser
 import io.github.stronghorse44.tunnels.lan.NetBios
 import io.github.stronghorse44.tunnels.lan.PortCatalog
+import io.github.stronghorse44.tunnels.lan.Purpose
 import io.github.stronghorse44.tunnels.lan.ReverseDns
 import io.github.stronghorse44.tunnels.store.TunnelsStore
 import kotlinx.coroutines.CancellationException
@@ -36,13 +39,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.nio.ByteBuffer
-import java.security.cert.CertificateException
-import java.security.cert.X509Certificate
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicReference
-import javax.net.ssl.SSLContext
-import javax.net.ssl.SSLSocket
-import javax.net.ssl.X509TrustManager
 import javax.security.auth.x500.X500Principal
 import kotlin.random.Random
 
@@ -80,8 +77,11 @@ internal fun askMdnsName(guard: BindGuard, timeoutMs: Int, address: InetAddress,
         (ReverseDns.query(ip, id) ?: ByteArray(0)) to { b: ByteArray, n: Int -> ReverseDns.parse(id, b, n) }
     }?.let(ReverseDns::deviceName)
 
-/** One look's outcome: the live findings, or why nothing was sent. */
-data class CloserOutcome(val findings: LookCloser.Findings?, val error: String? = null)
+/**
+ * One look's outcome: the live findings, or why nothing was sent. [askFirst]: the network is recognised by address only
+ * and the user was not asked "Is this your own Wi-Fi?" just now.
+ */
+data class CloserOutcome(val findings: LookCloser.Findings?, val error: String? = null, val askFirst: Boolean = false)
 
 /**
  * "Look closer" (RJ, 2026-10-11): asks the one device the user tapped what it is. Runs only when the user taps, only on
@@ -95,14 +95,18 @@ class LookCloserProbe(private val context: Context, private val gate: NetworkGat
 
     /** [known] are the names and maker the scan already had for the device; [onStep] says what it is doing now. */
     suspend fun look(ip: String, known: List<String>, onStep: (String) -> Unit): CloserOutcome = withContext(Dispatchers.IO) {
+        // The gate, with a fresh check of the router's identity before anything is sent to the device (audit L8).
         val decision = try {
-            gate.check()
+            gate.admit(Purpose.LOOK_CLOSER)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
             null
         }
-        if (decision !is GateDecision.Allowed) return@withContext CloserOutcome(null, "This Wi-Fi is not confirmed as yours, so Tunnels sends nothing.")
+        if (decision !is GateDecision.Allowed) {
+            val reason = (decision as? GateDecision.Refused)?.reason
+            return@withContext CloserOutcome(null, GateTexts.refusal(reason), askFirst = reason == LanKeys.REASON_ADDRESS_ONLY)
+        }
         val state = decision.state
         val network = state.network ?: return@withContext CloserOutcome(null, "The phone is not on Wi-Fi.")
         val prefixes = state.prefixes
@@ -214,35 +218,9 @@ class LookCloserProbe(private val context: Context, private val gate: NetworkGat
         null
     }
 
-    /**
-     * The device's certificate: a TLS handshake whose trust check records the certificate and then refuses it, so the
-     * handshake fails and nothing is ever sent over the connection.
-     */
+    /** The device's certificate names, from a handshake that is broken off once the certificate is read ([TlsPeek]). */
     private fun certificate(guard: BindGuard, address: InetAddress, port: Int): CertFacts? {
-        val seen = AtomicReference<X509Certificate?>()
-        val recorder = object : X509TrustManager {
-            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = throw CertificateException("not a server")
-            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-                seen.set(chain?.firstOrNull())
-                throw CertificateException("Tunnels only reads the certificate")
-            }
-            override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
-        }
-        val plain = Socket()
-        try {
-            if (!guard.bindTcp(plain)) return null
-            plain.connect(InetSocketAddress(address, port), CONNECT_TIMEOUT_MS * 3)
-            plain.soTimeout = READ_TIMEOUT_MS
-            val tls = SSLContext.getInstance("TLS").apply { init(null, arrayOf(recorder), null) }
-            (tls.socketFactory.createSocket(plain, address.hostAddress, port, true) as SSLSocket).use { socket ->
-                runCatching { socket.startHandshake() }
-            }
-        } catch (_: Exception) {
-            // Refused, timed out or not TLS: no certificate.
-        } finally {
-            runCatching { plain.close() }
-        }
-        val cert = seen.get() ?: return null
+        val cert = TlsPeek.leaf(guard, address, port, CONNECT_TIMEOUT_MS * 3, READ_TIMEOUT_MS) ?: return null
         val alt = runCatching { cert.subjectAlternativeNames?.mapNotNull { it.getOrNull(1) as? String } }.getOrNull().orEmpty()
         return CertFacts.of(cert.subjectX500Principal.getName(X500Principal.RFC2253), cert.issuerX500Principal.getName(X500Principal.RFC2253), alt)
     }

@@ -2,11 +2,13 @@ package io.github.stronghorse44.tunnels.homenet
 
 import android.content.Context
 import io.github.stronghorse44.tunnels.lan.BindGuard
+import io.github.stronghorse44.tunnels.lan.GateTexts
 import io.github.stronghorse44.tunnels.lan.HttpLite
 import io.github.stronghorse44.tunnels.lan.HttpResponse
 import io.github.stronghorse44.tunnels.lan.LanKeys
 import io.github.stronghorse44.tunnels.lan.LanScope
 import io.github.stronghorse44.tunnels.lan.PortMappings
+import io.github.stronghorse44.tunnels.lan.Purpose
 import io.github.stronghorse44.tunnels.store.ObservationEntity
 import io.github.stronghorse44.tunnels.store.TunnelsStore
 import kotlinx.coroutines.CancellationException
@@ -44,9 +46,10 @@ internal fun httpExchange(guard: BindGuard, address: InetAddress, port: Int, req
 
 /**
  * "Close it" on a port a device opened to the internet (RJ, 2026-10-11): asks the router, over UPnP, to remove that one
- * opening. The first time Tunnels changes something on the router, so it is careful: only when the gate confirms the
- * phone is on the network of the last scan, only to the gateway's own port-mapping service that scan found, and only
- * for an opening that scan listed. The device that asked may open it again while UPnP is on; the guide says how to stop that.
+ * opening. The first time Tunnels changes something on the router, so it is careful: only when the gate confirms, with a
+ * fresh check after the second tap, that the phone is on the network of the last scan and that its router gives the
+ * UPnP id that was confirmed (audit L8), only to the gateway's own port-mapping service that scan found, and only for an
+ * opening that scan listed. The device that asked may open it again while UPnP is on; the guide says how to stop that.
  */
 class RouterOpenings(context: Context, private val gate: NetworkGate) {
     private val app = context.applicationContext
@@ -74,8 +77,10 @@ class RouterOpenings(context: Context, private val gate: NetworkGate) {
     suspend fun close(subject: String): String = withContext(Dispatchers.IO) {
         try {
             val (client, protocol, port) = PortMappings.parseSubject(subject) ?: return@withContext NOT_LISTED
-            val decision = gate.check()
-            if (decision !is GateDecision.Allowed) return@withContext "This Wi-Fi is not confirmed as yours, so Tunnels sends nothing."
+            // A fresh check of the router's identity, after the second tap (audit L8): Close it needs its UPnP id itself.
+            val decision = gate.admit(Purpose.CLOSE_IT)
+            if (decision !is GateDecision.Allowed) return@withContext GateTexts.closeRefusal((decision as GateDecision.Refused).reason)
+            if (decision.identity != Identity.ROUTER) return@withContext GateTexts.CLOSE_NO_UPNP
             val state = decision.state
             val network = state.network ?: return@withContext "The phone is not on Wi-Fi."
             val router = latestRouter() ?: return@withContext "Scan this network first, then tap Close it."
