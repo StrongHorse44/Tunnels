@@ -91,7 +91,7 @@ object LanKeys {
     const val SCAN_GATE = "scan:gate"
     /**
      * Why the gate refused: "no-wifi", "network-unknown", "not-confirmed", "store-unavailable", "reconfirm", "key-changed",
-     * "router-mismatch", "router-silent", "router-not-asked", "address-only" ("no-permission" in older builds).
+     * "router-mismatch", "router-silent", "router-not-asked", "address-only", "vpn-blocks-wifi" ("no-permission" in older builds).
      */
     const val SCAN_GATE_REASON = "scan:gateReason"
     /**
@@ -167,6 +167,11 @@ object LanKeys {
     const val REASON_ROUTER_NOT_ASKED = "router-not-asked"
     /** An address-only network: the user is asked "Is this your own Wi-Fi?" before each scan and Look closer. */
     const val REASON_ADDRESS_ONLY = "address-only"
+    /**
+     * A VPN that Tunnels may not bypass is on, so Android refuses to let Tunnels bind a socket to the Wi-Fi: nothing is
+     * sent (RJ, OQ197). Exclude Tunnels in that VPN app, or disconnect it.
+     */
+    const val REASON_VPN_BLOCKS_WIFI = "vpn-blocks-wifi"
     /** Close it only: the router's UPnP identity was not confirmed (a match by its admin key only, or address only). */
     const val REASON_NO_UPNP_MATCH = "router-no-upnp"
     /** No longer produced (the gate needs no permission); kept so observations stored by older builds still read. */

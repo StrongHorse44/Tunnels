@@ -139,6 +139,35 @@ class RouterIdentityGateTest {
         assertEquals(NetworkStatus.NOT_CONFIRMED, gate.status(home))
     }
 
+    // ---- 0.1.17: a VPN Tunnels may not bypass (OQ197) ------------------------------------------------------
+
+    @Test
+    fun aVpnThatRefusesTheBindStopsEverythingBeforeAnythingIsSent() = runBlocking<Unit> {
+        val fake = FakeRouter(router(listOf(uuidA)))
+        assertEquals(ConfirmOutcome.AddressOnly, NetworkGate(context, identity = fake).saveAddressOnly(home))
+        val blocked = NetworkGate(context, identity = fake, vpnBlocks = { true })
+        gateOn(blocked)
+        assertEquals(0, fake.calls)
+        // Not confirmed stays "not confirmed": nothing would be sent there anyway.
+        assertTrue(blocked.forget(home))
+        assertEquals(GateDecision.Refused(LanKeys.REASON_NOT_CONFIRMED, offline), blocked.decide(offline, home, Purpose.SCAN) { true })
+    }
+
+    private suspend fun gateOn(blocked: NetworkGate) {
+        blocked.permitAddressOnly(home)
+        for (purpose in Purpose.entries) {
+            assertEquals(purpose.name, GateDecision.Refused(LanKeys.REASON_VPN_BLOCKS_WIFI, offline), blocked.decide(offline, home, purpose) { true })
+        }
+    }
+
+    @Test
+    fun theEmulatorsWifiIsNotBlockedByAVpn() {
+        val state = NetworkGate(context).current()
+        assumeTrue("the emulator has no Wi-Fi", state.onWifi)
+        assertFalse(bindRefusedByVpn(state))
+        assertFalse("no Wi-Fi: nothing to bind, not the VPN", bindRefusedByVpn(WifiState.OFFLINE))
+    }
+
     // ---- 3 ---------------------------------------------------------------------------------------------
 
     @Test

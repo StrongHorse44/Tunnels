@@ -11,6 +11,8 @@ object GateTexts {
     const val ROUTER_SILENT = "Your router didn't identify itself this time, so Tunnels sends nothing more. Try again in a moment."
     const val ROUTER_NOT_ASKED = "Tunnels couldn't ask your router who it is (this network has no IPv4 router address inside it), so it " +
         "sends nothing. Reconnect to the Wi-Fi and try again."
+    const val VPN_BLOCKS_WIFI = "A VPN that doesn't let Tunnels bypass it is on, so Tunnels can't reach your Wi-Fi and sends nothing. " +
+        "Exclude Tunnels in that VPN app's settings, or disconnect it, then try again."
     const val KEY_CHANGED = "Tunnels' key for confirmed networks changed, so it can't recognise them. Confirm this network again."
     const val ADDRESS_ONLY = "Recognised by address only."
     const val NOT_CONFIRMED = "This Wi-Fi is not confirmed as yours, so Tunnels sends nothing."
@@ -39,6 +41,7 @@ object GateTexts {
     const val CLOSE_SILENT = "Your router didn't identify itself just now, so Tunnels sends nothing. Try again, or remove it on the router's admin page."
     const val CLOSE_NO_UPNP = "Tunnels can't confirm this router's UPnP identity, so it doesn't ask it to change anything. Remove it on the router's admin page."
     const val CLOSE_NOT_ASKED = "Tunnels couldn't ask your router who it is, so it sends nothing. Remove it on the router's admin page."
+    const val CLOSE_VPN_BLOCKS_WIFI = "A VPN that doesn't let Tunnels bypass it is on, so Tunnels sends nothing to your router: exclude Tunnels in that VPN app, or disconnect it."
     const val CLOSE_NO_WIFI = "The phone is not on Wi-Fi, so Tunnels sends nothing."
     const val CLOSE_WIFI_CHANGED = "The Wi-Fi changed while Tunnels checked your router, so it sends nothing. Try again."
 
@@ -54,6 +57,7 @@ object GateTexts {
         LanKeys.REASON_ROUTER_MISMATCH -> ROUTER_MISMATCH
         LanKeys.REASON_ROUTER_SILENT -> ROUTER_SILENT
         LanKeys.REASON_ROUTER_NOT_ASKED -> ROUTER_NOT_ASKED
+        LanKeys.REASON_VPN_BLOCKS_WIFI -> VPN_BLOCKS_WIFI
         LanKeys.REASON_KEY_CHANGED -> KEY_CHANGED
         LanKeys.REASON_ADDRESS_ONLY -> "$ADDRESS_ONLY $ASK_TITLE $ASK_TEXT"
         LanKeys.REASON_STORE_UNAVAILABLE -> STORE_UNAVAILABLE
@@ -67,6 +71,7 @@ object GateTexts {
         LanKeys.REASON_ROUTER_MISMATCH -> CLOSE_MISMATCH
         LanKeys.REASON_ROUTER_SILENT -> CLOSE_SILENT
         LanKeys.REASON_ROUTER_NOT_ASKED -> CLOSE_NOT_ASKED
+        LanKeys.REASON_VPN_BLOCKS_WIFI -> CLOSE_VPN_BLOCKS_WIFI
         LanKeys.REASON_NO_WIFI -> CLOSE_NO_WIFI
         LanKeys.REASON_NO_UPNP_MATCH, LanKeys.REASON_ADDRESS_ONLY -> CLOSE_NO_UPNP
         LanKeys.REASON_NETWORK_UNKNOWN -> CLOSE_WIFI_CHANGED
@@ -85,6 +90,7 @@ object GateTexts {
         LanKeys.REASON_ROUTER_MISMATCH -> ROUTER_MISMATCH
         LanKeys.REASON_ROUTER_SILENT -> ROUTER_SILENT
         LanKeys.REASON_ROUTER_NOT_ASKED -> ROUTER_NOT_ASKED
+        LanKeys.REASON_VPN_BLOCKS_WIFI -> VPN_BLOCKS_WIFI
         LanKeys.REASON_KEY_CHANGED -> KEY_CHANGED
         LanKeys.REASON_ADDRESS_ONLY -> "this network is recognised by address only, and the scan was not started from Home network's " +
             "\"$ASK_TITLE\" question. Scan from Home network."
