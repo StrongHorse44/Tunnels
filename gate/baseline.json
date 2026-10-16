@@ -479,7 +479,7 @@
     },
     {
       "value": "Landroid/net/wifi/WifiManager$MulticastLock;",
-      "note": "tunnels/homenet LanScanner: held during one SSDP discovery in a user-started Home network scan"
+      "note": "tunnels/homenet LanScanner: held during one SSDP discovery in a user-started Home network scan; tunnels/homenet RouterIdentityProbe: held during its one multicast root-device search, sent only when the gateway ignores the direct one"
     },
     {
       "value": "Landroid/net/wifi/WifiManager;",
@@ -503,11 +503,11 @@
     },
     {
       "value": "Ljava/net/DatagramPacket;",
-      "note": "UDP packets: tunnels/traffic DnsForwarder (DNS lookups in a session the user starts) and tunnels/homenet (SSDP and the router DNS-hijack probe in a user-started scan)"
+      "note": "UDP packets: tunnels/traffic DnsForwarder (DNS lookups in a session the user starts) and tunnels/homenet (SSDP and the router DNS-hijack probe in a user-started scan); tunnels/homenet RouterIdentityProbe: the confirmed router's UPnP id (one SSDP search to the gateway, and one standard multicast root-device search only when the gateway ignores it) and its HTTPS key (handshake broken off at the certificate), gateway only, at confirmation and before each scan, Look closer and Close it"
     },
     {
       "value": "Ljava/net/DatagramSocket;",
-      "note": "UDP sockets: tunnels/homenet LanScanner (SSDP search and the router DNS-hijack probe, only in a user-started Home network scan behind NetworkGate), tunnels/traffic DnsForwarder (DNS forwarding in a session the user starts) and VpnStatus (opens and closes one socket to test whether the Network permission is on; sends nothing); also AndroidX core TrafficStatsCompat"
+      "note": "UDP sockets: tunnels/homenet LanScanner (SSDP search and the router DNS-hijack probe, only in a user-started Home network scan behind NetworkGate), tunnels/traffic DnsForwarder (DNS forwarding in a session the user starts) and VpnStatus (opens and closes one socket to test whether the Network permission is on; sends nothing); also AndroidX core TrafficStatsCompat; tunnels/homenet RouterIdentityProbe: the confirmed router's UPnP id (one SSDP search to the gateway, and one standard multicast root-device search only when the gateway ignores it) and its HTTPS key (handshake broken off at the certificate), gateway only, at confirmation and before each scan, Look closer and Close it"
     },
     {
       "value": "Ljava/net/HttpURLConnection;",
@@ -535,7 +535,7 @@
     },
     {
       "value": "Ljava/net/Socket;",
-      "note": "tunnels/homenet LanScanner: TCP connect scan and the router page fetch inside the confirmed network, user-started and behind NetworkGate; tunnels/traffic DnsVpnService only names the type (VpnService.protect overload) and opens no TCP socket of its own; also AndroidX core TrafficStatsCompat"
+      "note": "tunnels/homenet LanScanner: TCP connect scan and the router page fetch inside the confirmed network, user-started and behind NetworkGate; tunnels/traffic DnsVpnService only names the type (VpnService.protect overload) and opens no TCP socket of its own; also AndroidX core TrafficStatsCompat; tunnels/homenet RouterIdentityProbe: the confirmed router's UPnP id (one SSDP search to the gateway) and its HTTPS key (handshake broken off at the certificate), gateway only, at confirmation and before each scan, Look closer and Close it"
     },
     {
       "value": "Ljava/net/SocketAddress;",
@@ -587,19 +587,19 @@
     },
     {
       "value": "Ljavax/net/ssl/SSLContext;",
-      "note": "tunnels/homenet LookCloserProbe.certificate: Look closer reads a LAN device's TLS certificate names (a camera's or NAS's model) in a handshake whose trust manager records the certificate and then refuses it, so no data is ever sent; only to an address inside the confirmed network, socket bound to it, when the user taps Look closer"
+      "note": "tunnels/homenet TlsPeek.leaf (LookCloserProbe.certificate): Look closer reads a LAN device's TLS certificate names (a camera's or NAS's model) in a handshake whose trust manager records the certificate and then refuses it, so no data is ever sent; only to an address inside the confirmed network, socket bound to it, when the user taps Look closer; tunnels/homenet RouterIdentityProbe: the confirmed router's UPnP id (one SSDP search to the gateway) and its HTTPS key (handshake broken off at the certificate), gateway only, at confirmation and before each scan, Look closer and Close it"
     },
     {
       "value": "Ljavax/net/ssl/SSLSocket;",
-      "note": "tunnels/homenet LookCloserProbe.certificate: Look closer reads a LAN device's TLS certificate names (a camera's or NAS's model) in a handshake whose trust manager records the certificate and then refuses it, so no data is ever sent; only to an address inside the confirmed network, socket bound to it, when the user taps Look closer"
+      "note": "tunnels/homenet TlsPeek.leaf (LookCloserProbe.certificate): Look closer reads a LAN device's TLS certificate names (a camera's or NAS's model) in a handshake whose trust manager records the certificate and then refuses it, so no data is ever sent; only to an address inside the confirmed network, socket bound to it, when the user taps Look closer; tunnels/homenet RouterIdentityProbe: the confirmed router's UPnP id (one SSDP search to the gateway) and its HTTPS key (handshake broken off at the certificate), gateway only, at confirmation and before each scan, Look closer and Close it"
     },
     {
       "value": "Ljavax/net/ssl/SSLSocketFactory;",
-      "note": "tunnels/homenet LookCloserProbe.certificate: Look closer reads a LAN device's TLS certificate names (a camera's or NAS's model) in a handshake whose trust manager records the certificate and then refuses it, so no data is ever sent; only to an address inside the confirmed network, socket bound to it, when the user taps Look closer"
+      "note": "tunnels/homenet TlsPeek.leaf (LookCloserProbe.certificate): Look closer reads a LAN device's TLS certificate names (a camera's or NAS's model) in a handshake whose trust manager records the certificate and then refuses it, so no data is ever sent; only to an address inside the confirmed network, socket bound to it, when the user taps Look closer; tunnels/homenet RouterIdentityProbe: the confirmed router's UPnP id (one SSDP search to the gateway) and its HTTPS key (handshake broken off at the certificate), gateway only, at confirmation and before each scan, Look closer and Close it"
     },
     {
       "value": "Ljavax/net/ssl/X509TrustManager;",
-      "note": "tunnels/homenet LookCloserProbe.certificate: Look closer reads a LAN device's TLS certificate names (a camera's or NAS's model) in a handshake whose trust manager records the certificate and then refuses it, so no data is ever sent; only to an address inside the confirmed network, socket bound to it, when the user taps Look closer (the recording trust manager throws for every chain: it never trusts)"
+      "note": "tunnels/homenet TlsPeek.leaf (LookCloserProbe.certificate): Look closer reads a LAN device's TLS certificate names (a camera's or NAS's model) in a handshake whose trust manager records the certificate and then refuses it, so no data is ever sent; only to an address inside the confirmed network, socket bound to it, when the user taps Look closer (the recording trust manager throws for every chain: it never trusts); tunnels/homenet RouterIdentityProbe: the confirmed router's UPnP id (one SSDP search to the gateway) and its HTTPS key (handshake broken off at the certificate), gateway only, at confirmation and before each scan, Look closer and Close it"
     },
     {
       "value": "[Landroid/net/Network;",
@@ -611,11 +611,11 @@
     },
     {
       "value": "[Ljavax/net/ssl/KeyManager;",
-      "note": "SSLContext.init's key-manager array parameter (passed null: no client certificate) in tunnels/homenet LookCloserProbe.certificate"
+      "note": "SSLContext.init's key-manager array parameter (passed null: no client certificate) in tunnels/homenet TlsPeek.leaf (LookCloserProbe.certificate); tunnels/homenet RouterIdentityProbe: the confirmed router's UPnP id (one SSDP search to the gateway) and its HTTPS key (handshake broken off at the certificate), gateway only, at confirmation and before each scan, Look closer and Close it"
     },
     {
       "value": "[Ljavax/net/ssl/TrustManager;",
-      "note": "SSLContext.init's trust-manager array in tunnels/homenet LookCloserProbe.certificate; holds only the recording trust manager that refuses every chain"
+      "note": "SSLContext.init's trust-manager array in tunnels/homenet TlsPeek.leaf (LookCloserProbe.certificate); holds only the recording trust manager that refuses every chain; tunnels/homenet RouterIdentityProbe: the confirmed router's UPnP id (one SSDP search to the gateway) and its HTTPS key (handshake broken off at the certificate), gateway only, at confirmation and before each scan, Look closer and Close it"
     }
   ],
   "dependencies": {

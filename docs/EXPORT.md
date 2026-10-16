@@ -17,7 +17,7 @@ Entries, written in this order (`fwx.py --list` shows exactly these five names a
 | `snapshots.tsnap1` | Every snapshot (when it was taken, whether it is pinned, which tunnels it covers) and every observation, as `TSNAP1` text (`core/export` `BundleFormat`, unchanged since the old format). Findings are not carried: they are derived on the phone by the next scan. Home network's device list travels in the pinned Home network snapshot (`census:known`, tokens only); a device you tapped Mine on but no scan has folded in yet is an event and is not carried, so scan once after tapping Mine, before exporting. |
 | `settings.tsv` | The settings you chose, as `key<TAB>value` rows after a `TSET1` line: `traffic.block` (Traffic blocking), `traffic.upstream` (Traffic's resolver) and `watch.settings` (background checks). A key this phone never set is absent. |
 | `pairing-pins.txt` | The second phones this one paired with (pinned identity keys, names, boot key, patch level, last audit), one per line, as the Second phone tunnel stores them. |
-| `networks.txt` | SHA-256 of each Wi-Fi network you confirmed as your own for Home network (the gate's hashes, never an SSID or an address), one per line. Read from the settings table's `homenet.confirmed_networks` row. |
+| `networks.txt` | Always empty since 0.1.16, and the manifest says `"networks":0` (audit L8, RJ's L8-Q4): Home network's confirmations are keyed with this phone's Keystore key, so they cannot be carried. Bundles from 0.1.15 and earlier hold one SHA-256 per line here (an address-only hash, never an SSID or an address); they are still read and checked, and not merged. The entry stays so the format and schema 1 are unchanged. |
 
 Not carried, on purpose: findings and their dismissals, events, the inbox's last visit, the last background-check
 status (this phone's history, not choices), the Second phone verifier ID (this phone's identity: a restore must not
@@ -35,7 +35,7 @@ Snapshots → Export and import → Export. A passphrase of at least 12 characte
 words is a good choice; it is checked with the codec's own rule, counting characters after Unicode normalisation),
 then the destination (suggested name `tunnels-yyyyMMdd-HHmmssZ.fwx`, UTC). Then, in this order:
 
-1. everything is read from the encrypted store **in memory** (the confirmed networks are a row of its settings table, `homenet.confirmed_networks`; see "Where the confirmed networks live" below);
+1. everything is read from the encrypted store **in memory** (confirmed networks are not exported; see "Confirmed networks stay on the phone" below);
 2. the bundle's entries are built and parsed back with the same function the import uses, and must equal what is
    about to be written: anything an import would refuse (a value over the line cap, more snapshots than the import
    takes, text that does not survive UTF-8) stops the export **before the picked file is opened**;
@@ -60,9 +60,9 @@ Snapshots → Export and import → Import. The order is fixed (container spec 5
    passphrase, a damaged or truncated file, trailing bytes, an unknown or duplicate entry, a manifest that disagrees
    with the entries: nothing is changed, and the message says so. A wrong passphrase leaves the file selected for a
    retry.
-3. **One swap.** One database transaction adds the snapshots and writes the settings, the pairing pins and the
-   confirmed networks (all rows of the same encrypted store), so a failure keeps none of them. Just before it, an older
-   build's plaintext networks file, if one is still there, is moved into the store (see below).
+3. **One swap.** One database transaction adds the snapshots and writes the settings and the pairing pins (rows of the
+   same encrypted store), so a failure keeps none of them. Confirmed networks an older file carries are counted and
+   left out (see below).
 
 Import **adds to** the phone and removes nothing:
 
@@ -71,20 +71,28 @@ Import **adds to** the phone and removes nothing:
 | Snapshots | Added unless the phone already has one taken at the same moment (so importing a file twice does not double the history). A snapshot keeps the pin it had in the file; one already on the phone keeps its own. An unpinned snapshot is subject to retention like any other (the newest 12 unpinned are kept), so older unpinned ones brought into a phone that already has newer ones can be removed by the next retention pass. |
 | Settings | Each setting in the file replaces this phone's value; settings the file does not have are left alone. The done message names Traffic's resolver when the file set one (a bundle can carry a custom DNS-over-HTTPS address). If the file has the background-check setting, the scheduled job is armed or cancelled to match at once. |
 | Paired phones | Merged by phone: new ones are added; for a phone both have, the more recently audited record stays. |
-| Confirmed networks | Merged: the union. |
+| Confirmed networks | Not merged (since 0.1.16): neither of Home network's rows changes. When the file carried any, the done message ends "Confirmed networks aren't carried between phones any more: confirm your Wi-Fi in Home network on this phone." |
 
-### Where the confirmed networks live
+### Confirmed networks stay on the phone
 
-The hashes Home network's gate trusts are one row of the encrypted settings table, `homenet.confirmed_networks`: one
-lowercase SHA-256 per line, sorted. The row is not in `settings.tsv` (it has its own entry, `networks.txt`, and an
-import merges it rather than replacing it). Builds before this change kept them in a plaintext preferences file,
-`homenet_gate` (key `confirmed_network_hashes`), which broke the encrypted-at-rest rule. On the first start after the update
-(and, if that did not run, the first time the gate, an export or an import needs the list) they are copied into the
-row, the row is read back, and only then the plaintext file is emptied and deleted: never both, and a copy that fails
-leaves the file untouched for the next try. The file is never read for a decision, and once the row exists it is not read even to merge (so a
-network forgotten later does not return from a leftover file). If the store cannot be read, no network counts as
-confirmed and Home network refuses to scan ("Tunnels' encrypted store could not be read"); an export stops rather than
-leaving networks out.
+Since 0.1.16 (audit L8, RJ's OQ192) Home network recognises a confirmed Wi-Fi by its addresses **and** by its router:
+the gateway's UPnP root-device id and its HTTPS admin page's key, asked fresh before every scan, Look closer and Close
+it. Each confirmation is a record of keyed tokens (HMAC-SHA256 under a Keystore key that cannot leave the phone) in
+the settings row `homenet.networks.v2`: the network's token, how it is recognised (`r` its router, `a` address only),
+at most four UPnP tokens and one admin-key token, under a line naming the key's 8-hex id. Off this phone the tokens
+cannot be computed, matched or reversed, so an export cannot carry them, and after a restore on a new phone (or a
+reinstall) you confirm your Wi-Fi once. The device list, names, Watch and Mine are not affected: they travel in the
+snapshots and keep their unkeyed network tag (L8-Q5).
+
+The old row `homenet.confirmed_networks` (one address-only SHA-256 per line) is still read, but only to ask "Confirm
+this network once more": a network found only there is not scanned until you tap Confirm at home, which replaces its
+line with a v2 record. Builds before that row kept the hashes in a plaintext preferences file, `homenet_gate` (key
+`confirmed_network_hashes`), which broke the encrypted-at-rest rule. On the first start after the update (and, if that
+did not run, the first time the gate needs the list) they are copied into the row, the row is read back, and only
+then the plaintext file is emptied and deleted: never both, and a copy that fails leaves the file untouched for the
+next try. The file is never read for a decision. If the store or the key cannot be used, no network counts as
+confirmed and Home network refuses to scan ("Tunnels' key or encrypted store could not be used"); a v2 row that
+cannot be read is never wiped except by Home network's "Forget all networks".
 
 ### Old exports (`TSNAPE1`)
 
