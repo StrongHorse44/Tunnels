@@ -94,7 +94,7 @@ class RouterOpenings(context: Context, private val gate: NetworkGate) {
             val serviceType = router.service ?: return@withContext "The router did not offer its port-mapping service at the last scan: remove it on the router's admin page."
             val address = LanScope.parseLiteral(gateway)?.takeIf { LanScope.accepts(it, state.prefixes, state.prefixes.map { p -> p.first }) }
                 ?: return@withContext "The router's address is not inside this network, so Tunnels does not ask it."
-            val guard = BindGuard(NetworkBinder(network, VpnFallthroughCheck(app, state)))
+            val guard = BindGuard(NetworkBinder(network))
             val response = httpExchange(guard, address, target.port, PortMappings.deleteRequest(target, serviceType, mapping), TIMEOUT_MS)
             PortMappings.closeResult(mapping, response?.status, response?.body?.let(PortMappings::errorCode))
         } catch (e: CancellationException) {

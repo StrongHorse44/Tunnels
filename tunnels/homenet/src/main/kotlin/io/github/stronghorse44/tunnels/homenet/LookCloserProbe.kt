@@ -113,7 +113,7 @@ class LookCloserProbe(private val context: Context, private val gate: NetworkGat
         val own = prefixes.map { it.first }
         val address = LanScope.parseLiteral(ip)?.takeIf { LanScope.accepts(it, prefixes, own) }
             ?: return@withContext CloserOutcome(null, "That address is not inside this network, so Tunnels does not ask it.")
-        val guard = BindGuard(NetworkBinder(network, VpnFallthroughCheck(context, state)))
+        val guard = BindGuard(NetworkBinder(network))
 
         onStep("trying ${PortCatalog.closer.size} ports")
         val doors = withTimeoutOrNull(PORTS_BUDGET_MS) { doors(guard, address) } ?: Doors(emptyList(), emptyList())

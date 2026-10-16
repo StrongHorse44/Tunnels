@@ -16,8 +16,7 @@ object GateTexts {
     const val NOT_CONFIRMED = "This Wi-Fi is not confirmed as yours, so Tunnels sends nothing."
     const val STORE_UNAVAILABLE = "Tunnels' key or encrypted store couldn't be used, so it can't tell whether this network is yours. " +
         "Tunnels sends nothing."
-    const val WIFI_CHANGED = "The Wi-Fi changed, or a VPN on this phone keeps Tunnels from reaching it. Try again; if a VPN with " +
-        "an exit node is on, turn the exit node off, or exclude Tunnels in the VPN's settings."
+    const val WIFI_CHANGED = "The Wi-Fi changed. Try again."
 
     const val ASK_TITLE = "Is this your own Wi-Fi?"
     const val ASK_TEXT = "Tunnels can't tell it from another with the same addresses."
@@ -78,8 +77,7 @@ object GateTexts {
     /** The last scan's gate line: "The last scan stopped at the gate: " + this. */
     fun gateReason(reason: String?): String = when (reason) {
         LanKeys.REASON_NO_WIFI -> "the phone was not on Wi-Fi."
-        LanKeys.REASON_NETWORK_UNKNOWN -> "the network's router and address were not readable, or the Wi-Fi changed (or a VPN kept Tunnels " +
-            "from reaching it) while Tunnels checked the router."
+        LanKeys.REASON_NETWORK_UNKNOWN -> "the network's router and address were not readable, or the Wi-Fi changed while Tunnels checked the router."
         LanKeys.REASON_NOT_CONFIRMED -> "this network had not been confirmed as yours."
         LanKeys.REASON_STORE_UNAVAILABLE -> "Tunnels' key or encrypted store could not be used, so it could not tell whether this network is yours."
         LanKeys.REASON_NO_PERMISSION -> "the Nearby devices permission was missing."
