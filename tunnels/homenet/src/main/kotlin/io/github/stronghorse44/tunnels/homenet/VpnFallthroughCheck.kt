@@ -34,7 +34,11 @@ internal class VpnFallthroughCheck(context: Context, private val state: WifiStat
                 wifiOwn = state.prefixes.map { it.first },
                 wifiPrefixes = state.prefixes,
                 vpnRoutes = vpnUnicastRoutes(cm),
-                sources = listOf(sourceFor(gateway), group?.let(::sourceFor)),
+                // Built without a vararg array, so the APK gains no InetAddress[] type (the gate records array types).
+                sources = ArrayList<InetAddress?>(2).apply {
+                    add(sourceFor(gateway))
+                    add(group?.let(::sourceFor))
+                },
             )
         }
     } catch (_: Exception) {
