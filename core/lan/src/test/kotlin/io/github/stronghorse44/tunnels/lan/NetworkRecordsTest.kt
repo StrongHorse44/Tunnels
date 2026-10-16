@@ -311,6 +311,28 @@ class NetworkRecordsTest {
     }
 
     @Test
+    fun forgettingInTheKeyChangedStateEmptiesTheOldKeysRow() {
+        val oldBook = NetworkRecordBook(v2, legacy, macOf(7))
+        assertEquals(SaveResult.SAVED, oldBook.confirm(home, RecordMode.ADDRESS, seen))
+        assertEquals(SaveResult.SAVED, oldBook.confirm(other, RecordMode.ROUTER, seen))
+        assertFalse(book.lookup(home).keyIdOk)
+        assertTrue(book.forget(home))
+        assertEquals("the old key's row is emptied", "", v2.row)
+        val after = book.lookup(home)
+        assertTrue(after.keyIdOk)
+        assertEquals("not confirmed any more", Verdict.NotConfirmed, RouterIdentity.judge(after.record, after.legacy, after.keyIdOk, null, Purpose.SCAN, false))
+    }
+
+    @Test
+    fun forgettingUnderTheCurrentKeyKeepsTheOtherNetworks() {
+        assertEquals(SaveResult.SAVED, book.confirm(home, RecordMode.ADDRESS, seen))
+        assertEquals(SaveResult.SAVED, book.confirm(other, RecordMode.ROUTER, seen))
+        assertTrue(book.forget(home))
+        assertEquals(1, book.count())
+        assertTrue(book.lookup(other).record != null)
+    }
+
+    @Test
     fun anEmptyRowUnderAnyKeyIsNotAKeyChange() {
         v2.row = ""
         assertTrue(book.lookup(home).keyIdOk)

@@ -170,12 +170,19 @@ class NetworkRecordBook(
         }
     }
 
-    /** Forgets [fingerprint]: its v2 record and its v1 line. False when either could not be changed. */
+    /**
+     * Forgets [fingerprint]: its v2 record and its v1 line. A row written under another key is emptied (none of its
+     * records can match again). False when either row could not be changed.
+     */
     fun forget(fingerprint: NetworkFingerprint): Boolean = synchronized(LOCK) {
         try {
             val net = tokens.net(fingerprint)
+            val keyId = tokens.keyId()
             table.update { stored ->
                 val rows = NetworkRecordCodec.decode(stored)
+                // A row under another key can never match again (the "key changed" state): forgetting empties it, as a
+                // confirmation would start it over, so the network then reads as not confirmed (re-check R1).
+                if (rows.records.isNotEmpty() && rows.keyId != keyId) return@update ""
                 if (net !in rows.records) stored.orEmpty() else NetworkRecordCodec.encode(rows.keyId!!, rows.records.values.filter { it.net != net })
             }
             legacy.forget(fingerprint.hash)
