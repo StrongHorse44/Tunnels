@@ -24,7 +24,8 @@ class VpnFallthroughSmokeTest {
     fun onlyAnEpermBindRefusalCountsAsTheVpns() {
         val eperm = SocketException("Binding socket to network 101").apply { initCause(ErrnoException("Binding socket to network 101", OsConstants.EPERM)) }
         assertTrue(VpnFallthroughCheck.isVpnRefusal(eperm))
-        assertTrue(VpnFallthroughCheck.isVpnRefusal(ErrnoException("bind", OsConstants.EPERM).rethrowAsSocketException()))
+        // The plain form Android's own socket code throws (seen on the emulator): the message names EPERM.
+        assertTrue(VpnFallthroughCheck.isVpnRefusal(SocketException("bind failed: EPERM (Operation not permitted)")))
         val gone = SocketException("Binding socket to network 101").apply { initCause(ErrnoException("Binding socket to network 101", OsConstants.ENONET)) }
         assertFalse("a network that is gone is not the VPN", VpnFallthroughCheck.isVpnRefusal(gone))
         assertFalse(VpnFallthroughCheck.isVpnRefusal(SocketException("closed")))
