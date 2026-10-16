@@ -59,7 +59,7 @@ class RouterIdentityProbe(context: Context) : RouterIdentitySource {
         val gateway = state.gateway?.hostAddress?.let(LanScope::parseLiteral)
             ?.takeIf { it is Inet4Address && LanScope.accepts(it, prefixes, prefixes.map { p -> p.first }) }
             ?: return@withContext SeenRouter.NOT_PROBED
-        val guard = BindGuard(NetworkBinder(network))
+        val guard = BindGuard(NetworkBinder(network, VpnFallthroughCheck(app, state)))
         val open = ConcurrentLinkedQueue<Closeable>()
         val found = Found()
         val deadline = System.nanoTime() + BUDGET_MS * 1_000_000

@@ -49,6 +49,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.Inet4Address
@@ -102,10 +103,25 @@ data class LanScanOutput(
     val portScanned: Set<String> = emptySet(),
 )
 
-/** Pins sockets to the confirmed Wi-Fi [network]; a failure throws and the [BindGuard] treats the network as gone. */
-internal class NetworkBinder(private val network: Network) : ProbeBinder {
-    override fun bind(socket: Socket) = network.bindSocket(socket)
-    override fun bind(socket: DatagramSocket) = network.bindSocket(socket)
+/**
+ * Pins sockets to the confirmed Wi-Fi [network]; a failure throws and the [BindGuard] treats the network as gone.
+ *
+ * One exception (0.1.17): when Android refuses the bind because a VPN Tunnels cannot bypass covers it (EPERM; Tailscale,
+ * for one), the socket is left unbound only if [fallthrough] confirms, right then, that the kernel routes the LAN and
+ * the SSDP group over this Wi-Fi ([VpnFallthroughCheck]). Otherwise the refusal stands and nothing is sent.
+ */
+internal class NetworkBinder(private val network: Network, private val fallthrough: VpnFallthroughCheck? = null) : ProbeBinder {
+    override fun bind(socket: Socket) = orFallthrough { network.bindSocket(socket) }
+    override fun bind(socket: DatagramSocket) = orFallthrough { network.bindSocket(socket) }
+
+    private inline fun orFallthrough(bind: () -> Unit) {
+        try {
+            bind()
+        } catch (e: IOException) {
+            val check = fallthrough
+            if (check == null || !VpnFallthroughCheck.isVpnRefusal(e) || !check.allowed()) throw e
+        }
+    }
 }
 
 /**
@@ -137,7 +153,7 @@ class LanScanner(private val context: Context) {
                 emptyMap(), RouterFacts(null, LanKeys.UNKNOWN, null, null, null, null, null), listOf(PARTIAL_SCOPE), scanned = false,
             )
         }
-        val guard = BindGuard(NetworkBinder(network))
+        val guard = BindGuard(NetworkBinder(network, VpnFallthroughCheck(context, state)))
         val own = prefixes.map { it.first }
         // The host table: every address passes LanScope, and the gateway is reserved first so the 50-host cap can
         // never crowd it out (the cap counts the other hosts only).
