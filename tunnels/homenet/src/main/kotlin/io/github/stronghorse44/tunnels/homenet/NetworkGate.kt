@@ -376,7 +376,8 @@ internal fun bindRefusedByVpn(state: WifiState): Boolean {
     return try {
         DatagramSocket().use { network.bindSocket(it) }
         false
-    } catch (e: Exception) {
+    } catch (e: Throwable) {
+        // Any throwable, an Error included, so the check never crashes a scan or a look; only EPERM reads as the VPN's.
         BindRefusal.isVpnRefusal(e, { (it as? ErrnoException)?.errno }, OsConstants.EPERM)
     }
 }

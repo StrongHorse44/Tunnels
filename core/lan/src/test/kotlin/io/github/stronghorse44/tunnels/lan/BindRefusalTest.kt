@@ -36,6 +36,9 @@ class BindRefusalTest {
         assertFalse("the network is gone", refused(SocketException("Binding socket to network 101").apply { initCause(Errno(enonet, "ENONET")) }))
         assertFalse(refused(SocketException("Socket closed")))
         assertFalse(refused(IllegalStateException()))
+        assertFalse("a plain permission message is not the VPN's", refused(SocketException("Permission denied")))
+        assertFalse("EACCES is not EPERM", refused(SocketException("connect failed: EACCES (Permission denied)")))
+        assertFalse("EPERM only as a word of its own", refused(SocketException("NOEPERMX")))
     }
 
     @Test

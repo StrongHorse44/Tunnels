@@ -13,7 +13,7 @@ object BindRefusal {
         var depth = 0
         while (e != null && depth < MAX_DEPTH) {
             if (errno(e) == eperm) return true
-            if (e.message?.contains("EPERM") == true) return true
+            if (e.message?.let { EPERM_TOKEN.containsMatchIn(it) } == true) return true
             e = e.cause
             depth++
         }
@@ -21,4 +21,7 @@ object BindRefusal {
     }
 
     private const val MAX_DEPTH = 8
+
+    /** The errno name as a word of its own ("bind failed: EPERM (Operation not permitted)"); "Permission denied" alone is not it. */
+    private val EPERM_TOKEN = Regex("\\bEPERM\\b")
 }
