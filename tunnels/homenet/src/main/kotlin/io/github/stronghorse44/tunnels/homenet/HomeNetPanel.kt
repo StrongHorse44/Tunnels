@@ -145,6 +145,7 @@ fun HomeNetPanel(
                             offerAddressOnly = true
                         }
                         ConfirmOutcome.WifiChanged -> cardNote = GateTexts.WIFI_CHANGED
+                        ConfirmOutcome.VpnBlocksWifi -> cardNote = GateTexts.VPN_BLOCKS_WIFI
                         ConfirmOutcome.Full -> cardNote = GateTexts.FULL
                         ConfirmOutcome.Failed -> cardNote = GateTexts.SAVE_FAILED
                         ConfirmOutcome.AddressOnly -> Unit
@@ -213,6 +214,7 @@ fun HomeNetPanel(
                                     TextButton(onClick = onConfirm) { Text("Confirm again") }
                                 }
                                 LanKeys.REASON_RECONFIRM, LanKeys.REASON_KEY_CHANGED -> OutlinedButton(onClick = onConfirm) { Text("Confirm") }
+                                LanKeys.REASON_VPN_BLOCKS_WIFI -> OutlinedButton(onClick = onScan, enabled = confirmed) { Text("Try again") }
                                 LanKeys.REASON_ADDRESS_ONLY -> OutlinedButton(onClick = onScan, enabled = confirmed) { Text("Scan") }
                                 else -> Unit
                             }

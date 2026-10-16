@@ -7,7 +7,10 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
+import android.system.ErrnoException
+import android.system.OsConstants
 import io.github.stronghorse44.tunnels.lan.AddressOnlyPermit
+import io.github.stronghorse44.tunnels.lan.BindRefusal
 import io.github.stronghorse44.tunnels.lan.ConfirmedNetworkBook
 import io.github.stronghorse44.tunnels.lan.GateRecord
 import io.github.stronghorse44.tunnels.lan.LanAddresses
@@ -24,6 +27,7 @@ import io.github.stronghorse44.tunnels.lan.Verdict
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.net.DatagramSocket
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -120,6 +124,9 @@ sealed interface ConfirmOutcome {
     /** The Wi-Fi changed (or went away) while Tunnels asked: nothing saved. */
     data object WifiChanged : ConfirmOutcome
 
+    /** A VPN that Tunnels may not bypass blocks the Wi-Fi: nothing was sent and nothing saved (OQ197). */
+    data object VpnBlocksWifi : ConfirmOutcome
+
     /** The cap of networks is reached: nothing saved. */
     data object Full : ConfirmOutcome
 
@@ -145,6 +152,8 @@ class NetworkGate(
     private val records: NetworkRecordBook = NetworkRecordBook(StoreNetworkTable(context, NetworkRecordCodec.KEY), book, HomenetKey()::mac),
     private val identity: RouterIdentitySource = RouterIdentityProbe(context),
     clock: () -> Long = System::currentTimeMillis,
+    /** True when a VPN Tunnels may not bypass refuses the bind to this Wi-Fi; device tests pass their own. */
+    private val vpnBlocks: (WifiState) -> Boolean = ::bindRefusedByVpn,
 ) {
     private val permit = AddressOnlyPermit(clock)
 
@@ -223,6 +232,7 @@ class NetworkGate(
     suspend fun confirmWithRouter(fingerprint: NetworkFingerprint): ConfirmOutcome = withContext(Dispatchers.IO) {
         val state = runCatching { current() }.getOrDefault(WifiState.OFFLINE)
         if (state.fingerprint?.hash != fingerprint.hash || state.prefixes.isEmpty()) return@withContext ConfirmOutcome.WifiChanged
+        if (vpnBlocks(state)) return@withContext ConfirmOutcome.VpnBlocksWifi
         confirmOn(state, fingerprint) { sameNetwork(state, fingerprint) }
     }
 
@@ -311,6 +321,8 @@ class NetworkGate(
             return GateDecision.Refused(LanKeys.REASON_STORE_UNAVAILABLE, state)
         }
         val record = found.record
+        // Before anything is sent (the probe, or an address-only scan): a VPN that refuses the bind blocks the Wi-Fi.
+        if (found.keyIdOk && record != null && vpnBlocks(state)) return GateDecision.Refused(LanKeys.REASON_VPN_BLOCKS_WIFI, state)
         val asked = found.keyIdOk && record?.mode == RecordMode.ADDRESS && purpose != Purpose.CLOSE_IT && permit.consume(found.net)
         val seen = if (RouterIdentity.needsProbe(record, found.keyIdOk)) {
             onProbe()
@@ -351,5 +363,20 @@ class NetworkGate(
     private fun sameNetwork(state: WifiState, fingerprint: NetworkFingerprint): Boolean {
         val now = runCatching { current() }.getOrNull() ?: return false
         return now.network == state.network && now.fingerprint?.hash == fingerprint.hash
+    }
+}
+
+/**
+ * True when Android refuses to bind a socket to [state]'s Wi-Fi because a VPN Tunnels may not bypass covers it
+ * (EPERM; [BindRefusal]). The socket is created and bound, never sent on. Any other failure (the network went away)
+ * is not the VPN's and reads false; the probe and the scan then stop as before.
+ */
+internal fun bindRefusedByVpn(state: WifiState): Boolean {
+    val network = state.network ?: return false
+    return try {
+        DatagramSocket().use { network.bindSocket(it) }
+        false
+    } catch (e: Exception) {
+        BindRefusal.isVpnRefusal(e, { (it as? ErrnoException)?.errno }, OsConstants.EPERM)
     }
 }
