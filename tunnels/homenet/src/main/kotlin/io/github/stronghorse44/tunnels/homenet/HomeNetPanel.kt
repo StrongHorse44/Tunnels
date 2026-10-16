@@ -88,6 +88,8 @@ fun HomeNetPanel(
     var confirming by remember(fingerprint?.hash) { mutableStateOf(false) }
     // The router identified itself in no way: the "Confirm by address only" dialog (L8-Q2).
     var offerAddressOnly by remember(fingerprint?.hash) { mutableStateOf(false) }
+    // False when the router could not even be asked (no IPv4 router address inside the network).
+    var silentWasAsked by remember(fingerprint?.hash) { mutableStateOf(true) }
     // "Is this your own Wi-Fi?" before a scan of an address-only network.
     var askScan by remember(fingerprint?.hash) { mutableStateOf(false) }
     var confirmForgetAll by remember { mutableStateOf(false) }
@@ -138,7 +140,10 @@ fun HomeNetPanel(
                     confirming = false
                     when (outcome) {
                         is ConfirmOutcome.Confirmed -> cardNote = GateTexts.confirmed(outcome.upnp, outcome.tls)
-                        ConfirmOutcome.RouterSilent -> offerAddressOnly = true
+                        is ConfirmOutcome.RouterSilent -> {
+                            silentWasAsked = outcome.asked
+                            offerAddressOnly = true
+                        }
                         ConfirmOutcome.WifiChanged -> cardNote = GateTexts.WIFI_CHANGED
                         ConfirmOutcome.Full -> cardNote = GateTexts.FULL
                         ConfirmOutcome.Failed -> cardNote = GateTexts.SAVE_FAILED
@@ -203,7 +208,7 @@ fun HomeNetPanel(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             when (summary.gateReason) {
                                 LanKeys.REASON_ROUTER_MISMATCH -> OutlinedButton(onClick = onConfirm) { Text("It's my new router") }
-                                LanKeys.REASON_ROUTER_SILENT -> {
+                                LanKeys.REASON_ROUTER_SILENT, LanKeys.REASON_ROUTER_NOT_ASKED -> {
                                     OutlinedButton(onClick = onScan, enabled = confirmed) { Text("Try again") }
                                     TextButton(onClick = onConfirm) { Text("Confirm again") }
                                 }
@@ -243,7 +248,14 @@ fun HomeNetPanel(
             onDismissRequest = { offerAddressOnly = false },
             containerColor = MaterialTheme.colorScheme.surface,
             title = { Text(GateTexts.SILENT_ROUTER_TITLE) },
-            text = { Text(GateTexts.SILENT_ROUTER_TEXT, style = MaterialTheme.typography.bodySmall, color = GlassColors.dim) },
+            text = {
+                // "Confirm again" on a network that has a router check: confirming by address only replaces it (review L2).
+                val replaces = if (status == NetworkStatus.ROUTER) " " + GateTexts.REPLACES_ROUTER_CHECK else ""
+                Text(
+                    (if (silentWasAsked) GateTexts.SILENT_ROUTER_TEXT else GateTexts.NOT_ASKED_ROUTER_TEXT) + replaces,
+                    style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -478,7 +490,12 @@ private fun NetworkCard(
                                 if (status == NetworkStatus.RECONFIRM) GateTexts.RECONFIRM else GateTexts.KEY_CHANGED,
                                 style = MaterialTheme.typography.bodySmall, color = StatusColors.warn,
                             )
-                            OutlinedButton(onClick = onConfirm, enabled = !confirming && !scanning) { Text(confirmLabel ?: "Confirm") }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedButton(onClick = onConfirm, enabled = !confirming && !scanning) { Text(confirmLabel ?: "Confirm") }
+                                Spacer(Modifier.width(8.dp))
+                                // Forget without confirming (review L1): nothing is sent; the old line or record goes.
+                                TextButton(onClick = onForget, enabled = !scanning && !confirming) { Text("Forget", color = GlassColors.dim) }
+                            }
                         }
                         NetworkStatus.UNAVAILABLE -> {
                             Text(GateTexts.STORE_UNAVAILABLE, style = MaterialTheme.typography.bodySmall, color = StatusColors.warn)

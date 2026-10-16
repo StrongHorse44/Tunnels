@@ -127,6 +127,17 @@ class PublicSigningKeysTest {
     }
 
     @Test
+    fun aKeyRotatedFromOnePublicKeyToAnotherIsStillTheH1Case() {
+        // The installed copy holds testkey; the APK rotated from testkey to the platform key, so Android accepts it.
+        val r = PreInstallChecks.evaluate(apk(setOf(platform), lineage = setOf(testkey, platform)), installed(setOf(testkey)), device)
+        val first = r.checks.first()
+        assertEquals("Signed with a publicly known key", first.title)
+        assertTrue(first.detail.contains("Android's public platform test key"))
+        assertEquals(listOf(CheckAction.DONT_INSTALL, CheckAction.UNINSTALL_INSTALLED), first.actions)
+        assertTrue(r.checks.any { it.title == "Signed by the same developer (key rotated)" })
+    }
+
+    @Test
     fun anInstalledCopyOnAnotherPublicKeyIsNotTheH1Case() {
         val r = PreInstallChecks.evaluate(apk(setOf(testkey)), installed(setOf(platform)), device)
         assertEquals(listOf(CheckAction.DONT_INSTALL), r.checks.first().actions)

@@ -79,6 +79,12 @@ class NetworkRecordsTest {
     }
 
     @Test
+    fun aDuplicateNetworkLineKeepsTheFirstInSortOrder() {
+        val rows = NetworkRecordCodec.decode("k=$kid\n${t('a')} r ${t('1')} -\n${t('a')} a - -\n")
+        assertEquals(listOf(NetworkRecord(t('a'), RecordMode.ADDRESS)), rows.records.values.toList())
+    }
+
+    @Test
     fun theCodecRefusesAThirtyThirdNetwork() {
         val records = (0 until 33).map { NetworkRecord("%032x".format(it), RecordMode.ADDRESS) }
         assertEquals(32, NetworkRecordCodec.decode(NetworkRecordCodec.encode(kid, records.take(32))).records.size)
@@ -280,6 +286,9 @@ class NetworkRecordsTest {
         } catch (_: ConfirmedNetworksUnavailable) {
         }
         assertEquals("never silently wiped", SaveResult.FAILED, book.confirm(home, RecordMode.ADDRESS, seen))
+        assertTrue(legacy.confirm(home.hash))
+        assertFalse("forget answers false, so the panel resets nothing", book.forget(home))
+        assertTrue("and the v1 line stays", legacy.hashes().contains(home.hash))
         assertEquals("garbage\n", v2.row)
         assertTrue(book.forgetAll())
         assertEquals(SaveResult.SAVED, book.confirm(home, RecordMode.ADDRESS, seen))

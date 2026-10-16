@@ -88,9 +88,18 @@ class RouterIdentityTest {
     @Test
     fun nothingComparableIsSilent() {
         assertSame(Verdict.Silent, judge(seen = SeenTokens()))
-        assertSame(Verdict.Silent, judge(seen = SeenTokens(probed = false)))
-        assertSame("no probe ran", Verdict.Silent, judge(seen = null))
+
         assertEquals("router-silent", Verdict.Silent.reason)
+    }
+
+    @Test
+    fun aRouterThatCouldNotBeAskedIsNotAskedNotSilent() {
+        assertSame("no probe ran", Verdict.NotAsked, judge(seen = null))
+        assertSame("nothing was sent", Verdict.NotAsked, judge(seen = SeenTokens(probed = false)))
+        assertSame(Verdict.NotAsked, judge(seen = SeenTokens(probed = false), purpose = Purpose.CLOSE_IT))
+        assertSame("a lost network still reads as lost", Verdict.Lost, judge(seen = SeenTokens(probed = false, lost = true)))
+        assertEquals("router-not-asked", Verdict.NotAsked.reason)
+        assertFalse(Verdict.NotAsked.allowed)
     }
 
     @Test
@@ -298,6 +307,23 @@ class RouterIdentityTest {
         permit.grant(net)
         now += 60_000
         assertFalse("expired at 60 s", permit.consume(net))
+    }
+
+    @Test
+    fun aCallForAnotherNetworkClearsThePermit() {
+        val permit = AddressOnlyPermit { 1_000L }
+        permit.grant(net)
+        assertFalse(permit.consume(u1))
+        assertFalse("any call clears it", permit.consume(net))
+    }
+
+    @Test
+    fun aClockThatWentBackDoesNotExtendThePermit() {
+        var now = 100_000L
+        val permit = AddressOnlyPermit { now }
+        permit.grant(net)
+        now -= 1
+        assertFalse(permit.consume(net))
     }
 
     /** Computed independently with Python's hmac module under the key bytes 0..31. */

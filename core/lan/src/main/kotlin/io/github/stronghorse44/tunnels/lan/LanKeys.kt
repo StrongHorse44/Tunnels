@@ -91,7 +91,7 @@ object LanKeys {
     const val SCAN_GATE = "scan:gate"
     /**
      * Why the gate refused: "no-wifi", "network-unknown", "not-confirmed", "store-unavailable", "reconfirm", "key-changed",
-     * "router-mismatch", "router-silent", "address-only" ("no-permission" in older builds).
+     * "router-mismatch", "router-silent", "router-not-asked", "address-only" ("no-permission" in older builds).
      */
     const val SCAN_GATE_REASON = "scan:gateReason"
     /**
@@ -163,6 +163,8 @@ object LanKeys {
     const val REASON_ROUTER_MISMATCH = "router-mismatch"
     /** The router did not identify itself in a way that can be compared this time. */
     const val REASON_ROUTER_SILENT = "router-silent"
+    /** The router could not be asked who it is (nothing was sent: no IPv4 router address inside the network). */
+    const val REASON_ROUTER_NOT_ASKED = "router-not-asked"
     /** An address-only network: the user is asked "Is this your own Wi-Fi?" before each scan and Look closer. */
     const val REASON_ADDRESS_ONLY = "address-only"
     /** Close it only: the router's UPnP identity was not confirmed (a match by its admin key only, or address only). */

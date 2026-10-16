@@ -1,7 +1,9 @@
 package io.github.stronghorse44.tunnels.lan
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** The spec's sentences (2.5, 2.6), word for word, and which refusal gets which. */
@@ -34,6 +36,11 @@ class GateTextsTest {
         assertEquals(noUpnp, GateTexts.closeRefusal("router-no-upnp"))
         assertEquals(noUpnp, GateTexts.closeRefusal("address-only"))
         assertEquals("This Wi-Fi is not confirmed as yours, so Tunnels sends nothing.", GateTexts.closeRefusal("not-confirmed"))
+        assertEquals("The phone is not on Wi-Fi, so Tunnels sends nothing.", GateTexts.closeRefusal("no-wifi"))
+        assertEquals(
+            "Tunnels couldn't ask your router who it is, so it sends nothing. Remove it on the router's admin page.",
+            GateTexts.closeRefusal("router-not-asked"),
+        )
         assertEquals("This Wi-Fi is not confirmed as yours, so Tunnels sends nothing.", GateTexts.closeRefusal(null))
     }
 
@@ -45,8 +52,17 @@ class GateTextsTest {
     }
 
     @Test
+    fun aRouterThatWasNotAskedIsNeverSaidToBeSilent() {
+        for (text in listOf(GateTexts.refusal("router-not-asked"), GateTexts.gateReason("router-not-asked"), GateTexts.NOT_ASKED_ROUTER_TEXT)) {
+            assertTrue(text, text.contains("couldn't ask"))
+            assertFalse(text, text.contains("didn't identify") || text.contains("answered neither"))
+        }
+        assertEquals("This replaces the router check Tunnels already has for this network.", GateTexts.REPLACES_ROUTER_CHECK)
+    }
+
+    @Test
     fun everyNewReasonHasItsOwnGateLine() {
-        val reasons = listOf("reconfirm", "router-mismatch", "router-silent", "key-changed", "address-only", "not-confirmed", "store-unavailable", "no-wifi", "network-unknown")
+        val reasons = listOf("reconfirm", "router-mismatch", "router-silent", "router-not-asked", "key-changed", "address-only", "not-confirmed", "store-unavailable", "no-wifi", "network-unknown")
         assertEquals(reasons.size, reasons.map(GateTexts::gateReason).toSet().size)
         assertNotEquals(GateTexts.gateReason("x"), GateTexts.gateReason("address-only"))
     }

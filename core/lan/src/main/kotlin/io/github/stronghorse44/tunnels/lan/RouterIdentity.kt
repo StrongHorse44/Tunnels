@@ -83,6 +83,9 @@ sealed interface Verdict {
     /** Nothing comparable came back (the router stayed silent, or showed only a factor never stored): fail closed. */
     data object Silent : Verdict { override val reason = LanKeys.REASON_ROUTER_SILENT }
 
+    /** The router could not be asked at all (no probe ran, or nothing was sent: no IPv4 gateway inside the network): fail closed. */
+    data object NotAsked : Verdict { override val reason = LanKeys.REASON_ROUTER_NOT_ASKED }
+
     /** An address-only network, and the user answered "Is this your own Wi-Fi?" just now. */
     data object AddressOnly : Verdict { override val reason: String? = null }
 
@@ -105,7 +108,7 @@ object RouterIdentity {
     /**
      * The decision table of spec 2.4. [record] is this network's v2 record (null when there is none), [legacy] whether a
      * v1 line holds this network's SHA-256, [keyIdOk] whether the row was written under the current key, [seen] the
-     * probe's tokens (null when no probe ran; a router-mode record then reads as silent), [askedNow] whether the user
+     * probe's tokens (null when no probe ran; a router-mode record then reads as not asked), [askedNow] whether the user
      * answered "Is this your own Wi-Fi?" within the last minute for this network.
      */
     fun judge(record: NetworkRecord?, legacy: Boolean, keyIdOk: Boolean, seen: SeenTokens?, purpose: Purpose, askedNow: Boolean): Verdict {
@@ -118,8 +121,9 @@ object RouterIdentity {
                 else -> Verdict.Ask
             }
         }
-        if (seen == null) return Verdict.Silent
+        if (seen == null) return Verdict.NotAsked
         if (seen.lost) return Verdict.Lost
+        if (!seen.probed) return Verdict.NotAsked
         val upnpMatch = seen.upnp.any { it in record.upnp }
         val tlsMatch = seen.tls != null && seen.tls == record.tls
         if (upnpMatch || tlsMatch) {

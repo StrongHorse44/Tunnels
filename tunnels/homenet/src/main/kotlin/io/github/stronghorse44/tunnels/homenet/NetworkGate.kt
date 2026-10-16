@@ -115,7 +115,7 @@ sealed interface ConfirmOutcome {
     data object AddressOnly : ConfirmOutcome
 
     /** The router identified itself in no way: nothing saved; the card offers "Confirm by address only". */
-    data object RouterSilent : ConfirmOutcome
+    data class RouterSilent(val asked: Boolean = true) : ConfirmOutcome
 
     /** The Wi-Fi changed (or went away) while Tunnels asked: nothing saved. */
     data object WifiChanged : ConfirmOutcome
@@ -237,7 +237,8 @@ class NetworkGate(
         } catch (_: Throwable) {
             return ConfirmOutcome.Failed
         }
-        if (!seen.any) return ConfirmOutcome.RouterSilent
+        // [ConfirmOutcome.RouterSilent.asked] is false when nothing could be sent (no IPv4 router address inside the network).
+        if (!seen.any) return ConfirmOutcome.RouterSilent(asked = raw.probed)
         return when (records.confirm(fingerprint, RecordMode.ROUTER, seen)) {
             SaveResult.SAVED -> ConfirmOutcome.Confirmed(upnp = seen.upnp.isNotEmpty(), tls = seen.tls != null)
             SaveResult.FULL -> ConfirmOutcome.Full
@@ -342,7 +343,8 @@ class NetworkGate(
     } catch (e: CancellationException) {
         throw e
     } catch (_: Throwable) {
-        SeenRouter(emptyList(), null, probed = false, lost = false)
+        // An unexpected failure inside the probe: something may have been sent, so it reads as a silent router, not "not asked".
+        SeenRouter(emptyList(), null, probed = true, lost = false)
     }
 
     /** The phone is still on the same Wi-Fi with the same fingerprint as [state]. */

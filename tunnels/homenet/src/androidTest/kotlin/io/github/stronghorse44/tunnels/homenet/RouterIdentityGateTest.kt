@@ -105,6 +105,9 @@ class RouterIdentityGateTest {
         fake.seen = router()
         assertEquals(GateDecision.Refused(LanKeys.REASON_ROUTER_SILENT, offline), gate.decide(offline, home, Purpose.SCAN) { true })
 
+        fake.seen = SeenRouter.NOT_PROBED
+        assertEquals(GateDecision.Refused(LanKeys.REASON_ROUTER_NOT_ASKED, offline), gate.decide(offline, home, Purpose.SCAN) { true })
+
         fake.seen = router(listOf(uuidA), keyD)
         assertTrue(gate.decide(offline, home, Purpose.SCAN) { true } is GateDecision.Allowed)
         val refreshed = store.setting(NetworkRecordCodec.KEY)!!
@@ -125,7 +128,12 @@ class RouterIdentityGateTest {
     @Test
     fun aRouterThatGivesNothingSavesNothing() = runBlocking<Unit> {
         val gate = NetworkGate(context, identity = FakeRouter(router()))
-        assertEquals(ConfirmOutcome.RouterSilent, gate.confirmOn(offline, home) { true })
+        assertEquals(ConfirmOutcome.RouterSilent(asked = true), gate.confirmOn(offline, home) { true })
+        assertEquals(
+            "a router that could not be asked says so",
+            ConfirmOutcome.RouterSilent(asked = false),
+            NetworkGate(context, identity = FakeRouter(SeenRouter.NOT_PROBED)).confirmOn(offline, home) { true },
+        )
         assertEquals(NetworkStatus.NOT_CONFIRMED, gate.status(home))
         assertEquals(ConfirmOutcome.WifiChanged, NetworkGate(context, identity = FakeRouter(router(listOf(uuidA)))).confirmOn(offline, home) { false })
         assertEquals(NetworkStatus.NOT_CONFIRMED, gate.status(home))
