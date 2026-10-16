@@ -35,7 +35,23 @@ data class DeviceFacts(
 
 enum class CheckLevel { OK, INFO, WARN, BLOCKER }
 
-data class Check(val level: CheckLevel, val title: String, val detail: String)
+/** What a check offers the user to do about it (rule 7): real actions on the install screen. */
+enum class CheckAction {
+    /** Leave without installing (the screen's Cancel). */
+    DONT_INSTALL,
+
+    /** Uninstall the copy already on the phone (the system's uninstall confirmation). */
+    UNINSTALL_INSTALLED,
+}
+
+/** [actions] are shown with the check; [why] is a longer explanation behind "Why this matters". */
+data class Check(
+    val level: CheckLevel,
+    val title: String,
+    val detail: String,
+    val actions: List<CheckAction> = emptyList(),
+    val why: String? = null,
+)
 
 enum class InstallKind { NEW, UPDATE, REINSTALL, DOWNGRADE }
 
@@ -47,8 +63,49 @@ object PreInstallChecks {
     /** Android 14 refuses apps targeting below this. */
     const val MIN_TARGET_SDK = 23
 
+    const val PUBLIC_KEY_TITLE = "Signed with a publicly known key"
+    const val PUBLIC_LINEAGE_TITLE = "Signing history includes a publicly known key"
+    const val PUBLIC_KEY_WHY = "Android trusts an update when it carries the same signature as the installed app. A key that is " +
+        "published (Android's test keys, or a key a project committed to a public repository, as Tunnels once did for its debug " +
+        "build) proves nothing about who made the file. Install it only if you built it yourself from source you trust."
+
+    /**
+     * The H1 check (placed first): an APK signed with a key anyone can download ([PublicSigningKeys]) could have been
+     * built by anyone. A warning, not a blocker (I-Q1): test-key builds are legitimate for developers and custom-ROM
+     * users, and the system installer would accept the file anyway.
+     */
+    fun publicKeyCheck(apk: ApkFacts, installed: InstalledFacts?): Check? {
+        val signer = apk.signerSha256.sorted().firstNotNullOfOrNull(PublicSigningKeys::match)
+        if (signer != null) {
+            // The H1 case: the installed copy holds the same public key, so anyone can make an update Android accepts for it.
+            val installedSame = installed?.signerSha256.orEmpty().mapNotNull(PublicSigningKeys::match).any { known ->
+                apk.lineageSha256.any { PublicSigningKeys.match(it) == known }
+            }
+            val detail = "This APK is signed with ${signer.name}, a key anyone can download. Anyone could have built this file, " +
+                "including a changed copy of a real app, and Android can't tell." +
+                if (installedSame) {
+                    " The copy already on this phone is signed with the same public key, so anyone can make an update Android " +
+                        "accepts for it. Uninstall it unless you build it yourself."
+                } else {
+                    ""
+                }
+            val actions = if (installedSame) listOf(CheckAction.DONT_INSTALL, CheckAction.UNINSTALL_INSTALLED) else listOf(CheckAction.DONT_INSTALL)
+            return Check(CheckLevel.WARN, PUBLIC_KEY_TITLE, detail, actions, PUBLIC_KEY_WHY)
+        }
+        val old = (apk.lineageSha256 - apk.signerSha256).sorted().firstNotNullOfOrNull(PublicSigningKeys::match) ?: return null
+        return Check(
+            CheckLevel.WARN,
+            PUBLIC_LINEAGE_TITLE,
+            "This app once used ${old.name}, a key anyone can download. An APK signed with that old key may still be accepted as " +
+                "this app's update.",
+            listOf(CheckAction.DONT_INSTALL),
+            PUBLIC_KEY_WHY,
+        )
+    }
+
     fun evaluate(apk: ApkFacts, installed: InstalledFacts?, device: DeviceFacts): PreInstallReport {
         val checks = mutableListOf<Check>()
+        publicKeyCheck(apk, installed)?.let { checks += it }
 
         val kind = when {
             installed == null -> InstallKind.NEW

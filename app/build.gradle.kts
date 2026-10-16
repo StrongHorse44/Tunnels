@@ -130,6 +130,8 @@ dependencies {
 
     // DecoderManifestTest binds the real app's sealed decoder (audit M6); the app ships it through tunnels:convert.
     androidTestImplementation(project(":tunnels:decoder"))
+    // PublicKeyCheckTest evaluates the Installer's checks (core:install) on this debug APK; not in the APK.
+    androidTestImplementation(project(":core:install"))
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.core)

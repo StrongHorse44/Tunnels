@@ -50,6 +50,7 @@ import io.github.stronghorse44.tunnels.common.StatusColors
 import io.github.stronghorse44.tunnels.common.TunnelScaffold
 import io.github.stronghorse44.tunnels.common.formatBytes
 import io.github.stronghorse44.tunnels.install.Check
+import io.github.stronghorse44.tunnels.install.CheckAction
 import io.github.stronghorse44.tunnels.install.CheckLevel
 import io.github.stronghorse44.tunnels.install.InstallKind
 import io.github.stronghorse44.tunnels.model.MetroLine
@@ -212,7 +213,7 @@ private fun ReadyContent(
     }
 
     HorizontalDivider()
-    s.report.checks.forEach { CheckRow(it) }
+    s.report.checks.forEach { CheckRow(it, onDontInstall = onCancel, onUninstall = if (installed != null) onUninstall else null) }
     if (s.report.checks.isEmpty()) CheckRow(Check(CheckLevel.OK, "No problems found", ""))
 
     f.signerSha256.firstOrNull()?.let {
@@ -277,14 +278,20 @@ private fun DoneContent(s: InstallState.Done, onOpen: () -> Unit, onUninstall: (
     }
 }
 
+/**
+ * One check. A check with a longer explanation has "Why this matters"; its actions are real buttons (rule 7): "Don't
+ * install" is the screen's Cancel, "Uninstall installed copy" the system's uninstall confirmation ([onUninstall] is null
+ * when nothing is installed).
+ */
 @Composable
-private fun CheckRow(check: Check) {
+private fun CheckRow(check: Check, onDontInstall: () -> Unit = {}, onUninstall: (() -> Unit)? = null) {
     val color = when (check.level) {
         CheckLevel.OK -> StatusColors.ok
         CheckLevel.INFO -> StatusColors.info
         CheckLevel.WARN -> StatusColors.warn
         CheckLevel.BLOCKER -> StatusColors.blocker
     }
+    var showWhy by remember(check.title) { mutableStateOf(false) }
     Row {
         Dot(color, Modifier.padding(top = 6.dp))
         Spacer(Modifier.width(10.dp))
@@ -292,6 +299,22 @@ private fun CheckRow(check: Check) {
             Text(check.title, style = MaterialTheme.typography.bodyLarge, color = if (check.level == CheckLevel.BLOCKER) color else Color.Unspecified)
             if (check.detail.isNotBlank()) {
                 Text(check.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            check.why?.let { why ->
+                TextButton(onClick = { showWhy = !showWhy }) { Text(if (showWhy) "Hide why" else "Why this matters") }
+                if (showWhy) Text(why, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (check.actions.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (action in check.actions) {
+                        when (action) {
+                            CheckAction.DONT_INSTALL -> OutlinedButton(onClick = onDontInstall) { Text("Don't install") }
+                            CheckAction.UNINSTALL_INSTALLED -> onUninstall?.let { uninstall ->
+                                OutlinedButton(onClick = uninstall) { Text("Uninstall installed copy") }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
