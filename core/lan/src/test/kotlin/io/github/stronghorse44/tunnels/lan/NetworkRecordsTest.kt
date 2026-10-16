@@ -91,6 +91,13 @@ class NetworkRecordsTest {
         assertEquals("a hand-made row is read up to the cap", 32, NetworkRecordCodec.decode(handMade).records.size)
     }
 
+    @Test
+    fun anUnsortedRowDecodesSortedAndTheCapKeepsTheLowestTokens() {
+        val records = (0 until 33).map { NetworkRecord("%032x".format(it), RecordMode.ADDRESS) }
+        val handMade = "k=$kid\n" + records.reversed().joinToString("") { NetworkRecordCodec.encodeLine(it) + "\n" }
+        assertEquals(records.take(32).map { it.net }, NetworkRecordCodec.decode(handMade).records.keys.toList())
+    }
+
     // ---- 5. the book ---------------------------------------------------------------------------------
 
     private class FakeTable(var row: String? = null) : ConfirmedNetworkTable {
@@ -202,6 +209,25 @@ class NetworkRecordsTest {
     }
 
     @Test
+    fun aFullRowKeepsTheOldLine() {
+        repeat(32) { i ->
+            val fp = NetworkFingerprint.of("192.168.$i.1", null, emptyList(), "192.168.$i.0/24")!!
+            assertEquals(SaveResult.SAVED, book.confirm(fp, RecordMode.ADDRESS, seen))
+        }
+        assertTrue(legacy.confirm(home.hash))
+        assertEquals(SaveResult.FULL, book.confirm(home, RecordMode.ROUTER, seen))
+        assertTrue("nothing changed, the v1 line included", book.lookup(home).legacy)
+    }
+
+    @Test
+    fun aV1LineThatCannotBeRemovedSavesNothing() {
+        assertTrue(legacy.confirm(home.hash))
+        v1.unavailable = true
+        assertEquals(SaveResult.FAILED, book.confirm(home, RecordMode.ROUTER, seen))
+        assertNull(v2.row)
+    }
+
+    @Test
     fun aThrowingTableIsUnavailable() {
         v2.unavailable = true
         try {
@@ -213,6 +239,24 @@ class NetworkRecordsTest {
         assertFalse(book.forget(home))
         assertFalse(book.forgetAll())
         assertNull(book.count())
+    }
+
+    @Test
+    fun anUnreadableV1RowIsUnavailableToo() {
+        v1.unavailable = true
+        try {
+            book.lookup(home)
+            fail("looked up")
+        } catch (_: ConfirmedNetworksUnavailable) {
+        }
+    }
+
+    @Test
+    fun anAddressOnlyRecordWithAFactorIsNeverWritten() {
+        val bad = NetworkRecord(t('a'), RecordMode.ADDRESS, listOf(t('1')), null)
+        assertFalse(bad.valid)
+        assertFalse(NetworkRecord(t('a'), RecordMode.ADDRESS, emptyList(), t('1')).valid)
+        assertEquals("", NetworkRecordCodec.encode(kid, listOf(bad)))
     }
 
     @Test
@@ -277,8 +321,11 @@ class NetworkRecordsTest {
         assertEquals(writes + 1, v2.writes)
         assertEquals(newKey.tls, book.lookup(home).record!!.tls)
         assertEquals(record.upnp, book.lookup(home).record!!.upnp)
-        assertTrue("a stale record writes nothing over a newer one", book.refresh(record, seen))
+        // A refresh made against the record as it was before that write changes nothing (the newer record wins).
+        val otherId = book.tokens.seen(listOf("00112233-4455-6677-8899-aabbccddeeff"), null, probed = true, lost = false)
+        assertTrue(book.refresh(record, otherId))
         assertEquals(newKey.tls, book.lookup(home).record!!.tls)
+        assertEquals(record.upnp, book.lookup(home).record!!.upnp)
     }
 
     @Test

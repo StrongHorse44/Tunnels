@@ -205,7 +205,7 @@ class ExportImportRoundTripTest {
         export(a, out)
         val data = io.github.stronghorse44.tunnels.export.TunnelsBundle.read(out.inputStream().buffered(), passphrase.toCharArray())
         assertTrue(data.networks.isEmpty())
-        val encoded = io.github.stronghorse44.tunnels.export.TunnelsBundle.encode(StoreBundles.gather(a), "test")
+        val encoded = io.github.stronghorse44.tunnels.export.TunnelsBundle.encode(runBlocking { StoreBundles.gather(a) }, "test")
         fun text(name: String) = encoded.first { it.name == name }.let { String(it.bytes, 0, it.length, Charsets.UTF_8) }
         val manifest = text(io.github.stronghorse44.tunnels.export.TunnelsBundle.MANIFEST)
         assertTrue(manifest, manifest.contains("\"networks\":0}"))

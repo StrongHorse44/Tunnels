@@ -80,6 +80,12 @@ class RouterIdentityTest {
     }
 
     @Test
+    fun aUpnpIdThatDiffersWithNoAdminKeyOnEitherSideIsAMismatch() {
+        val upnpOnly = NetworkRecord(net, RecordMode.ROUTER, listOf(u1), null)
+        assertSame(Verdict.Mismatch, judge(record = upnpOnly, seen = SeenTokens(listOf(u2), null)))
+    }
+
+    @Test
     fun nothingComparableIsSilent() {
         assertSame(Verdict.Silent, judge(seen = SeenTokens()))
         assertSame(Verdict.Silent, judge(seen = SeenTokens(probed = false)))
@@ -184,6 +190,7 @@ class RouterIdentityTest {
             "192.168.1.20" to reply("uuid:$id2::upnp:rootdevice"),
             gw to reply("uuid:$id2::urn:schemas-upnp-org:device:WANDevice:1", st = "urn:schemas-upnp-org:device:WANDevice:1"),
             gw to reply("uuid:$id2", st = "uuid:$id2"),
+            gw to reply("uuid:$id2::upnp:rootdevice", st = "urn:schemas-upnp-org:device:InternetGatewayDevice:1"),
         )
         assertEquals(listOf(id1), RouterIdentity.uuidsFrom(gw, replies))
     }

@@ -86,7 +86,7 @@ class RouterIdentityGateTest {
     // ---- 2 ---------------------------------------------------------------------------------------------
 
     @Test
-    fun aConfirmedRouterIsRecognisedAndAnotherIsRefused() = runBlocking {
+    fun aConfirmedRouterIsRecognisedAndAnotherIsRefused() = runBlocking<Unit> {
         val fake = FakeRouter(router(listOf(uuidA), keyB))
         val gate = NetworkGate(context, identity = fake)
         assertEquals(ConfirmOutcome.Confirmed(upnp = true, tls = true), gate.confirmOn(offline, home) { true })
@@ -123,7 +123,7 @@ class RouterIdentityGateTest {
     }
 
     @Test
-    fun aRouterThatGivesNothingSavesNothing() = runBlocking {
+    fun aRouterThatGivesNothingSavesNothing() = runBlocking<Unit> {
         val gate = NetworkGate(context, identity = FakeRouter(router()))
         assertEquals(ConfirmOutcome.RouterSilent, gate.confirmOn(offline, home) { true })
         assertEquals(NetworkStatus.NOT_CONFIRMED, gate.status(home))
@@ -134,7 +134,7 @@ class RouterIdentityGateTest {
     // ---- 3 ---------------------------------------------------------------------------------------------
 
     @Test
-    fun addressOnlyAsksBeforeEveryScanAndNeverClosesAnything() = runBlocking {
+    fun addressOnlyAsksBeforeEveryScanAndNeverClosesAnything() = runBlocking<Unit> {
         val fake = FakeRouter(router(listOf(uuidA), keyB))
         val gate = NetworkGate(context, identity = fake)
         assertEquals(ConfirmOutcome.AddressOnly, gate.saveAddressOnly(home))
@@ -154,7 +154,7 @@ class RouterIdentityGateTest {
     // ---- 4 ---------------------------------------------------------------------------------------------
 
     @Test
-    fun anOldConfirmationAsksOnceMoreAndScansNothingUntilThen() = runBlocking {
+    fun anOldConfirmationAsksOnceMoreAndScansNothingUntilThen() = runBlocking<Unit> {
         val fake = FakeRouter(router(listOf(uuidA)))
         val gate = NetworkGate(context, identity = fake)
         store.putSetting(ConfirmedNetworkCodec.KEY, ConfirmedNetworkCodec.encode(setOf(home.hash)))
@@ -172,7 +172,7 @@ class RouterIdentityGateTest {
     // ---- 5 ---------------------------------------------------------------------------------------------
 
     @Test
-    fun aRowUnderAnotherKeyIsKeyChanged() = runBlocking {
+    fun aRowUnderAnotherKeyIsKeyChanged() = runBlocking<Unit> {
         val gate = NetworkGate(context, identity = FakeRouter(router(listOf(uuidA))))
         store.putSetting(NetworkRecordCodec.KEY, "k=deadbeef\n${tokens.net(home)} a - -\n")
         assertEquals(NetworkStatus.KEY_CHANGED, gate.status(home))
@@ -183,7 +183,7 @@ class RouterIdentityGateTest {
     }
 
     @Test
-    fun aMalformedRowFailsClosedUntilForgetAll() = runBlocking {
+    fun aMalformedRowFailsClosedUntilForgetAll() = runBlocking<Unit> {
         val gate = NetworkGate(context, identity = FakeRouter(router(listOf(uuidA))))
         store.putSetting(NetworkRecordCodec.KEY, "not a row")
         assertEquals(NetworkStatus.UNAVAILABLE, gate.status(home))
@@ -197,7 +197,7 @@ class RouterIdentityGateTest {
     // ---- 6 (on the emulator's own Wi-Fi) ----------------------------------------------------------------
 
     @Test
-    fun aMismatchingRouterStopsTheScanAndCloseIt() = runBlocking {
+    fun aMismatchingRouterStopsTheScanAndCloseIt() = runBlocking<Unit> {
         val fake = FakeRouter(router(listOf(uuidA)))
         val gate = NetworkGate(context, identity = fake)
         val state = gate.current()
@@ -219,7 +219,7 @@ class RouterIdentityGateTest {
     }
 
     @Test
-    fun anOldConfirmationOfThisWifiScansNothing() = runBlocking {
+    fun anOldConfirmationOfThisWifiScansNothing() = runBlocking<Unit> {
         val fake = FakeRouter(router(listOf(uuidA)))
         val gate = NetworkGate(context, identity = fake)
         val state = gate.current()
@@ -235,7 +235,7 @@ class RouterIdentityGateTest {
     // ---- 7 ---------------------------------------------------------------------------------------------
 
     @Test
-    fun theRealProbeAnswersWithinItsBudgetAndNeverThrows() = runBlocking {
+    fun theRealProbeAnswersWithinItsBudgetAndNeverThrows() = runBlocking<Unit> {
         val state = NetworkGate(context).current()
         val started = System.nanoTime()
         val seen = RouterIdentityProbe(context).probe(state)
