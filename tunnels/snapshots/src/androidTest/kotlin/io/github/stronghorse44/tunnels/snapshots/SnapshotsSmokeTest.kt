@@ -39,10 +39,9 @@ class SnapshotsSmokeTest {
         val stored = dao.snapshots()
         assertTrue("snapshot ${result.snapshotId} is in the store", stored.any { it.id == result.snapshotId })
 
-        // The confirmed networks are a row of the real store: gathering reads them and the re-imports below merge the very
-        // same hashes back (a union, so the real list is unchanged). The old plaintext file's name is a throwaway one.
-        val networks = ConfirmedNetworks(context, dao, "snapshots_smoke_test_legacy")
-        val data = StoreBundles.gather(dao, networks.all())
+        // Confirmed networks are never exported (audit L8): the bundle's set is empty.
+        val data = StoreBundles.gather(dao)
+        assertTrue(data.networks.isEmpty())
         assertTrue(data.snapshots.snapshots.any { it.localId == result.snapshotId })
         assertEquals(stored.size, data.snapshots.snapshots.size)
         assertTrue(data.snapshots.observations.all { o -> data.snapshots.snapshots.any { it.localId == o.snapshotLocalId } })
@@ -61,7 +60,7 @@ class SnapshotsSmokeTest {
 
         // The same moments are already in the store: nothing is imported twice.
         val before = dao.snapshots().size
-        val again = StoreBundles.commit(dao, networks, reopened)
+        val again = StoreBundles.commit(dao, reopened)
         assertEquals(0, again.snapshots)
         assertEquals(reopened.snapshots.snapshots.size, again.skippedSnapshots)
         assertEquals(before, dao.snapshots().size)
@@ -71,7 +70,7 @@ class SnapshotsSmokeTest {
         val day = 24L * 60 * 60 * 1000
         val shift = day + System.currentTimeMillis() % day
         val older = reopened.copy(snapshots = reopened.snapshots.copy(snapshots = reopened.snapshots.snapshots.map { it.copy(takenAt = it.takenAt - shift) }))
-        val imported = StoreBundles.commit(dao, networks, older)
+        val imported = StoreBundles.commit(dao, older)
         assertEquals(older.snapshots.snapshots.size, imported.snapshots)
         assertEquals(older.snapshots.observations.size, imported.observations)
         assertEquals(0, imported.skippedSnapshots)

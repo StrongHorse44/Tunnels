@@ -369,7 +369,7 @@ class SnapshotsViewModel(private val app: Application, private val saved: SavedS
             password.fill('\u0000')
             outcome.onSuccess { r ->
                 saved.remove<String>(KEY_IMPORT_URI)
-                _state.update { it.copy(busy = null, importPending = false, importInfo = null, message = TransferMessages.imported(r)) }
+                _state.update { it.copy(busy = null, importPending = false, importInfo = null, message = r.message) }
                 refresh.update { it + 1 }
             }.onFailure { e ->
                 if (TransferMessages.isWrongPassphrase(e)) {

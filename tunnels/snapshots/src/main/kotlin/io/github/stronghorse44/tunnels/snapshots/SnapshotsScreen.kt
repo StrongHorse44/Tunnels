@@ -204,8 +204,9 @@ private fun importBody(info: ImportInfo?): String = buildString {
             append("A Tunnels export, made $local ($utc), schema ${info.schema}. This is what the file says about itself: not yet verified. ")
         }
     }
-    append("Import adds to this phone and removes nothing: snapshots not already here (each keeps its pin; unpinned ones are subject to retention, the newest 12), paired phones and confirmed networks ")
-    append("(merged with yours), and settings (they replace this phone's). Enter the passphrase it was protected with.")
+    append("Import adds to this phone and removes nothing: snapshots not already here (each keeps its pin; unpinned ones are subject to retention, the newest 12), paired phones ")
+    append("(merged with yours), and settings (they replace this phone's). Confirmed Wi-Fi networks aren't carried between phones any more: confirm yours in Home network. ")
+    append("Enter the passphrase it was protected with.")
 }
 
 @Composable
@@ -370,9 +371,9 @@ private fun TransferPanel(state: SnapshotsState, tint: Color, onExport: () -> Un
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Export and import", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Export writes every snapshot, the settings you chose (Traffic blocking and resolver, background checks), the second phones you paired " +
-                    "and the Wi-Fi networks you confirmed to one passphrase-encrypted .fwx file in a place you choose. Findings, this phone's app lock " +
-                    "and its identity aren't included. Nothing leaves the device unless you move that file yourself. " +
+                "Export writes every snapshot, the settings you chose (Traffic blocking and resolver, background checks) and the second phones you " +
+                    "paired to one passphrase-encrypted .fwx file in a place you choose. Findings, this phone's app lock, its identity and the Wi-Fi " +
+                    "networks you confirmed (they only work on this phone) aren't included. Nothing leaves the device unless you move that file yourself. " +
                     "Import adds the contents of such a file (or of an older .tsnap export) to this phone; snapshots keep the pin they had, so unpinned ones are subject to the usual retention. " +
                     "The date, the app name and the file size are readable without the passphrase; everything else is not.",
                 style = MaterialTheme.typography.bodySmall, color = GlassColors.dim,
