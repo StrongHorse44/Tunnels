@@ -202,7 +202,7 @@ class RouterIdentityGateTest {
         val gate = NetworkGate(context, identity = fake)
         val state = gate.current()
         val fp = state.fingerprint
-        assertTrue("TEMP the emulator has no Wi-Fi with a fingerprint and a prefix: onWifi=${state.onWifi} fp=${fp != null} prefixes=${state.prefixes.size}", state.onWifi && fp != null && state.prefixes.isNotEmpty())
+        assumeTrue("the emulator has no Wi-Fi with a fingerprint and a prefix", state.onWifi && fp != null && state.prefixes.isNotEmpty())
         assertTrue(gate.confirmWithRouter(fp!!) is ConfirmOutcome.Confirmed)
         fake.seen = router(listOf(uuidC))
         val tunnel = HomeNetworkTunnel(context, gate)
@@ -224,7 +224,7 @@ class RouterIdentityGateTest {
         val gate = NetworkGate(context, identity = fake)
         val state = gate.current()
         val fp = state.fingerprint
-        assertTrue("TEMP the emulator has no Wi-Fi with a fingerprint and a prefix: onWifi=${state.onWifi} fp=${fp != null} prefixes=${state.prefixes.size}", state.onWifi && fp != null && state.prefixes.isNotEmpty())
+        assumeTrue("the emulator has no Wi-Fi with a fingerprint and a prefix", state.onWifi && fp != null && state.prefixes.isNotEmpty())
         store.putSetting(ConfirmedNetworkCodec.KEY, ConfirmedNetworkCodec.encode(setOf(fp!!.hash)))
         val obs = HomeNetworkTunnel(context, gate).scan(ScanProgress.NONE)
         assertEquals(LanKeys.REASON_RECONFIRM, LanKeys.value(obs, LanKeys.SCAN_GATE_REASON))
@@ -243,7 +243,6 @@ class RouterIdentityGateTest {
         // Counts only: never a UUID or a key.
         Log.i("RouterIdentityGateTest", "probe: onWifi=${state.onWifi} probed=${seen.probed} lost=${seen.lost} upnp=${seen.uuids.size} tls=${seen.spkiSha256 != null} in $ms ms")
         assertTrue("within 3.5 s ($ms ms)", ms < 3_500)
-        org.junit.Assert.fail("TEMP probe: onWifi=${state.onWifi} probed=${seen.probed} lost=${seen.lost} upnp=${seen.uuids.size} tls=${seen.spkiSha256 != null} in $ms ms")
         assertTrue(seen.uuids.size <= 4)
         seen.spkiSha256?.let { assertTrue(Regex("[0-9a-f]{64}").matches(it)) }
     }
