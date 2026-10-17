@@ -56,6 +56,10 @@ CLAUDE.md's release rules stay in force; this file says how an agent works insid
 - CLAUDE.md asks for `[emulator]` in the final commit's message. With the bump last, that is the bump commit:
   `Release X.Y.Z: <summary> [emulator]`. Without it a pull request's emulator jobs (`ci.yml`'s smoke test and the
   Phase workflows') are skipped, and the pull request is green without having run an emulator.
+- **Merge checklist, for an app-changing PR:** before it is marked ready or merged, the head SHA's emulator jobs
+  (`ci.yml`'s `App smoke test (emulator)` and the relevant Phase workflow's `Instrumented tests (emulator)`) must have
+  concluded `success`, not `skipped`. A skipped emulator on the final head means the final commit was not tagged, and
+  the PR is not ready: add the tag to a new final commit and let the jobs run.
 
 ## RJ's working preferences
 

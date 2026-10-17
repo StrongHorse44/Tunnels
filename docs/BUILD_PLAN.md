@@ -91,8 +91,9 @@ tests; Maven Central rate-limits (HTTP 429) are transient, retry.
   (tag your final commit so the emulator tests run once; a small `emulator-wanted` job reads the message through the
   API, because a pull request event does not carry it).
   The repo is private, so Actions minutes are metered against the owner's plan allowance and each emulator run is slow: do not tag every
-  push. The phase workflows are path-filtered, so the `[emulator]` commit must change a file under your module (an empty commit
-  does not trigger a run; `ci.yml` has no path filter for code, so there an empty `[emulator]` commit does).
+  push. The tag goes in the final commit's message: a pull request run compares the whole pull request with its base,
+  so the final commit need not touch anything itself. The match is a plain substring of the head commit's whole message,
+  so `[emulator]` anywhere in it counts (including text that merely mentions the tag).
 - `ci.yml`: integration, `main`, PRs, and manual runs (`workflow_dispatch`) on any branch. Full build,
   all unit tests, permission checks, the `VERSION` format check, the release gate (`gate/`) for the debug and
   release builds, and the app emulator smoke test (always on pushes and manual runs; on a pull request only when
