@@ -89,7 +89,7 @@ tests; Maven Central rate-limits (HTTP 429) are transient, retry.
 - `ci-phase-<n>.yml`: that phase's branches, integration and main, path-filtered to its modules; unit
   tests always, emulator (`connectedDebugAndroidTest`) on integration/main and on a phase branch only
   when the commit message contains `[emulator]` (tag your final commit so the smoke test runs once).
-  The repo is public, so Actions minutes are not metered, but each emulator run is slow: do not tag every
+  The repo is private, so Actions minutes are metered against the owner's plan allowance and each emulator run is slow: do not tag every
   push. The phase workflows are path-filtered, so the `[emulator]` commit must change a file under your module (an empty commit
   does not trigger a run).
 - `ci.yml`: integration, `main`, PRs, and manual runs (`workflow_dispatch`) on any branch. Full build,
@@ -127,8 +127,8 @@ Device checks to make on the GrapheneOS test phone (the Device checks screen wal
 
 ## Follow-ups (deferred, not blockers)
 
-- Updates: the repository is public, so the token is optional (the API answers without one, at 60 requests an
-  hour per address; a token raises that limit). Both channels carry `<apk>.sha256` for the updater.
+- Updates: the repository is private, so the token is required (fine-grained, Contents read-only, this repository only; the API answers
+  404 without one). Both channels carry `<apk>.sha256` for the updater.
 - Surroundings places: verify on device how quickly a fix arrives indoors on GrapheneOS (fused provider,
   network location off by default) and how often scans end with "no fix"; those scans fall back to time.
 - Restricted settings: verify the Timeline and Notifications gates on GrapheneOS after "Allow restricted

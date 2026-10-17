@@ -47,7 +47,7 @@ jobs:
         with:
           name: verification-metadata-compile
           path: gradle/verification-metadata.xml
-          retention-days: 14
+          retention-days: 2
 
       - name: Print the written metadata as annotations, part 1 (for sessions that cannot download artifacts)
         if: always() && steps.verify.outputs.written == 'true'

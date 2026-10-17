@@ -88,13 +88,13 @@ jobs:
           path: |
             tunnels/*/build/reports/tests/
             core/*/build/reports/tests/
-          retention-days: 7
+          retention-days: 2
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always() && steps.verify.outputs.written == 'true'
         with:
           name: verification-metadata-phase-1-unit
           path: gradle/verification-metadata.xml
-          retention-days: 14
+          retention-days: 2
 
       - name: Print the written metadata as annotations, part 1 (for sessions that cannot download artifacts)
         if: always() && steps.verify.outputs.written == 'true'
@@ -165,13 +165,13 @@ jobs:
         with:
           name: phase-1-instrumented-reports
           path: tunnels/*/build/reports/androidTests/
-          retention-days: 7
+          retention-days: 2
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always() && steps.verify.outputs.written == 'true'
         with:
           name: verification-metadata-phase-1-emulator
           path: gradle/verification-metadata.xml
-          retention-days: 14
+          retention-days: 2
 
       - name: Print the written metadata as annotations, part 1 (for sessions that cannot download artifacts)
         if: always() && steps.verify.outputs.written == 'true'
