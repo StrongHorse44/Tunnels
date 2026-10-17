@@ -22,7 +22,7 @@
 #   build          no environment. unsigned APK, tests, gate, rehearsal            -> unsigned-apk
 #   sign           environment: signing (the owner's approval). ref check, decode key, align, sign, verify -> signed-apk (3 days)
 #   release-check  certificate pin (gate.py cert --require-pin), version, order    -> checked sha256
-#   publish        environment: publish (the owner's approval). attest, tag, release
+#   publish        environment: publish (the owner's approval). attest (public repositories only), tag, release
 #
 # The owner's approval at `sign` and who can push to the integration branch and main are the control on the key:
 # a VERSION merge or a publish=true dispatch from either one signs once the owner approves `sign` (two approvals
@@ -423,8 +423,9 @@ jobs:
           echo "::endgroup::"
           gate/annotate-file.sh build/gate/baseline.generated.json baseline-release-generated 0
 
-      # The sign job signs exactly this file. 3 days, like every release artifact: the repository is private and artifact
-      # storage on a personal plan is small (two APKs of ~56 MB per run); only the signed APK has to outlive the approval wait.
+      # The sign job signs exactly this file, and downloads it only after the owner approves `signing`; the signed APK
+      # then waits for the `publish` approval. Both APKs must outlive their waits, so 3 days, like every release
+      # artifact (the repository is private and artifact storage on a personal plan is small: about 23 MB per APK).
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: unsigned-apk

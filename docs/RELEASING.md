@@ -141,10 +141,12 @@ job checks the format on every pull request, so a malformed file is a red pull r
    starts dry runs.)
 3. **Merge it.** The Release run starts by itself within a few minutes: `plan`, then the build. If the build or the
    gate fails, the run stops before you are asked to approve anything.
-4. **Approve signing.** The run shows **Waiting for review** on the `signing` environment. In the GitHub app: the
+4. **Approve signing, within three days of the build.** The run shows **Waiting for review** on the `signing` environment. In the GitHub app: the
    notification, or the repository → Actions → the run → **Review deployments → signing → Approve**. The `sign`
    job then signs, and the release check runs (a failure there stops the run before `publish`). Rejecting it signs
-   nothing and publishes nothing.
+   nothing and publishes nothing. The unsigned APK the `sign` job needs expires 3 days after the build; approve
+   `signing` within three days of the build (and `publish` within three days of signing). After that, use
+   **Re-run all jobs**.
 5. **Approve publishing, within three days.** The run then shows **Waiting for review** on the `publish` environment:
    **Review deployments → publish → Approve**. The signed APK the run holds expires after 3 days; if it did,
    publish fails and nothing is published: use **Re-run all jobs**, which asks for both approvals again and signs
