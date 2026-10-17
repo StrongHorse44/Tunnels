@@ -54,7 +54,8 @@ CLAUDE.md's release rules stay in force; this file says how an agent works insid
     `gate/baseline.release.json`, and list them under `## GATE CHANGES`. RJ merges a gate change.
   - When it is not intended, remove the cause.
 - CLAUDE.md asks for `[emulator]` in the final commit's message. With the bump last, that is the bump commit:
-  `Release X.Y.Z: <summary> [emulator]`.
+  `Release X.Y.Z: <summary> [emulator]`. Without it a pull request's emulator jobs (`ci.yml`'s smoke test and the
+  Phase workflows') are skipped, and the pull request is green without having run an emulator.
 
 ## RJ's working preferences
 

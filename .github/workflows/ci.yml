@@ -1,7 +1,8 @@
 # Full build of the integration branch and main: everything compiles, every unit test passes (buildSrc's included),
 # permissions are allowed, every module's code names only the network and shell APIs buildSrc/egress.allow grants
 # it, the release gate (gate/baseline.json) matches the APK, the VERSION file is well formed, and the app launches on
-# an emulator. It runs on pull requests, pushes and manual runs, and
+# an emulator (on a pull request only when its head commit's message contains [emulator]). It runs on pull requests,
+# pushes and manual runs, and
 # PUBLISHES NOTHING: no job here holds a writing token. Releases are release.yml's (docs/RELEASING.md); there is
 # no longer a "Debug build #N" channel.
 #
@@ -287,9 +288,40 @@ jobs:
           echo "::error::Dependencies were not verified: commit the gradle/verification-metadata.xml the jobs wrote (the union of every job's verification-metadata-* artifact; see gate/README.md)."
           exit 1
 
-  # Launches the debug build on an emulator. It has no part in releasing: release.yml never waits for it.
+  # The emulator job runs on a pull request only when its head commit's message contains [emulator] (the last commit
+  # of a change carries it). A pull request event has no commit message in its payload, so the API supplies it. A
+  # skipped job is not billed; this one takes about a minute.
+  emulator-wanted:
+    name: Emulator wanted
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.msg.outputs.run }}
+    steps:
+      - name: Does the head commit ask for the emulator
+        id: msg
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          msg=$(gh api "repos/$GH_REPO/commits/$HEAD_SHA" --jq .commit.message)
+          if [[ "$msg" == *"[emulator]"* ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::The emulator job is skipped: the head commit's message does not contain [emulator]."
+          fi
+
+  # Launches the debug build on an emulator. It has no part in releasing: release.yml never waits for it. On pushes and
+  # manual runs it always runs; on a pull request only when the head commit's message contains [emulator].
   smoke:
     name: App smoke test (emulator)
+    needs: emulator-wanted
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.emulator-wanted.outputs.run == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     concurrency:

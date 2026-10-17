@@ -122,9 +122,13 @@ Google's Maven is not reachable from the cloud dev container: Android modules on
   in a plain-Kotlin module under `core/` with unit tests, and run them locally with the
   scratch project described in BUILD_PLAN. Android modules stay thin adapters.
 - Work on your assigned branch (`phase/<n>-<name>`); push; read the `compile-check` run for
-  that branch via the GitHub tools; fix; repeat until green. Never push to another branch.
-  Put `[emulator]` in the message of your final commit so the phase emulator job runs once
-  for your branch (the repo is private, so Actions minutes are metered against the owner's plan allowance and emulator runs are slow; do not tag every push).
+  that branch via the GitHub tools; open a draft pull request and read the `Phase <n>` and `CI` runs on it; fix;
+  repeat until green. Never push to another branch.
+  Put `[emulator]` in the message of your final commit so the emulator jobs run once for the pull request (the
+  Phase workflows run on pull requests only, and an emulator job runs only when the head commit's message contains
+  `[emulator]`; pushes to the integration branch and manual runs always run `ci.yml`'s smoke test). The repo is
+  private, so Actions minutes are metered against the owner's plan allowance and emulator runs are slow: do not tag
+  every push.
 - Touch only the modules you own plus their `permissions.allow`. Shared files
   (`settings.gradle.kts`, `app/`, `core/common`, `core/runtime`, `core/model`, the catalog,
   CI, the workflows and `gate/`) are owned by the lead; ask instead of editing them. A build the
