@@ -1,16 +1,8 @@
 name: Phase 3
 
-# Tests only the modules that belong to phase 3. Runs on this phase's branches, integration and main when they change.
+# Tests only the modules that belong to phase 3. Runs on pull requests (and by hand) when they change this phase's
+# modules; the emulator job only when the head commit's message contains [emulator].
 on:
-  push:
-    branches:
-      - 'phase/3-**'
-      - 'ccr-dff99af5-ij1rle'
-      - 'main'
-    paths:
-      - 'tunnels/traffic/**'
-      - 'core/dns/**'
-      - '.github/workflows/ci-phase-3.yml'
   pull_request:
     paths:
       - 'tunnels/traffic/**'
@@ -82,11 +74,40 @@ jobs:
           echo "::error::Dependencies were not verified: commit the gradle/verification-metadata.xml the jobs wrote (the union of every job's verification-metadata-* artifact; see gate/README.md)."
           exit 1
 
+  # The emulator jobs run on a pull request only when its head commit's message contains [emulator] (the last commit
+  # of a change carries it). A pull request event has no commit message in its payload, so the API supplies it. A
+  # skipped job is not billed; this one takes about a minute.
+  emulator-wanted:
+    name: Emulator wanted
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.msg.outputs.run }}
+    steps:
+      - name: Does the head commit ask for the emulator
+        id: msg
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          msg=$(gh api "repos/$GH_REPO/commits/$HEAD_SHA" --jq .commit.message)
+          if [[ "$msg" == *"[emulator]"* ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::The emulator job is skipped: the head commit's message does not contain [emulator]."
+          fi
+
   emulator:
     name: Instrumented tests (emulator)
-    # Emulator minutes are the expensive part: always on integration and main, and on a phase branch
-    # only when the commit message carries [emulator] (builders tag their final commit).
-    if: github.ref_name == 'ccr-dff99af5-ij1rle' || github.ref_name == 'main' || github.event_name != 'push' || contains(github.event.head_commit.message, '[emulator]')
+    # Emulator minutes are the expensive part: on a pull request only when its head commit's message carries
+    # [emulator] (builders tag their final commit); a manual run always runs it.
+    needs: emulator-wanted
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.emulator-wanted.outputs.run == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
