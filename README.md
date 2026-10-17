@@ -61,7 +61,7 @@ And **in-app updates** (home screen → update ›): when you tap Check, Tunnels
 releases for a newer build (release builds follow the vX.Y.Z tags; an old debug install follows the retired
 "Debug build #N" tags and sees nothing new), downloads it, checks that it is the same app, newer, signed
 with the same key and matching the published SHA-256, and hands it to Android's installer. The repository is
-public, so no token is needed; an optional read-only token (a higher GitHub request limit) is kept in the
+private, so a read-only token (fine-grained, Contents read-only, this repository only) is required; it is kept in the
 encrypted store.
 
 ## Principles

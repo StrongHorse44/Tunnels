@@ -76,8 +76,8 @@ everything, so uninstall wipes all data and nothing goes to cloud backup.
 - `core:updates` + `tunnels:updater` in-app updates from GitHub releases (user-started; INTERNET allowed). One
   published channel, `vX.Y.Z` (`io.github.stronghorse44.tunnels`); the debug package
   (`io.github.stronghorse44.tunnels.debug`) is still built and gated by CI but no longer published (an old debug
-  install follows the old "Debug build #N" tags and sees nothing new); the repo is public, so the update token
-  is optional
+  install follows the old "Debug build #N" tags and sees nothing new); the repo is private, so the update token
+  is required (fine-grained, Contents read-only, Tunnels only)
 - `core:breaches` + `tunnels:breaches` the breach list for Linx (user-started fetch of the public Have I Been Pwned
   list, INTERNET allowed; held in memory only and handed to Linx through a not-exported content provider; rule 1,
   `docs/BREACHES.md`)
@@ -124,7 +124,7 @@ Google's Maven is not reachable from the cloud dev container: Android modules on
 - Work on your assigned branch (`phase/<n>-<name>`); push; read the `compile-check` run for
   that branch via the GitHub tools; fix; repeat until green. Never push to another branch.
   Put `[emulator]` in the message of your final commit so the phase emulator job runs once
-  for your branch (the repo is public and unmetered, but emulator runs are slow; do not tag every push).
+  for your branch (the repo is private, so Actions minutes are metered against the owner's plan allowance and emulator runs are slow; do not tag every push).
 - Touch only the modules you own plus their `permissions.allow`. Shared files
   (`settings.gradle.kts`, `app/`, `core/common`, `core/runtime`, `core/model`, the catalog,
   CI, the workflows and `gate/`) are owned by the lead; ask instead of editing them. A build the

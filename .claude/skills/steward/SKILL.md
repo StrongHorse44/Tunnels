@@ -34,7 +34,7 @@ CLAUDE.md's release rules stay in force; this file says how an agent works insid
    - When it reaches `sign`, tell RJ in one line: "vX.Y.Z is ready to sign: Actions → the Release run → Review
      deployments → signing → Approve."
    - When it reaches `publish`, tell RJ in one line: "vX.Y.Z is signed and ready: Actions → the Release run → Review
-     deployments → publish → Approve, today (the signed APK expires after a day)."
+     deployments → publish → Approve, within three days (the signed APK expires after three days)."
    - If a job fails, read its log, say what broke, and propose the fix as a new PR (which bumps again).
    - Once published, give RJ the release link.
 5. **Never, under this habit or any other:**

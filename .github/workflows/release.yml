@@ -20,14 +20,14 @@
 #
 #   plan           no checkout, no repository code. reads VERSION, decides what this run does   -> tag, code, build, release
 #   build          no environment. unsigned APK, tests, gate, rehearsal            -> unsigned-apk
-#   sign           environment: signing (the owner's approval). ref check, decode key, align, sign, verify -> signed-apk (1 day)
+#   sign           environment: signing (the owner's approval). ref check, decode key, align, sign, verify -> signed-apk (3 days)
 #   release-check  certificate pin (gate.py cert --require-pin), version, order    -> checked sha256
 #   publish        environment: publish (the owner's approval). attest, tag, release
 #
 # The owner's approval at `sign` and who can push to the integration branch and main are the control on the key:
 # a VERSION merge or a publish=true dispatch from either one signs once the owner approves `sign` (two approvals
 # per release since 2026-10-15: `sign`, then `publish`). The
-# signed APK exists as a run artifact (downloadable by signed-in users, 1 day) before the `publish` approval, and only on
+# signed APK exists as a run artifact (downloadable by users with read access, 3 days) before the `publish` approval, and only on
 # runs that will ask for it: `plan` stops a run whose version is already released, malformed, out of order or
 # otherwise refused before anything is built or signed.
 #
@@ -423,13 +423,14 @@ jobs:
           echo "::endgroup::"
           gate/annotate-file.sh build/gate/baseline.generated.json baseline-release-generated 0
 
-      # The sign job signs exactly this file. 30 days; only the signed APK (1 day) has to outlive the approval wait.
+      # The sign job signs exactly this file. 3 days, like every release artifact: the repository is private and artifact
+      # storage on a personal plan is small (two APKs of ~56 MB per run); only the signed APK has to outlive the approval wait.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: unsigned-apk
           path: app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 3
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
@@ -438,14 +439,14 @@ jobs:
           path: |
             app/build/reports/
             build/gate/
-          retention-days: 14
+          retention-days: 3
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always() && steps.verify.outputs.written == 'true'
         with:
           name: verification-metadata-release
           path: gradle/verification-metadata.xml
-          retention-days: 14
+          retention-days: 3
 
       - name: Print the written metadata as annotations, part 1 (for sessions that cannot download artifacts)
         if: always() && steps.verify.outputs.written == 'true'
@@ -599,9 +600,10 @@ jobs:
           name: signed-apk
           path: signed/app-release.apk
           if-no-files-found: error
-          # One day: this is a release-signed APK that exists before the owner has approved anything. Approve the
-          # same day, or start the run again.
-          retention-days: 1
+          # Three days: this is a release-signed APK that exists before the owner has approved `publish`. It has to
+          # outlive that wait (a day or two); only users with read access to the private repository can download it.
+          # Approve within the three days, or start the run again.
+          retention-days: 3
 
   # Read-only checks before the owner is asked to approve: the commit is on a release branch, the signed APK is
   # the one `sign` uploaded, it is this app at this version, and it carries the certificate pinned in
@@ -907,7 +909,25 @@ jobs:
           # The in-app updater checks the download against this.
           sha256sum "tunnels-$NAME.apk" > "tunnels-$NAME.apk.sha256"
 
+      # Artifact attestations on a private repository need GitHub Enterprise Cloud; on Free, Pro and Team they exist
+      # for public repositories only, and the attest action fails the job on a private one. So ask the API whether the
+      # repository is public right now (a push event and a workflow_dispatch event do not both carry the field with
+      # certainty) and attest only then. A failed lookup stops the job here, before the tag and the release exist.
+      - name: Is the repository public (attestations need it)
+        id: visibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          private=$(gh api "repos/$GH_REPO" --jq .private)
+          case "$private" in
+            true) echo "attest=false" >> "$GITHUB_OUTPUT"; echo "::notice::Repository is private: no build provenance attestation for this release." ;;
+            false) echo "attest=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::Could not tell whether $GH_REPO is private ('$private')"; exit 1 ;;
+          esac
+
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: steps.visibility.outputs.attest == 'true'
         with:
           subject-path: tunnels-${{ needs.release-check.outputs.name }}.apk
 

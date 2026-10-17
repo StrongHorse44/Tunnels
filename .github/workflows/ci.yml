@@ -251,7 +251,7 @@ jobs:
           name: tunnels-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 1
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
@@ -260,14 +260,14 @@ jobs:
           path: |
             app/build/reports/
             build/gate/
-          retention-days: 14
+          retention-days: 2
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always() && steps.verify.outputs.written == 'true'
         with:
           name: verification-metadata-build
           path: gradle/verification-metadata.xml
-          retention-days: 14
+          retention-days: 2
 
       - name: Print the written metadata as annotations, part 1 (for sessions that cannot download artifacts)
         if: always() && steps.verify.outputs.written == 'true'
@@ -360,14 +360,14 @@ jobs:
             tunnels/crossroads/build/reports/androidTests/
             tunnels/watch/build/reports/androidTests/
             tunnels/devicecheck/build/reports/androidTests/
-          retention-days: 7
+          retention-days: 2
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always() && steps.verify.outputs.written == 'true'
         with:
           name: verification-metadata-smoke
           path: gradle/verification-metadata.xml
-          retention-days: 14
+          retention-days: 2
 
       - name: Print the written metadata as annotations, part 1 (for sessions that cannot download artifacts)
         if: always() && steps.verify.outputs.written == 'true'

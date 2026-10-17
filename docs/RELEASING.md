@@ -1,6 +1,6 @@
 # Releasing Tunnels
 
-This repository is **public**. Nothing secret is in it: the release signing key lives only in GitHub
+This repository is **private** (it was public until 2026-10-17). Nothing secret is in it: the release signing key lives only in GitHub
 environment secrets, on the owner's phone and in the owner's own backups, and every secret is read by exactly one
 workflow job.
 
@@ -94,8 +94,9 @@ code, and the `sign` job runs no repository code; nothing else can read the secr
   with the owner's own GitHub identity, so nothing but the rule stops an agent approving or rejecting a pending
   deployment at `signing` or `publish`: agents never do, and both taps are the owner's.
 - A publishing run produces a **release-signed APK as a run artifact (`signed-apk`) once the owner has approved
-  `signing`, before the `publish` approval**. Signed-in users with read access to the repository (it is public)
-  can download artifacts, so the artifact is kept for 1 day only. Approve on the same day, or re-run the run. The
+  `signing`, before the `publish` approval**. Users with read access to the repository (it is private, so
+  the owner and any collaborator) can download artifacts, so the artifact is kept for 3 days only (the `publish` wait can
+  take a day or two). Approve within the three days, or re-run the run. The
   `plan` job keeps this to runs that will ask: a version that is already released, malformed or out of order is
   refused before anything is built or signed.
 
@@ -124,7 +125,7 @@ job checks the format on every pull request, so a malformed file is a red pull r
 | Event | What runs | What you see |
 | --- | --- | --- |
 | Merge, `VERSION` unchanged | CI. No Release run. | Nothing to approve |
-| Merge, `VERSION` raised to an unreleased higher version | Release: plan, build, sign (waits for the owner), release-check, publish (waits for the owner) | **Waiting for review** twice: `signing`, then `publish`; approve both the same day |
+| Merge, `VERSION` raised to an unreleased higher version | Release: plan, build, sign (waits for the owner), release-check, publish (waits for the owner) | **Waiting for review** twice: `signing`, then `publish`; approve both within three days |
 | Merge, `VERSION` equals an existing release (a revert) | Release: plan only, a notice, green | Nothing to approve |
 | Merge, `VERSION` malformed, missing, lower than the highest release, or its tag exists without a release | Release: plan fails red; nothing is built or signed | A red Release run; fix it in a pull request |
 | Run, `publish` off (any branch) | plan, build, gate, signing rehearsal | Nothing; a dry run |
@@ -144,12 +145,12 @@ job checks the format on every pull request, so a malformed file is a red pull r
    notification, or the repository → Actions → the run → **Review deployments → signing → Approve**. The `sign`
    job then signs, and the release check runs (a failure there stops the run before `publish`). Rejecting it signs
    nothing and publishes nothing.
-5. **Approve publishing, the same day.** The run then shows **Waiting for review** on the `publish` environment:
-   **Review deployments → publish → Approve**. The signed APK the run holds expires after 1 day; if it did,
+5. **Approve publishing, within three days.** The run then shows **Waiting for review** on the `publish` environment:
+   **Review deployments → publish → Approve**. The signed APK the run holds expires after 3 days; if it did,
    publish fails and nothing is published: use **Re-run all jobs**, which asks for both approvals again and signs
    again. Rejecting the deployment publishes nothing and that version is skipped; the next bump goes higher.
 6. The release **vX.Y.Z** appears on the Releases page with `tunnels-X.Y.Z.apk` and its `.sha256`.
-   Install it: tap the APK in the browser or Obtainium, or use **update** inside an installed release.
+   Install it: tap the APK in the browser (signed in to GitHub, since the repository is private), or use **update** inside an installed release (it needs the read-only token, see "Updating from inside Tunnels").
 
 If two bump pull requests merge close together, their runs build and sign in parallel and publish one at a time
 (`publish` has one constant concurrency group, no cancel), and the order re-check refuses a lower version
@@ -195,7 +196,8 @@ only, PKCS12) and verifies; `release-check` re-reads `VERSION` at the built comm
 version), runs `gate.py cert --require-pin` against the pinned release certificate, checks package, version name
 and version code, and that no release or tag for this version exists at another commit; `publish` (environment
 `publish`) checks the version order again with `gh` only (two approved runs cannot publish a lower version
-last), attaches a build provenance attestation, and creates the tag and the release. Only the `sign` job
+last), attaches a build provenance attestation when the repository is public (a private repository gets none, see
+"Verifying a release"), and creates the tag and the release. Only the `sign` job
 references the secrets, and only the `publish` job can write to the repository. `gate.py cert` and `aapt2` run
 from the pinned build-tools (36.0.0), not the newest installed. `plan` can only narrow what the later jobs'
 event-context conditions allow; it can never widen it.
@@ -216,7 +218,11 @@ closed without it.
 ## Verifying a release
 
 The `sign` job log prints the signing certificate; it must match the pin in `gate/baseline.release.json`.
-From Termux (`pkg install gh`, `gh auth login`):
+A release made while the repository is private has **no build provenance attestation**: GitHub offers attestations on
+private repositories only with GitHub Enterprise Cloud, so `publish` checks the repository's visibility and skips the
+attestation step when it is private (the run log says so in a notice). Check the APK against the `.sha256` file and the
+certificate pin instead. Releases made while the repository was public carry an attestation, and so
+will releases made if it is public again. From Termux (`pkg install gh`, `gh auth login`):
 
 ```sh
 gh attestation verify tunnels-X.Y.Z.apk --repo StrongHorse44/Tunnels \
@@ -244,8 +250,8 @@ as the installed copy and matching the checksum. Android then asks you to confir
 
 - GrapheneOS: turn on Tunnels' **Network** permission for the check (App info → Permissions → Network), and off
   again afterwards. Tunnels never connects in the background.
-- The repository is public, so the check needs no token. An optional read-only token (Contents, read-only, on
-  this repository only) raises GitHub's request limit; it is stored in the encrypted
+- The repository is private, so the check needs a token: a fine-grained read-only token (Contents, read-only, on
+  this repository only, nothing else) pasted on the update screen; it is stored in the encrypted
   database, sent to `api.github.com` only, and forgotten after 30 days without a check.
 
 ## Moving from the debug install to the release install
